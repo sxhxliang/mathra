@@ -1,8 +1,8 @@
-# The pipeline every change to main goes through: the rulesets require these three jobs to pass.
+# The checks of scripts/check.sh, run again on main after each merge. Pull requests are checked on the
+# contributor's machine by the hooks in .githooks/.
 name: ci
 
 on:
-  pull_request:
   push:
     branches: [main]
 

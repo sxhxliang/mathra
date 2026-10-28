@@ -4,7 +4,17 @@ What changed in each release of mathra: the crates `mathra` and `mathra-cli`, `@
 
 Each release has a headline (the line under its title), what changed, and the equations that show it (`Equations:`): a name from the gallery ([`corpus/gallery.json`](corpus/gallery.json)) or the LaTeX itself, drawn by the site with today's mathra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
-## Unreleased
+## 1.6.1 - 2026-10-28
+
+How to contribute, and how to report a vulnerability.
+
+- A code of conduct (Contributor Covenant 2.1), a contributing guide and a security policy, in `.github/`. Vulnerabilities are reported privately through the repository's Security tab.
+- The checks run on the contributor's machine: `scripts/check.sh` runs fmt, clippy and the Rust, wasm, npm and Python tests, and the git hooks in `.githooks/` run it before each commit and push. GitHub runs them again on `main`, not on pull requests.
+- Conversion is unchanged: every SVG is the same as 1.6.0's, apart from the version it carries.
+
+Equations: `euler` `quadratic`
+
+### OMML
 
 Proof trees retain their branches, labels and inference rules.
 

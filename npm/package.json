@@ -1,6 +1,6 @@
 {
   "name": "@mathlabs/mathra",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "Math LaTeX to accessible SVG, without a TeX install: equations, chemistry (chemfig) and commutative diagrams. Speech for screen readers in 16 languages and braille. Runs on WebAssembly in Node, bundlers and browsers.",
   "keywords": [
     "latex",

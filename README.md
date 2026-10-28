@@ -308,7 +308,7 @@ $ scripts/release.sh --dry-run        # what a release would publish
 
 **Releasing.** Each package has its own version: `Cargo.toml` (crates `mathra` and `mathra-cli`), `npm/package.json` and `crates/python/Cargo.toml`. Bump the ones to release in a pull request, merge it, then run `scripts/release.sh` on `main`: it tags every version not yet on its registry (`v*`, `npm-v*`, `py-v*`) and pushes the tags at once; each tag runs its workflow, which publishes with trusted publishing. A rerun of a half-done release skips what is already out.
 
-Every pull request runs the same checks (`.github/workflows/ci.yml`): fmt, clippy, the Rust, wasm, npm and Python tests.
+The checks run on your machine: `git config core.hooksPath .githooks` once, and every commit runs fmt, clippy and the Rust tests, every push the wasm, npm and Python tests (`scripts/check.sh` runs them all by hand). `.github/workflows/ci.yml` runs the same checks again on `main` after each merge.
 
 To change behavior, write the rule in `spec/`, cite its id in the code and add a test with the same id.
 

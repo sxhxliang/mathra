@@ -1,15 +1,16 @@
 # Builds the Python wheels (Linux, macOS, Windows) and the sdist, tests each one installed, and on a
 # Python version tag (py-v1.2.3) publishes them to PyPI with trusted publishing: no token, and PyPI
-# attaches the provenance of this run. Pull requests that touch the Python package build and test only.
+# attaches the provenance of this run. A push to main that touches the Python package builds and tests only.
 #
 # Set up once on pypi.org: Publishing → trusted publisher, repository matheusmota-dev-br/mathra,
 # workflow pypi.yml, environment pypi.
 name: pypi
 
 on:
+  # tags publish; main builds the wheels when the Python module changes (paths do not apply to tags)
   push:
     tags: ["py-v*"]
-  pull_request:
+    branches: [main]
     paths: ["crates/python/**", ".github/workflows/pypi.yml"]
   workflow_dispatch:
 
