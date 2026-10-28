@@ -162,3 +162,12 @@ mhchem's 1/9-em coefficient spacing) use U+200A hair spaces instead of a
 zero-width character with `w:spacing`. This avoids extra Word atom boundaries
 around chemical items. Binary/relation operators retain Word's natural spacing;
 explicit larger and negative spaces retain their dimension-based output.
+
+## S-OMML-9 — physical units
+
+Value/unit and inter-unit spaces up to 1/5 em use native U+2009 thin spaces;
+this includes the parser's usual 1/6-em quantity separator. `\pu` recognizes
+implicit unit powers (`s-2`, `m2`) as superscripts, preserves explicit braced
+powers, and converts double-slash units (`mol//L`) to a stacked native fraction.
+A single slash (`kJ/mol`) remains inline. Scientific-notation values keep their
+existing mantissa and power-of-ten tree.

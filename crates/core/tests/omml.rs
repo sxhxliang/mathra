@@ -420,3 +420,28 @@ fn s_omml_8_chemical_spacing_has_no_zero_width_atoms() {
     let xml = tex_to_omml(r"a\hspace{-0.5em}b").unwrap();
     assert!(xml.contains("w:spacing"), "explicit negative spacing is preserved");
 }
+
+#[test]
+fn s_omml_9_physical_units_use_thin_spaces_powers_and_stacked_division() {
+    for source in [r"\pu{9.81 m s-2}", r"\pu{1.5e-3 mol//L}", r"\pu{123 kJ/mol}"] {
+        let xml = tex_to_omml(source).unwrap();
+        let doc = Document::parse(&xml).unwrap();
+        assert!(!xml.contains("w:spacing") && !xml.contains('\u{200b}'), "{source}: {xml}");
+        assert!(visible_math_text(doc.root_element()).contains('\u{2009}'));
+        if source.contains("//") {
+            let f = doc.descendants().find(|n| n.has_tag_name((NS, "f"))).expect("native stacked unit fraction");
+            assert_eq!(visible_math_text(f.children().find(|n| n.has_tag_name((NS, "num"))).unwrap()), "mol");
+            assert_eq!(visible_math_text(f.children().find(|n| n.has_tag_name((NS, "den"))).unwrap()), "L");
+        } else if source.contains("s-2") {
+            let sup = doc.descendants().find(|n| n.has_tag_name((NS, "sup"))).unwrap();
+            assert_eq!(visible_math_text(sup), "−2");
+        } else {
+            assert!(!doc.descendants().any(|n| n.has_tag_name((NS, "f"))));
+        }
+    }
+    for source in [r"\pu{1 m2}", r"\pu{1 m^2}", r"\pu{1 m^{2}}"] {
+        let xml = tex_to_omml(source).unwrap();
+        let doc = Document::parse(&xml).unwrap();
+        assert_eq!(visible_math_text(doc.descendants().find(|n| n.has_tag_name((NS, "sup"))).unwrap()), "2");
+    }
+}

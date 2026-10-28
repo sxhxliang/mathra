@@ -292,6 +292,9 @@ impl Writer {
             // mhchem coefficients use 1/9 em: use an actual hair space rather
             // than a separately formatted zero-width atom with character spacing.
             Space { em } if *em > 0.0 && *em <= 0.125 => self.run("\u{200a}", Variant::Upright),
+            // Quantity value/unit separation and \, are 1/6 em. Native thin
+            // spaces keep them in the same upright run, without a phantom atom.
+            Space { em } if *em > 0.0 && *em <= 0.2 => self.run("\u{2009}", Variant::Upright),
             Space { em } => {
                 word_property(&self.run("\u{200b}", Variant::Upright), "spacing", &((*em * self.font_size * 20.0).round().clamp(-31680.0, 31680.0) as i32).to_string(), false)
             }

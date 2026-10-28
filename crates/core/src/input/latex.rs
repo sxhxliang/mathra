@@ -2796,11 +2796,27 @@ fn staggered_indices(raw: &str, pre: bool) -> String {
 
 /// mhchem's `\pu` unit to math: `J mol^-1` → `J\,mol^{-1}`, `.` and `*` between units → `\cdot`.
 fn mhchem_unit(unit: &str) -> String {
+    if let Some((num, den)) = unit.split_once("//") {
+        return format!("\\frac{{{}}}{{{}}}", mhchem_unit(num.trim()), mhchem_unit(den.trim()));
+    }
     let c: Vec<char> = unit.chars().collect();
     let mut s = String::new();
     let mut i = 0;
     while i < c.len() {
+        // mhchem permits unit exponents without a caret: s-2, m2, mol+1.
+        if i > 0 && (c[i - 1].is_alphabetic() || c[i - 1] == '}') && (c[i].is_ascii_digit() || (matches!(c[i], '-' | '+') && c.get(i + 1).is_some_and(char::is_ascii_digit))) {
+            let start = i;
+            if matches!(c[i], '-' | '+') {
+                i += 1;
+            }
+            while i < c.len() && c[i].is_ascii_digit() {
+                i += 1;
+            }
+            s.push_str(&format!("^{{{}}}", c[start..i].iter().collect::<String>()));
+            continue;
+        }
         match c[i] {
+            '^' if c.get(i + 1) == Some(&'{') => s.push('^'),
             '^' => {
                 let mut exponent = String::new();
                 i += 1;
