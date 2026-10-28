@@ -262,9 +262,14 @@ pub fn tex_to_svg(tex: &str) -> Result<String, Error> {
 /// # Ok::<(), mathra::OmmlError>(())
 /// ```
 pub fn tex_to_omml(tex: &str) -> Result<String, OmmlError> {
-    let mut registry = rules::Registry::default();
-    let tree = input::latex::read_with(tex, Locale::En, &mut registry, true)?;
-    output::omml::generate(&tree)
+    tex_to_omml_with(tex, &OmmlOptions::default())
 }
 
-pub use output::omml::OmmlError;
+/// [`tex_to_omml`], with the destination font size for explicit em dimensions.
+pub fn tex_to_omml_with(tex: &str, options: &OmmlOptions) -> Result<String, OmmlError> {
+    let mut registry = rules::Registry::default();
+    let tree = input::latex::read_with(tex, Locale::En, &mut registry, true)?;
+    output::omml::generate_with(&tree, options)
+}
+
+pub use output::omml::{OmmlError, OmmlOptions};

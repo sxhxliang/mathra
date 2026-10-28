@@ -11,6 +11,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         r"\int_0^1 x^2\,dx = \frac{1}{3}",
         r"A = \begin{pmatrix}a & b \\ c & d\end{pmatrix}",
         r"\hat{x}_i + \sqrt[3]{y} + \mathbb{R}",
+        r"\underrightarrow{AB} + \underleftarrow{CD} + \underleftrightarrow{EF}",
+        r"\textcolor{red}{a+\textcolor{blue}{\frac{b}{c}}+d}+e",
+        r"\textcolor[HTML]{008080}{\sqrt{x_i}+\boxed{y}}",
+        r"\cancel{x}+\bcancel{y}+\xcancel{z}",
+        r"\SI{9.8}{\meter\per\second\squared}",
+        r"\prescript{14}{6}{C}+\sin^2 x",
+        r"\begin{aligned} a&=b+c \\ d+e&=f \end{aligned}",
+        r"\begin{array}{r@{=}l}x&1\\y&2\end{array}",
+        r"\phase{z}+\angl{n}+\colorbox{yellow}{x}",
+        r"\dfrac{1}{2}+\tfrac{3}{4}+{\scriptstyle x}+\Bigl( y \Bigr)",
+        r"\xrightarrow[below]{above}",
+        r"\contaarmada{+}{347}{285}\qquad\contaarmada{\times}{23}{14}\qquad\divchave{247}{5}",
     ];
     let mut document = String::from(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><w:body><w:p><w:r><w:t>Editable native Word equations</w:t></w:r></w:p>"#,
