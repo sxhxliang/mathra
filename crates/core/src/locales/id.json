@@ -6,6 +6,12 @@
  "open_interval": false,
  "written": {},
  "speech": {
+  "slashed": "{0} bergaris miring",
+  "proof_axiom": "aksioma {0}",
+  "proof_premises": "premis",
+  "proof_conclusion": "maka {0}",
+  "proof_label": "label aturan {0}",
+  "proof_end": "akhir inferensi",
   "function_of": "{0}",
   "binomial": "kombinasi {1} dari {0}",
   "fraction_simple": "{0} per {1}",

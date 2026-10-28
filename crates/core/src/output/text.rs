@@ -64,6 +64,7 @@ fn write_node(node: &Node, loc: Locale, s: &mut String) {
                 }
             }
         }
+        Node::ProofTree { tree } => write_node(&tree.linearized(), loc, s),
         Node::Fraction { num, den, rule, .. } => {
             if *rule {
                 group(num, loc, s);
@@ -219,6 +220,11 @@ fn write_node(node: &Node, loc: Locale, s: &mut String) {
             if let Some(b) = branches.get(1) {
                 write_node(b, loc, s);
             }
+        }
+        Node::Canceled { base, shape: Cancel::Slash } => {
+            s.push_str("slashed(");
+            write_node(base, loc, s);
+            s.push(')');
         }
         Node::Canceled { base, .. } | Node::Colored { base, .. } | Node::ForcedClass { base, .. } | Node::Style { base, .. } | Node::Unit { base, .. } => write_node(base, loc, s),
         Node::Framed { base, shape, .. } => {

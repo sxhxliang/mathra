@@ -5,6 +5,7 @@ pub mod alphabet;
 mod arithmetic;
 mod diagram;
 pub mod math_box;
+mod proof;
 mod stretch;
 mod table;
 
@@ -283,6 +284,7 @@ fn compose_node(node: &Node, e: Style, ctx: &mut Context) -> R<MathBox> {
         }
         Node::LargeOperator { symbol, .. } => large_operator(*symbol, e),
         Node::Row { children } => compose_row(children, e, ctx, false),
+        Node::ProofTree { tree } => proof::compose(tree, e, ctx),
         Node::Fraction { num, den, style, rule, thickness } => compose_fraction(num, den, *style, *rule, *thickness, e, ctx),
         Node::Root { radicand, index } => compose_root(radicand, index.as_deref(), e, ctx),
         Node::Scripts { base, sup, sub } => compose_scripts(base, sup.as_deref(), sub.as_deref(), e, ctx),
@@ -450,7 +452,7 @@ pub fn class_of(node: &Node) -> Option<Class> {
         Node::Space { .. } => return None,
         Node::Function { .. } | Node::LargeOperator { .. } => Class::Op,
         Node::Operator { class, .. } | Node::FixedDelimiter { class, .. } | Node::ForcedClass { class, .. } => *class,
-        Node::Fraction { .. } | Node::Delimited { .. } => Class::Inner,
+        Node::ProofTree { .. } | Node::Fraction { .. } | Node::Delimited { .. } => Class::Inner,
         Node::Table { shape: kind, .. } if !matches!(kind, TableKind::Array | TableKind::Aligned | TableKind::Centered | TableKind::Substack | TableKind::Diagram) => Class::Inner,
         Node::Multicolumn { base, .. } | Node::Raised { base, .. } | Node::Scaled { base, .. } | Node::Smashed { base, .. } | Node::Unit { base, .. } => return class_of(base),
         // the text style's branch: a class does not know the style
@@ -1030,6 +1032,9 @@ fn compose_vertical_arrow(symbol: char, left: Option<&Node>, right: Option<&Node
 // ---------- frames and cancels ----------
 
 fn compose_canceled(base: &Node, kind: Cancel, e: Style, ctx: &mut Context) -> R<MathBox> {
+    if kind == Cancel::Slash {
+        return compose_slashed(base, e, ctx);
+    }
     let b = compose(base, e, ctx)?;
     let t = k(e, |c| c.fraction_rule_thickness());
     let slack = em(e, 0.05);
@@ -1048,12 +1053,37 @@ fn compose_canceled(base: &Node, kind: Cancel, e: Style, ctx: &mut Context) -> R
     Ok(math_box)
 }
 
+/// carlisle/slashed: center a slash glyph over the body, with the package's optical shifts.
+fn compose_slashed(base: &Node, e: Style, ctx: &mut Context) -> R<MathBox> {
+    let b = compose(base, e, ctx)?;
+    let token = match base.single() {
+        Node::Identifier { name, .. } => name.as_str(),
+        Node::Operator { symbol: '∂', .. } => "partial",
+        _ => "",
+    };
+    let (slash, dx, dy, zero_advance) = match token {
+        "D" => ('/', 0.08, 0.0, false),
+        "A" | "partial" => ('/', 0.1, 0.0, false),
+        "k" => ('/', 0.0, -0.05, false),
+        "f" => ('\u{0338}', -0.6, 0.0, true),
+        _ => ('/', 0.0, 0.0, false),
+    };
+    let overlay = glyph(slash, e)?;
+    let advance = if zero_advance { 0.0 } else { overlay.width };
+    let width = b.width.max(advance);
+    let y = (b.height - b.depth - overlay.height + overlay.depth) / 2.0 + dy * overlay.total();
+    let mut result = MathBox::space(width);
+    result.place(&b, (width - b.width) / 2.0, 0.0);
+    result.place(&overlay, (width - advance) / 2.0 + dx * b.width, y);
+    Ok(result)
+}
+
 fn compose_frame(base: &Node, shape: Frame, background: Option<&str>, border: Option<&str>, e: Style, ctx: &mut Context) -> R<MathBox> {
     let b = compose(base, e, ctx)?;
-    let t = em(e, 0.04);
+    let t = if shape == Frame::Background { 0.0 } else { em(e, 0.04) };
     match shape {
-        Frame::Rectangle | Frame::Fill => {
-            let p = em(e, 0.3);
+        Frame::Rectangle | Frame::Fill | Frame::Background => {
+            let p = if shape == Frame::Background { 0.0 } else { em(e, 0.3) };
             let width = b.width + 2.0 * (p + t);
             let top = b.height + p + t;
             let bottom = b.depth + p + t;

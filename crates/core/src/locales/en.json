@@ -6,6 +6,12 @@
  "open_interval": false,
  "written": {},
  "speech": {
+  "slashed": "slashed {0}",
+  "proof_axiom": "axiom {0}",
+  "proof_premises": "premises",
+  "proof_conclusion": "therefore {0}",
+  "proof_label": "rule label {0}",
+  "proof_end": "end inference",
   "function_of": "{0} of",
   "binomial": "{0} choose {1}",
   "fraction_simple": "{0} over {1}",

@@ -6,6 +6,12 @@
  "open_interval": false,
  "written": {},
  "speech": {
+  "slashed": "带斜杠的 {0}",
+  "proof_axiom": "公理 {0}",
+  "proof_premises": "前提",
+  "proof_conclusion": "因此 {0}",
+  "proof_label": "规则标签 {0}",
+  "proof_end": "推理结束",
   "function_of": "{0}",
   "binomial": "从 {0} 中取 {1} 的组合数",
   "fraction_simple": "{1} 分之 {0}",

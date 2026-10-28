@@ -51,6 +51,10 @@ pub enum Node {
     Row {
         children: Vec<Node>,
     },
+    /// A bussproofs-style derivation, including its premises and rule labels.
+    ProofTree {
+        tree: Box<ProofBranch>,
+    },
     Fraction {
         num: Box<Node>,
         den: Box<Node>,
@@ -281,6 +285,49 @@ pub enum Node {
     },
 }
 
+/// A derivation's conclusion and the branches used to infer it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ProofBranch {
+    pub conclusion: Box<Node>,
+    pub premises: Vec<ProofBranch>,
+    pub left_label: Option<Box<Node>>,
+    pub right_label: Option<Box<Node>>,
+    pub line: ProofLine,
+    pub root_at_top: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProofLine {
+    Solid,
+    Dashed,
+    None,
+}
+
+impl ProofBranch {
+    /// Linear fallback for selection and braille: grouped premises ⇒ conclusion,
+    /// with labels preserved. This is a linear transcription, not spatial proof braille.
+    pub(crate) fn linearized(&self) -> Node {
+        let mut children = Vec::new();
+        if !self.premises.is_empty() {
+            let mut premises = Vec::new();
+            for (i, branch) in self.premises.iter().enumerate() {
+                if i > 0 {
+                    premises.push(Node::Operator { symbol: ';', class: Class::Punct });
+                }
+                premises.push(branch.linearized());
+            }
+            children.push(Node::Delimited { open: Some('('), close: Some(')'), parts: vec![Node::row(premises)], middles: vec![] });
+            children.push(Node::Operator { symbol: '⇒', class: Class::Rel });
+        }
+        children.push(*self.conclusion.clone());
+        for label in [&self.left_label, &self.right_label].into_iter().flatten() {
+            children.push(Node::Delimited { open: Some('['), close: Some(']'), parts: vec![*label.clone()], middles: vec![] });
+        }
+        Node::row(children)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", content = "value", rename_all = "kebab-case")]
 pub enum TextPart {
@@ -314,6 +361,7 @@ pub enum Variant {
     Calligraphic,
     Fraktur,
     SansSerif,
+    SansSerifItalic,
     Monospace,
 }
 
@@ -341,6 +389,8 @@ impl FractionStyle {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Cancel {
+    /// Feynman slash: a centered slash glyph, not a cancellation diagonal.
+    Slash,
     Bar,
     Backslash,
     X,
@@ -369,6 +419,8 @@ pub enum Frame {
     Circle,
     /// No line, only the padding (and the background, if any): `\colorbox`.
     Fill,
+    /// CSS background with no padding or border.
+    Background,
     /// The Steinmetz angle of a phasor, `\phase` (steinmetz package): a line under the content and
     /// one rising to its left.
     Phase,

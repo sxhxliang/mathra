@@ -1,6 +1,6 @@
 # The SVG contract
 
-A mathra SVG is an outline drawing that carries the speech, the source and the tree along with it. Every item below is required and has a test in `crates/core/tests/rules.rs`.
+A mathra SVG is an outline drawing that carries the speech, the source and the tree along with it. The default web output follows every item below and has a test in `crates/core/tests/rules.rs`.
 
 ```xml
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:mathra="urn:mathra:1"
@@ -74,3 +74,7 @@ Off by default; without them the SVG is the same, byte for byte.
 
 - **Steps** (`steps`, `--steps`): each glyph, rule, line and ellipse carries `data-step="k"`, from 0, in the order the layout set it (numerator before denominator, the content before the delimiters it measured), and the `<svg>` carries `data-steps` with the count. No CSS: a page can walk through the equation itself, showing the elements whose step is below k.
 - **Animation** (`animate`, `--animate`, steps included): the equation writes itself, with CSS alone, in that order. A glyph fades in; a rule grows along its length (a wide one from the left, a tall one from the top); a line or an ellipse (`\cancel`, `\phase`, `\textcircled`) is drawn along its length (`pathLength="1"`). The whole equation takes about three seconds: the interval between two steps is 3 s divided by their count, at most 0.15 s. Each element carries its index (`style="--i:k"`) and the `<svg>` the interval (`--mr-step`): the `<style>` itself is the same in every equation, since an inline SVG's style applies to the whole page, and two animated equations on one page must not change each other's timing. With `prefers-reduced-motion: reduce` nothing moves.
+
+## Native image variant
+
+`render_svg` uses the same glyph paths, source/speech/tree/braille metadata and ink bounds, with explicit native-image variants of S-SVG-1 (absolute logical dimensions, including the baseline), S-SVG-4 (an explicit foreground) and S-SVG-6 (no transparent text layer). See [native image output](native-svg.md). The default `convert` and public `output::svg::generate` contracts are unchanged.

@@ -14,6 +14,12 @@
   "tanh": "th"
  },
  "speech": {
+  "slashed": "{0} со слешем",
+  "proof_axiom": "аксиома {0}",
+  "proof_premises": "посылки",
+  "proof_conclusion": "следовательно {0}",
+  "proof_label": "метка правила {0}",
+  "proof_end": "конец вывода",
   "function_of": "{0} от",
   "binomial": "число сочетаний из {0} по {1}",
   "fraction_simple": "{0} делённое на {1}",

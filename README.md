@@ -198,6 +198,8 @@ println!("{}", r.svg);
 println!("{}", r.speech);
 ```
 
+For desktop images and PDF/DOCX exporters, `render_svg` takes `SvgRenderOptions` (font size, foreground color and font) and returns a standalone path-only SVG with explicit `width`, `height` and `ascent`. This avoids CSS `em` sizing, theme inheritance and a selectable text layer. See [native image output](spec/native-svg.md) and `cargo run -p mathra --example native_svg`.
+
 Structural chemistry is the `chem` feature, on by default; `mathra = { version = "…", default-features = false }` leaves it out of a build that only needs equations.
 
 ## What it converts
@@ -211,6 +213,8 @@ Modern Math, the OpenType Computer Modern of TeX's own documents (about 430 KB m
 - `\left … \middle … \right`, `\big` and family, delimiters assembled from parts
 - Matrices (`matrix`, `pmatrix`, `bmatrix`, `Bmatrix`, `vmatrix`, `Vmatrix`, `smallmatrix`), `cases`, `rcases`, `aligned`, `align`, `gathered`, `split`, `array` with `|`, `@{}`, `\hline`, `\cline`, arydshln's dashed `:`, `\hdashline` and `\cdashline`, and `\arraystretch`
 - What LaTeX's own packages add to the KaTeX list: the colons of mathtools and colonequals (`\coloneqq`, `\Colonsim`…), `\varGamma` and family, `\injlim`, `\intop`, `\lgroup`, `\char`, `\xtwoheadrightarrow` and family, text symbols (`\AE`, `\H{o}`, `\textdollar`), `\url` and `\href`; TeX's `\mathchoice`, `\vcenter` and `\above`, and graphicx's `\reflectbox`
+- Proof trees (`prooftree`, a bussproofs subset): axioms, unary through quinary inferences, labels, solid/dashed/omitted rules and top/bottom roots; [commands and limits](spec/proofs.md)
+- RaTeX presentation commands: Feynman `\slashed`, `\mathsfit`, `\frak`, `\ctg`/`\arcctg`, group and line-segment accents, `\Overrightarrow`, `\xrightleftarrows`, explicit LaTeX sizes and the supported drawing properties of `\htmlStyle`; [scope and tests](spec/ratex-compatibility.md)
 - Accents (`\hat`, `\vec`, `\bar`, `\dot`, `\widehat`, `\overrightarrow`, `\arc`…), `\underrightarrow` and family, `\overline`, `\underline`, `\overbrace`/`\underbrace` and `\overbracket`/`\underbracket` with labels, `\xrightarrow` and family, `\overset`, `\underset`, `\stackrel`
 - The amssymb symbols, negations included (`\nleq`, `\nsim`, `\nRightarrow`, `\lneqq`…), and integrals up to `\iiiint`, `\idotsint` and `\varoiint`
 - `\text` with `$…$` and old-style accents (`\'e`, `\c{c}`), `\textsc`, alphabets (`\mathbb`, `\mathcal`, `\mathfrak`, `\mathbf`, `\boldsymbol`, `\mathsf`, `\mathtt`), old `\bf`/`\rm`/`\tt`

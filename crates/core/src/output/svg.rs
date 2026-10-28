@@ -96,7 +96,26 @@ fn n(v: f32) -> String {
     }
 }
 
+/// Absolute SVG dimensions in caller-supplied logical units.
+pub(crate) struct Metrics {
+    pub width: f32,
+    pub height: f32,
+    pub ascent: f32,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct NativeOptions {
+    pub font_size: f32,
+    pub color: u32,
+}
+
 pub fn generate(c: &Content) -> String {
+    generate_with(c, None).0
+}
+
+/// The native variant uses absolute dimensions, fixed foreground ink and no text layer.
+/// Both variants share exactly the same ink bounds and glyph geometry.
+pub(crate) fn generate_with(c: &Content, native: Option<NativeOptions>) -> (String, Metrics) {
     let f = c.font.get();
     let em = f.units_per_em();
     let math_box = c.math_box;
@@ -109,7 +128,19 @@ pub fn generate(c: &Content) -> String {
     if let Some((x0, y0, x1, y1)) = math_box.ink(f) {
         (left, right, top, bottom) = (left.min(x0), right.max(x1), top.max(y1), bottom.max(-y0));
     }
+    // Native metrics include the baseline even when a raised box puts all ink on one side.
+    if native.is_some() {
+        top = top.max(0.0);
+        bottom = bottom.max(0.0);
+    }
     let (width, total_height) = (right - left, top + bottom);
+    let scale = native.map_or(1.0, |o| o.font_size) / em;
+    let metrics = Metrics { width: width * scale, height: total_height * scale, ascent: top * scale };
+    let (size_width, size_height, size_depth, unit, color) = match native {
+        Some(o) => (metrics.width, metrics.height, bottom * scale, "", format!(r##" color="#{:06x}""##, o.color & 0xffffff)),
+        None => (width / em, total_height / em, bottom / em, "em", String::new()),
+    };
+    let align_unit = if native.is_some() { "px" } else { "em" };
     // the drawing first: the <svg> carries how many steps it has
     let mut steps = Steps { on: c.steps || c.animate, animate: c.animate, count: 0 };
     let body = items_svg(math_box, &id, &mut steps);
@@ -117,14 +148,14 @@ pub fn generate(c: &Content) -> String {
     let counted = if steps.on { format!(r#" data-steps="{}""#, steps.count) } else { String::new() };
     let _ = write!(
         s,
-        r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:mathra="urn:mathra:1" viewBox="{} {} {} {}" width="{}em" height="{}em" style="vertical-align: {}em{animated}" role="img" aria-labelledby="{id}-speech" lang="{}" data-mathra-version="{}"{counted}>"#,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:mathra="urn:mathra:1" viewBox="{} {} {} {}" width="{}{unit}" height="{}{unit}" style="vertical-align: {}{align_unit}{animated}"{color} role="img" aria-labelledby="{id}-speech" lang="{}" data-mathra-version="{}"{counted}>"#,
         n(left),
         n(-top),
         n(width),
         n(total_height),
-        n(width / em),
-        n(total_height / em),
-        n(-bottom / em),
+        n(size_width),
+        n(size_height),
+        n(-size_depth),
         c.locale,
         VERSION,
         id = id,
@@ -150,7 +181,9 @@ pub fn generate(c: &Content) -> String {
     // As a standalone document (<img>, opened file), svg:root matches and uses a fixed dark ink:
     // the image does not know the page theme, and following the system theme vanishes on a light page.
     // A <style> inside an inline SVG applies to the whole page: hence nothing beyond svg:root.
-    s.push_str("<style>svg:root{color:#111}</style>");
+    if native.is_none() {
+        s.push_str("<style>svg:root{color:#111}</style>");
+    }
     s.push_str(steps.style());
 
     // S-SVG-5: each glyph drawn only once, in order of first appearance (deterministic)
@@ -167,17 +200,19 @@ pub fn generate(c: &Content) -> String {
 
     s.push_str(&body);
 
-    // S-SVG-6: transparent text layer, to select and copy when the SVG is inline in the page
-    let _ = write!(
-        s,
-        r#"<text x="0" y="0" font-size="{}" textLength="{}" lengthAdjust="spacingAndGlyphs" fill="transparent" aria-hidden="true">{}</text>"#,
-        n(em),
-        n(math_box.width),
-        escape(c.text),
-    );
+    if native.is_none() {
+        // S-SVG-6: transparent text layer, to select and copy when the SVG is inline in the page
+        let _ = write!(
+            s,
+            r#"<text x="0" y="0" font-size="{}" textLength="{}" lengthAdjust="spacingAndGlyphs" fill="transparent" aria-hidden="true">{}</text>"#,
+            n(em),
+            n(math_box.width),
+            escape(c.text),
+        );
+    }
 
     s.push_str("</svg>");
-    s
+    (s, metrics)
 }
 
 /// S-SVG-5 and S-SVG-10: the drawing, glyphs as `<use>` of their `<path>`, in the order the layout

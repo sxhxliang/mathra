@@ -9,6 +9,12 @@
   "lcm": "kgv"
  },
  "speech": {
+  "slashed": "{0} met schuine streep",
+  "proof_axiom": "axioma {0}",
+  "proof_premises": "premissen",
+  "proof_conclusion": "dus {0}",
+  "proof_label": "regellabel {0}",
+  "proof_end": "einde gevolgtrekking",
   "function_of": "{0} van",
   "binomial": "{0} boven {1}",
   "fraction_simple": "{0} gedeeld door {1}",

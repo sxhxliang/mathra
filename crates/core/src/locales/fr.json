@@ -54,6 +54,12 @@
   ]
  },
  "speech": {
+  "slashed": "{0} barré obliquement",
+  "proof_axiom": "axiome {0}",
+  "proof_premises": "prémisses",
+  "proof_conclusion": "donc {0}",
+  "proof_label": "étiquette de règle {0}",
+  "proof_end": "fin de l’inférence",
   "function_of": "{0} de",
   "binomial": "{1} parmi {0}",
   "fraction_simple": "{0} sur {1}",

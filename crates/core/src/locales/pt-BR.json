@@ -57,6 +57,12 @@
   ]
  },
  "speech": {
+  "slashed": "{0} com barra",
+  "proof_axiom": "axioma {0}",
+  "proof_premises": "premissas",
+  "proof_conclusion": "portanto {0}",
+  "proof_label": "rótulo da regra {0}",
+  "proof_end": "fim da inferência",
   "function_of": "{0} de",
   "binomial": "{0} escolhe {1}",
   "fraction_simple": "{0} sobre {1}",

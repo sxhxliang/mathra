@@ -19,6 +19,8 @@ pub const L_ENT_2: &str = "L-ENT-2";
 pub const L_ENT_3: &str = "L-ENT-3";
 pub const L_ENT_4: &str = "L-ENT-4";
 pub const L_MAC_1: &str = "L-MAC-1";
+pub const L_SIZ_1: &str = "L-SIZ-1";
+pub const L_PRF_1: &str = "L-PRF-1";
 pub const L_TXT_1: &str = "L-TXT-1";
 
 // Recovery from invalid LaTeX in tolerant mode (spec/tolerance.md)

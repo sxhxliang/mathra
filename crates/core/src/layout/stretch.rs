@@ -57,6 +57,21 @@ fn moustache(c: char, f: &Font) -> Option<Vec<Part>> {
 
 /// Horizontal glyph with a width of at least `target`.
 pub fn horizontal(c: char, target: f32, e: Style) -> R<MathBox> {
+    if matches!(c, '⏠' | '⏡') {
+        // Tortoise-shell group marks, built independently of font coverage.
+        let width = target.max(e.font().units_per_em() * e.scale() * 0.8);
+        let rise = e.font().units_per_em() * e.scale() * 0.18;
+        let thickness = k(e, |c| c.overbar_rule_thickness());
+        let (edge, middle) = if c == '⏠' { (0.0, rise) } else { (rise, 0.0) };
+        let mut result = MathBox::space(width);
+        for (x1, y1, x2, y2) in [(0.0, edge, rise, middle), (rise, middle, width - rise, middle), (width - rise, middle, width, edge)] {
+            result.items.push(Item::Line { x1, y1, x2, y2, thickness, color: None });
+        }
+        result.height = rise + thickness / 2.0;
+        result.depth = thickness / 2.0;
+        return Ok(result);
+    }
+
     let f = e.font();
     let s = e.scale();
     let id = f.glyph(c).ok_or(Error::MissingGlyph { character: c })?;

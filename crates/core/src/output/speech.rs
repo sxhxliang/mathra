@@ -41,6 +41,26 @@ impl Speaker {
         self.say(phrase);
     }
 
+    fn proof(&mut self, tree: &ProofBranch) {
+        if tree.premises.is_empty() {
+            let conclusion = self.spoken(&tree.conclusion);
+            self.say(self.t("proof_axiom", &[&conclusion]));
+            return;
+        }
+        self.say(self.t("proof_premises", &[]));
+        for premise in &tree.premises {
+            self.proof(premise);
+            self.say(";");
+        }
+        let conclusion = self.spoken(&tree.conclusion);
+        self.say(self.t("proof_conclusion", &[&conclusion]));
+        for label in [&tree.left_label, &tree.right_label].into_iter().flatten() {
+            let label = self.spoken(label);
+            self.say(self.t("proof_label", &[&label]));
+        }
+        self.say(self.t("proof_end", &[]));
+    }
+
     fn spoken(&self, node: &Node) -> String {
         speak(node, self.loc)
     }
@@ -89,6 +109,7 @@ impl Speaker {
                     }
                 }
             }
+            Node::ProofTree { tree } => self.proof(tree),
             Node::Fraction { num, den, rule, .. } => {
                 if !rule {
                     let (n, d) = (self.spoken(num), self.spoken(den));
@@ -199,9 +220,9 @@ impl Speaker {
                 }
             }
             Node::Space { .. } | Node::Phantom { .. } => {}
-            Node::Canceled { base, .. } => {
+            Node::Canceled { base, shape } => {
                 let b = self.spoken(base);
-                self.say(self.t("canceled", &[&b]));
+                self.say(self.t(if *shape == Cancel::Slash { "slashed" } else { "canceled" }, &[&b]));
             }
             Node::Framed { base, shape, .. } => {
                 let b = self.spoken(base);
@@ -210,7 +231,7 @@ impl Speaker {
                     Frame::Rectangle => self.say(self.t("boxed", &[&b])),
                     Frame::Phase | Frame::ActuarialAngle => self.say(self.t("angle", &[&b])),
                     // a background is emphasis, like color: it is not read
-                    Frame::Fill => self.say(b),
+                    Frame::Fill | Frame::Background => self.say(b),
                 }
             }
             Node::Colored { base, .. } | Node::ForcedClass { base, .. } | Node::Style { base, .. } | Node::Unit { base, .. } => self.node(base),

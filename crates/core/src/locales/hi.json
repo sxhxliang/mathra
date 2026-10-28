@@ -6,6 +6,12 @@
  "open_interval": false,
  "written": {},
  "speech": {
+  "slashed": "स्लैश युक्त {0}",
+  "proof_axiom": "स्वयंसिद्ध {0}",
+  "proof_premises": "आधार वाक्य",
+  "proof_conclusion": "इसलिए {0}",
+  "proof_label": "नियम का नाम {0}",
+  "proof_end": "अनुमान समाप्त",
   "function_of": "{0}",
   "binomial": "{0} में से {1} का संचय",
   "fraction_simple": "{0} बटा {1}",

@@ -202,8 +202,8 @@ fn l_che_2_structure_read_by_its_formula() {
 }
 
 #[test]
-fn l_ent_3_size_commands_and_packages_are_ignored() {
-    for tex in [r"\Large x", r"\usepackage{amsmath} x", r"\usepackage[utf8]{inputenc} x", r"\require{mhchem} x"] {
+fn l_ent_3_package_commands_are_ignored() {
+    for tex in [r"\usepackage{amsmath} x", r"\usepackage[utf8]{inputenc} x", r"\require{mhchem} x"] {
         let r = en(tex);
         assert_eq!(r.text, "x", "{tex}");
         assert!(rules(&r).contains(&"L-ENT-3"), "{tex}");
@@ -332,4 +332,19 @@ fn s_svg_10_still_valid_xml_and_still_accessible() {
         roxmltree::Document::parse(&svg).unwrap_or_else(|e| panic!("{tex}: {e}"));
         assert!(svg.contains("role=\"img\"") && svg.contains("<title"), "{tex}");
     }
+}
+
+#[test]
+fn l_prf_1_proof_trees_record_conclusion_attachment() {
+    let r = en(r"\begin{prooftree}\AXC{P}\AXC{Q}\BIC{R}\end{prooftree}");
+    assert!(rules(&r).contains(&"L-PRF-1"));
+    assert!(matches!(r.tree.single(), Node::ProofTree { .. }));
+}
+
+#[test]
+fn l_siz_1_size_declarations_are_recorded_and_keep_text() {
+    let r = en(r"\Large x");
+    assert_eq!(r.text, "x");
+    assert!(rules(&r).contains(&"L-SIZ-1"));
+    assert!(!rules(&r).contains(&"L-ENT-3"));
 }

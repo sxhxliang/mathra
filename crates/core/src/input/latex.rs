@@ -10,7 +10,9 @@ use super::symbols::{self, Symbol};
 
 #[cfg(feature = "chem")]
 mod chemistry;
+mod compat;
 mod diagram;
+mod proof;
 
 pub fn read(tex: &str, locale: Locale, registry: &mut Registry) -> Result<Node, Error> {
     read_with(tex, locale, registry, true)
@@ -20,7 +22,7 @@ pub fn read(tex: &str, locale: Locale, registry: &mut Registry) -> Result<Node, 
 pub fn read_with(tex: &str, locale: Locale, registry: &mut Registry, strict: bool) -> Result<Node, Error> {
     let clean = prepare(tex, registry, strict);
     let mut macros = Macros { max_size: clean.chars().count() + MAX_GROWTH, ..Macros::default() };
-    let mut reader = Reader { c: clean.chars().collect(), pos: 0, locale, registry, macros: &mut macros, variant: Variant::Italic, strict };
+    let mut reader = Reader { c: clean.chars().collect(), pos: 0, locale, registry, macros: &mut macros, variant: Variant::Italic, strict, explicit_size: 1.0 };
     let body = reader.top()?;
     Ok(body)
 }
@@ -137,6 +139,8 @@ struct Reader<'a> {
     /// Current variant, changed by `\bf`, `\rm`, `\mathrm{…}`.
     variant: Variant,
     strict: bool,
+    /// Absolute LaTeX size declaration, shared with argument sub-readers.
+    explicit_size: f32,
 }
 
 type R<T> = Result<T, Error>;
@@ -281,7 +285,16 @@ impl Reader<'_> {
 
     /// Reads a raw snippet as math, with the current variant.
     fn sub_reader(&mut self, tex: &str, variant: Variant) -> R<Node> {
-        let mut sub = Reader { c: tex.chars().collect(), pos: 0, locale: self.locale, registry: self.registry, macros: self.macros, variant, strict: self.strict };
+        let mut sub = Reader {
+            c: tex.chars().collect(),
+            pos: 0,
+            locale: self.locale,
+            registry: self.registry,
+            macros: self.macros,
+            variant,
+            strict: self.strict,
+            explicit_size: self.explicit_size,
+        };
         let (items, stop) = sub.list()?;
         match stop {
             Stop::Eof => Ok(Node::row(items).simplify()),
@@ -685,7 +698,8 @@ impl Reader<'_> {
         // arm reserved ~80 KB of stack per level of nested \frac{…}.
         // Each group returns None when the name is not its own; the last one handles any name.
         #[allow(clippy::type_complexity)]
-        let groups: [fn(&mut Self, &str, usize, usize, bool, &mut Vec<Node>) -> R<Option<Option<Stop>>>; 11] = [
+        let groups: [fn(&mut Self, &str, usize, usize, bool, &mut Vec<Node>) -> R<Option<Option<Stop>>>; 12] = [
+            Self::compat_command,
             Self::structure_command,
             Self::space_command,
             Self::style_command,
@@ -732,6 +746,7 @@ impl Reader<'_> {
                 };
             }
             "left" => self.delimited(col)?,
+            "fCenter" => Node::Operator { symbol: '⇒', class: Class::Rel },
             "begin" => {
                 let saved = self.pos;
                 let env_name = self.raw_text()?.trim().to_string();
@@ -850,10 +865,6 @@ impl Reader<'_> {
                 };
                 return Ok(Some(None));
             }
-            "tiny" | "scriptsize" | "footnotesize" | "small" | "normalsize" | "large" | "Large" | "LARGE" | "huge" | "Huge" => {
-                self.registry.note(rules::L_ENT_3, format!("\\{name} ignored: the size comes from whoever uses the SVG"));
-                return Ok(Some(None));
-            }
             "limits" | "nolimits" | "displaylimits" => {
                 let wanted = match name {
                     "limits" => Some(true),
@@ -965,13 +976,14 @@ impl Reader<'_> {
             // graphicx: \scalebox{-1}[1]{…}, its argument in text mode
             "reflectbox" => Node::Reflected { base: Box::new(self.text()?) },
             "mathrm" | "mathup" | "mathit" | "mathbf" | "mathsf" | "mathtt" | "mathbb" | "mathcal" | "mathscr" | "mathfrak" | "boldsymbol" | "bm" | "pmb" | "mathbfit"
-            | "mathnormal" | "symbf" | "symrm" | "symit" | "mathds" | "mathbbm" | "Bbb" => {
+            | "mathnormal" | "mathsfit" | "frak" | "symbf" | "symrm" | "symit" | "mathds" | "mathbbm" | "Bbb" => {
                 let variant = match name {
                     "mathrm" | "mathup" | "symrm" => Variant::Upright,
                     "mathit" | "mathnormal" | "symit" => Variant::Italic,
                     "mathbf" | "symbf" => Variant::Bold,
                     "boldsymbol" | "bm" | "pmb" | "mathbfit" => Variant::BoldItalic,
                     "mathsf" => Variant::SansSerif,
+                    "mathsfit" => Variant::SansSerifItalic,
                     "mathtt" => Variant::Monospace,
                     "mathbb" | "mathds" | "mathbbm" | "Bbb" => Variant::DoubleStruck,
                     "mathcal" | "mathscr" => Variant::Calligraphic,
@@ -1011,7 +1023,7 @@ impl Reader<'_> {
         let _ = (col, start, star);
         let node: Node = match name {
             // accents, bars, braces
-            "overline" | "underline" => Node::Bar { base: Box::new(self.argument()?), above: name == "overline" },
+            "overline" | "underline" | "overlinesegment" | "underlinesegment" => Node::Bar { base: Box::new(self.argument()?), above: name.starts_with("over") },
             "overbrace" | "underbrace" => Node::Brace { base: Box::new(self.argument()?), above: name == "overbrace", label: None, bracket: false },
             "overbracket" | "underbracket" => {
                 // mathtools: [rule thickness][bracket height], which the font's bracket already has
@@ -1019,6 +1031,7 @@ impl Reader<'_> {
                 self.raw_optional();
                 Node::Brace { base: Box::new(self.argument()?), above: name == "overbracket", label: None, bracket: true }
             }
+            "undergroup" => Node::Accent { base: Box::new(self.argument()?), accent: '⏡', stretchy: true, below: true },
             "underrightarrow" | "underleftarrow" | "underleftrightarrow" | "utilde" => {
                 let accent = match name {
                     "underrightarrow" => '→',
@@ -1045,7 +1058,7 @@ impl Reader<'_> {
             }
             "xrightarrow" | "xleftarrow" | "xRightarrow" | "xLeftarrow" | "xleftrightarrow" | "xLeftrightarrow" | "xrightleftharpoons" | "xleftrightharpoons" | "xmapsto"
             | "xlongequal" | "xhookrightarrow" | "xhookleftarrow" | "xtwoheadrightarrow" | "xtwoheadleftarrow" | "xrightharpoonup" | "xrightharpoondown" | "xleftharpoonup"
-            | "xleftharpoondown" | "xtofrom" => {
+            | "xleftharpoondown" | "xtofrom" | "xrightleftarrows" => {
                 let symbol = match name {
                     "xrightarrow" => '→',
                     "xleftarrow" => '←',
@@ -1065,7 +1078,7 @@ impl Reader<'_> {
                     "xrightharpoondown" => '⇁',
                     "xleftharpoonup" => '↼',
                     "xleftharpoondown" => '↽',
-                    "xtofrom" => '⇄',
+                    "xtofrom" | "xrightleftarrows" => '⇄',
                     _ => '=',
                 };
                 let below = self.optional_argument()?;
@@ -1639,6 +1652,9 @@ impl Reader<'_> {
 
     fn environment(&mut self, col: usize) -> R<Node> {
         let name = self.raw_text()?.trim().to_string();
+        if name == "prooftree" {
+            return self.proof_tree(col);
+        }
         let base = name.trim_end_matches('*');
         let mut columns: Vec<char> = Vec::new();
         let mut verticals = Vec::new();
@@ -1780,7 +1796,16 @@ impl Reader<'_> {
     /// Table read from a braced argument (`\substack{…}`, plain TeX's `\cases{…}`).
     fn argument_table(&mut self, shape: TableKind, col: usize) -> R<Node> {
         let raw = self.raw_text()?;
-        let mut sub = Reader { c: raw.chars().collect(), pos: 0, locale: self.locale, registry: self.registry, macros: self.macros, variant: self.variant, strict: self.strict };
+        let mut sub = Reader {
+            c: raw.chars().collect(),
+            pos: 0,
+            locale: self.locale,
+            registry: self.registry,
+            macros: self.macros,
+            variant: self.variant,
+            strict: self.strict,
+            explicit_size: self.explicit_size,
+        };
         let (rows, horizontals, intertexts) = sub.table_body(None, col)?;
         Ok(Node::Table { shape, rows, columns: vec![], verticals: vec![], dashed: vec![], horizontals, between: vec![], intertexts, stretch: 1.0 })
     }

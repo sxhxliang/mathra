@@ -53,6 +53,12 @@
   ]
  },
  "speech": {
+  "slashed": "{0} con barra",
+  "proof_axiom": "axioma {0}",
+  "proof_premises": "premisas",
+  "proof_conclusion": "por tanto {0}",
+  "proof_label": "etiqueta de regla {0}",
+  "proof_end": "fin de inferencia",
   "function_of": "{0} de",
   "binomial": "combinatorio {0} sobre {1}",
   "fraction_simple": "{0} sobre {1}",

@@ -4,6 +4,18 @@ What changed in each release of mathra: the crates `mathra` and `mathra-cli`, `@
 
 Each release has a headline (the line under its title), what changed, and the equations that show it (`Equations:`): a name from the gallery ([`corpus/gallery.json`](corpus/gallery.json)) or the LaTeX itself, drawn by the site with today's mathra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
+## Unreleased
+
+Proof trees retain their branches, labels and inference rules.
+
+- Bussproofs-style `prooftree`: axioms, unary through quinary inferences, command aliases, left/right labels, solid/dashed/omitted lines and top/bottom roots, including persistent settings. Inference line weights and dash/gap proportions match the RaTeX reference across fonts. Nested branches attach at their conclusions; malformed structures and excessive depth are rejected. Proofs retain their structure in the SVG metadata, with localized speech and linear text/braille.
+
+- Native image output: `render_svg` accepts `SvgRenderOptions` and returns explicit dimensions and baseline ascent, a fixed theme foreground and no transparent text layer. Existing web SVG output stays byte-for-byte compatible. Real Genius math/chemistry/proof examples are checked in both styles and available fonts.
+
+- More RaTeX commands: `\slashed`, `\htmlStyle`, `\mathsfit`, `\frak`, `\ctg`, `\arcctg`, `\Overrightarrow`, `\overgroup`, `\undergroup`, `\overlinesegment`, `\underlinesegment`, `\r`, `\xrightleftarrows` and `\sixptsize`. Math-mode LaTeX size declarations now affect drawing instead of being ignored; nested declarations reset the absolute size.
+
+Equations: `\begin{prooftree}\AxiomC{P}\AxiomC{Q}\RightLabel{cut}\BinaryInfC{R}\end{prooftree}`
+
 ## 1.6.0 - 2026-10-27
 
 The equation writes itself, and reads the LaTeX of the packages it names.

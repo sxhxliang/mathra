@@ -28,6 +28,7 @@ pub mod input;
 pub mod layout;
 pub mod locale;
 pub mod output;
+mod render;
 pub mod rules;
 pub mod tree;
 
@@ -35,6 +36,7 @@ use std::fmt;
 
 pub use locale::Locale;
 pub use output::braille::BrailleCode;
+pub use render::{render_svg, RenderError, RenderedSvg, SvgRenderOptions};
 pub use rules::Applied;
 pub use tree::{Class, Node};
 
@@ -187,6 +189,10 @@ pub fn convert(tex: &str, options: &Options) -> Result<Output, Error> {
 
 /// [`convert`], with the equation set in `font`.
 pub fn convert_in_font(tex: &str, options: &Options, font: font::MathFont) -> Result<Output, Error> {
+    convert_internal(tex, options, font, None).map(|(output, _)| output)
+}
+
+fn convert_internal(tex: &str, options: &Options, font: font::MathFont, native: Option<output::svg::NativeOptions>) -> Result<(Output, output::svg::Metrics), Error> {
     let mut registry = rules::Registry::default();
     let (tree, input) = read(tex, options, &mut registry)?;
     let style = if options.display { layout::Style::display() } else { layout::Style::text() }.in_font(font);
@@ -203,22 +209,25 @@ pub fn convert_in_font(tex: &str, options: &Options, font: font::MathFont) -> Re
     }
     let tree_json = tree.to_json();
     registry.dedup();
-    let svg = output::svg::generate(&output::svg::Content {
-        math_box: &math_box,
-        source: tex,
-        input,
-        tree_json: &tree_json,
-        speech: &speech,
-        text: &text,
-        braille: &braille.text,
-        braille_code,
-        locale: options.locale,
-        warnings: &registry.warnings,
-        font,
-        steps: options.steps,
-        animate: options.animate,
-    });
-    Ok(Output { svg, tree, speech, text, braille: braille.text, braille_code, applied: registry.applied, warnings: registry.warnings })
+    let (svg, metrics) = output::svg::generate_with(
+        &output::svg::Content {
+            math_box: &math_box,
+            source: tex,
+            input,
+            tree_json: &tree_json,
+            speech: &speech,
+            text: &text,
+            braille: &braille.text,
+            braille_code,
+            locale: options.locale,
+            warnings: &registry.warnings,
+            font,
+            steps: options.steps,
+            animate: options.animate,
+        },
+        native,
+    );
+    Ok((Output { svg, tree, speech, text, braille: braille.text, braille_code, applied: registry.applied, warnings: registry.warnings }, metrics))
 }
 
 /// The composed box, without generating SVG: for callers that draw the equation inside something

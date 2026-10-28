@@ -50,6 +50,7 @@ pub fn character(c: char, variant: Variant) -> char {
         Calligraphic => (0x1D49C, 0x1D4B6, None, None, None),
         Fraktur => (0x1D504, 0x1D51E, None, None, None),
         DoubleStruck => (0x1D538, 0x1D552, Some(0x1D7D8), None, None),
+        SansSerifItalic => (0x1D608, 0x1D622, Some(0x1D7E2), None, None),
         SansSerif => (0x1D5A0, 0x1D5BA, Some(0x1D7E2), None, None),
         Monospace => (0x1D670, 0x1D68A, Some(0x1D7F6), None, None),
     };

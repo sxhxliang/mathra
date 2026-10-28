@@ -82,11 +82,10 @@ With the `chem` feature (on by default), `\chemfig{…}`, `\schemestart … \sch
 
 An input that starts with a `<math>` element (after an optional XML prolog or comments) is read as MathML, even in LaTeX mode: LaTeX never starts that way, and editors put MathML on the clipboard. The other notations are in `input.md`.
 
-### L-ENT-3 · Document commands: sizes and packages
+### L-ENT-3 · Document package commands
 
-Commands that belong to the document, not to the equation, are ignored and noted:
+Package imports are ignored and noted:
 
-- `\tiny`, `\scriptsize`, `\small`, `\large` and the rest of the size commands: the size comes from whoever uses the SVG.
 - `\usepackage{…}`, `\RequirePackage{…}` and MathJax's `\require{…}`, with their optional argument: the supported packages are already loaded.
 
 ### L-TXT-1 · Quotes in text
@@ -190,3 +189,13 @@ The prime of `f'` uses the ′ glyph at normal size, attached to the base, becau
 ## Measured coverage
 
 `cargo run --release -p mathra --example bench` runs the hand-written constructions in `corpus/` in both modes and prints how many convert; the README has the numbers of one run. The constructions strict mode refuses are not equations: TeX programming (`\ifx`, `\expandafter`, `\catcode`) and drawings with coordinates (`\tikz`). Strict mode also "accepts" LaTeX escaped twice (`\\cdot`), because it is valid for TeX (a line break followed by the letters "cdot"); tolerant mode reads what the author meant and warns (E-REC-2).
+
+## Proof trees
+
+- **L-PRF-1**: proof branches attach at their conclusions; labels and ancestor widths enlarge the box without shifting that attachment. See [proof trees](proofs.md), tested in `crates/core/tests/proof.rs`.
+
+## Explicit sizes
+
+### L-SIZ-1 · Absolute LaTeX size declarations
+
+In math input, `\tiny`, `\sixptsize`, `\scriptsize`, `\footnotesize`, `\small`, `\normalsize`, `\large`, `\Large`, `\LARGE`, `\huge`, `\Huge` set the remaining group to .5, .6, .7, .8, .9, 1, 1.2, 1.44, 1.728, 2.074, 2.488 times the caller's em. A nested declaration replaces the previous one; it does not multiply it. A declaration resets to text style, including inside a script, as in RaTeX. See [RaTeX command compatibility](ratex-compatibility.md), tested in `tests/ratex_commands.rs` and `tests/rules.rs`.

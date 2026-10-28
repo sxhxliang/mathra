@@ -6,6 +6,12 @@
  "open_interval": false,
  "written": {},
  "speech": {
+  "slashed": "スラッシュ付き {0}",
+  "proof_axiom": "公理 {0}",
+  "proof_premises": "前提",
+  "proof_conclusion": "したがって {0}",
+  "proof_label": "規則ラベル {0}",
+  "proof_end": "推論終了",
   "function_of": "{0}",
   "binomial": "{0} シー {1}",
   "fraction_simple": "{1} 分の {0}",

@@ -1,0 +1,242 @@
+[
+  {
+    "source": "docs/math.md",
+    "latex": "e^{i\\pi}+1=0",
+    "display": false
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "\\frac{1}{2}",
+    "display": false
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "E=mc^2",
+    "display": false
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "\\sqrt{x^2+y^2}",
+    "display": false
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}",
+    "display": true
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "\\int_0^\\infty e^{-x^2}\\,dx = \\frac{\\sqrt{\\pi}}{2}",
+    "display": true
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "\\sum_{n=1}^{\\infty} \\frac{1}{n^2} = \\frac{\\pi^2}{6}",
+    "display": true
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "A = \\begin{bmatrix} 1 & 2 \\\\ 3 & 4 \\end{bmatrix}",
+    "display": true
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "\\begin{aligned}\na &= b+c \\\\\nd &= e+f\n\\end{aligned}",
+    "display": true
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "a_i^2",
+    "display": false
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "\\dfrac{1}{\\frac{2}{3}}",
+    "display": false
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "\\ce{Fe^{3+} + e- -> Fe^{2+}}",
+    "display": false
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "\\pu{9.81 m s-2}",
+    "display": false
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "\\unknowncommand{x}",
+    "display": false
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "\\ce{H2O}",
+    "display": false
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "\\pu{1.5e-3 mol//L}",
+    "display": false
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "\\ce{H2SO4 + 2NaOH -> Na2SO4 + 2H2O}",
+    "display": true
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "\\ce{CO2 + H2O <=> H2CO3}",
+    "display": true
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "\\pu{123 kJ/mol}",
+    "display": true
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "\\begin{prooftree}\n\\AxiomC{A \\fCenter B}\n\\AxiomC{B \\fCenter C}\n\\LeftLabel{cut}\n\\RightLabel{\\alpha}\n\\dashedLine\n\\BinaryInfC{A \\fCenter C}\n\\end{prooftree}",
+    "display": true
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "x^2+y^2=z^2",
+    "display": true
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "\\int_a^b f(x)\\,dx=F(b)-F(a)",
+    "display": true
+  },
+  {
+    "source": "docs/math.md",
+    "latex": "\\frac{a}{b}",
+    "display": true
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{O2}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{O3}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{CO2}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{NH3}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{CH4}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{H2O2}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{C2H6O}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{C6H6}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{C6H12O6}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{C12H22O11}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{Ca(OH)2}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{Al2(SO4)3}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{(NH4)2SO4}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{Na+}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{Cl-}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{Ca^{2+}}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{Fe^{3+}}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{NH4+}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{SO4^{2-}}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{CO3^{2-}}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{CuSO4 * 5H2O}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{Na2CO3 * 10H2O}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{CH3-CH2-OH}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{CH2=CH2}",
+    "display": false
+  },
+  {
+    "source": "docs/chemistry.md",
+    "latex": "\\ce{HC#CH}",
+    "display": false
+  }
+]

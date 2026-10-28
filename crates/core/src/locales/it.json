@@ -56,6 +56,12 @@
   ]
  },
  "speech": {
+  "slashed": "{0} con barra",
+  "proof_axiom": "assioma {0}",
+  "proof_premises": "premesse",
+  "proof_conclusion": "quindi {0}",
+  "proof_label": "etichetta della regola {0}",
+  "proof_end": "fine dell’inferenza",
   "function_of": "{0} di",
   "binomial": "{0} su {1}",
   "fraction_simple": "{0} fratto {1}",

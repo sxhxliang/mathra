@@ -6,6 +6,12 @@
  "open_interval": false,
  "written": {},
  "speech": {
+  "slashed": "{0} بشرطة مائلة",
+  "proof_axiom": "بديهية {0}",
+  "proof_premises": "المقدمات",
+  "proof_conclusion": "إذن {0}",
+  "proof_label": "اسم القاعدة {0}",
+  "proof_end": "نهاية الاستنتاج",
   "function_of": "{0}",
   "binomial": "توافيق {1} من {0}",
   "fraction_simple": "{0} على {1}",

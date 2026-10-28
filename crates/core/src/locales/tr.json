@@ -9,6 +9,12 @@
   "lcm": "ekok"
  },
  "speech": {
+  "slashed": "eğik çizgili {0}",
+  "proof_axiom": "aksiyom {0}",
+  "proof_premises": "öncüller",
+  "proof_conclusion": "dolayısıyla {0}",
+  "proof_label": "kural etiketi {0}",
+  "proof_end": "çıkarım sonu",
   "function_of": "{0}",
   "binomial": "{0} in {1} li kombinasyonu",
   "fraction_simple": "{0} bölü {1}",

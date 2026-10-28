@@ -50,6 +50,12 @@
   ]
  },
  "speech": {
+  "slashed": "{0} mit Schrägstrich",
+  "proof_axiom": "Axiom {0}",
+  "proof_premises": "Prämissen",
+  "proof_conclusion": "folglich {0}",
+  "proof_label": "Regelbezeichnung {0}",
+  "proof_end": "Ende der Schlussfolgerung",
   "function_of": "{0} von",
   "binomial": "{0} über {1}",
   "fraction_simple": "{0} durch {1}",

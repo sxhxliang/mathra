@@ -209,6 +209,7 @@ impl Writer {
             Node::Operator { symbol, .. } | Node::FixedDelimiter { symbol, .. } => self.symbol(*symbol, ctx),
             Node::LargeOperator { symbol, .. } => self.large_operator(*symbol, ctx),
             Node::Row { children } => self.row(children, ctx),
+            Node::ProofTree { tree } => self.node(&tree.linearized(), ctx),
             Node::Fraction { num, den, rule, .. } => self.fraction(num, den, *rule, ctx),
             Node::Root { radicand, index } => self.root(radicand, index.as_deref(), ctx),
             Node::Scripts { base, sup, sub } => self.scripts(base, sup.as_deref(), sub.as_deref(), ctx),
@@ -247,6 +248,11 @@ impl Writer {
             Node::Arrow { symbol, above, below } => self.labeled_arrow(*symbol, above.as_deref(), below.as_deref(), ctx),
             Node::Stacked { base, above, below } => self.modified(base, below.as_deref(), above.as_deref(), ctx),
             // cancellation indicators around the canceled expression (§12)
+            Node::Canceled { base, shape: Cancel::Slash } => {
+                self.node(base, ctx);
+                // This is Feynman slash notation, not the cancellation indicators of §12.
+                self.missing(ctx, '╱');
+            }
             Node::Canceled { base, .. } => {
                 self.put(ctx, "⠪", Kind::Other);
                 self.node(base, ctx);
@@ -865,8 +871,8 @@ fn typeform(c: char, variant: Variant) -> &'static str {
         (Variant::DoubleStruck, true) => "⠠⠸",
         (Variant::Calligraphic, false) => "⠈⠰",
         (Variant::Calligraphic, true) => "⠈",
-        (Variant::SansSerif, false) => "⠠⠨⠰",
-        (Variant::SansSerif, true) => "⠠⠨",
+        (Variant::SansSerif | Variant::SansSerifItalic, false) => "⠠⠨⠰",
+        (Variant::SansSerif | Variant::SansSerifItalic, true) => "⠠⠨",
         (Variant::Fraktur, false) => "⠸",
         _ => "",
     }

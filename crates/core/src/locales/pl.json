@@ -12,6 +12,12 @@
   "lcm": "NWW"
  },
  "speech": {
+  "slashed": "{0} z ukośnikiem",
+  "proof_axiom": "aksjomat {0}",
+  "proof_premises": "przesłanki",
+  "proof_conclusion": "zatem {0}",
+  "proof_label": "etykieta reguły {0}",
+  "proof_end": "koniec wnioskowania",
   "function_of": "{0}",
   "binomial": "{0} po {1}",
   "fraction_simple": "{0} przez {1}",

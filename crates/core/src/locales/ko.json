@@ -6,6 +6,12 @@
  "open_interval": false,
  "written": {},
  "speech": {
+  "slashed": "슬래시가 있는 {0}",
+  "proof_axiom": "공리 {0}",
+  "proof_premises": "전제",
+  "proof_conclusion": "따라서 {0}",
+  "proof_label": "규칙 이름 {0}",
+  "proof_end": "추론 끝",
   "function_of": "{0}",
   "binomial": "{0} 씨 {1}",
   "fraction_simple": "{1} 분의 {0}",

@@ -64,6 +64,7 @@ impl Writer {
             Node::Operator { symbol, .. } | Node::FixedDelimiter { symbol, .. } => self.symbol(*symbol),
             Node::LargeOperator { symbol, .. } => self.large_operator(*symbol, None, None),
             Node::Row { children } => self.row(children),
+            Node::ProofTree { tree } => self.node(&tree.linearized()),
             Node::Fraction { num, den, rule, .. } => self.fraction(num, den, *rule),
             Node::Root { radicand, index } => {
                 // §5.3: ⠫ index ⠱ radicand; the square root omits the index
