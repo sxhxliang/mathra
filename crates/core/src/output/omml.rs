@@ -286,6 +286,12 @@ impl Writer {
                     TextPart::Math(n) => Self { level: self.level.max(1), ..*self }.write(n, false),
                 })
                 .collect::<Result<String, _>>()?,
+            // Zero spaces are parser boundaries, not visible math atoms. A
+            // zero-width glyph run can acquire Word's inter-atom spacing.
+            Space { em } if *em == 0.0 => String::new(),
+            // mhchem coefficients use 1/9 em: use an actual hair space rather
+            // than a separately formatted zero-width atom with character spacing.
+            Space { em } if *em > 0.0 && *em <= 0.125 => self.run("\u{200a}", Variant::Upright),
             Space { em } => {
                 word_property(&self.run("\u{200b}", Variant::Upright), "spacing", &((*em * self.font_size * 20.0).round().clamp(-31680.0, 31680.0) as i32).to_string(), false)
             }

@@ -154,3 +154,11 @@ Long division writes the next brought-down digit as part of each intermediate
 number. For `247 / 5`, the visible subtraction rows are `−20`, `47`, `−45`, `2`;
 the `47` ends one digit column to the right of the first subtraction. The same
 rule handles zero quotient digits and divisors larger than the dividend.
+
+## S-OMML-8 — compact chemical spacing
+
+Zero-em spaces produce no OMML run. Positive spaces up to 1/8 em (including
+mhchem's 1/9-em coefficient spacing) use U+200A hair spaces instead of a
+zero-width character with `w:spacing`. This avoids extra Word atom boundaries
+around chemical items. Binary/relation operators retain Word's natural spacing;
+explicit larger and negative spaces retain their dimension-based output.

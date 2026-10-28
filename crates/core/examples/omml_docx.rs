@@ -7,6 +7,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = PathBuf::from(std::env::args_os().nth(1).unwrap_or_else(|| "target/equations.docx".into()));
     let equations = [
         r"x = \frac{-b \pm \sqrt{b^2-4ac}}{2a}",
+        r"\ce{H2SO4 + 2NaOH -> Na2SO4 + 2H2O}",
         r"\sum_{k=1}^{n} k^2 = \frac{n(n+1)(2n+1)}{6}",
         r"\int_0^1 x^2\,dx = \frac{1}{3}",
         r"A = \begin{pmatrix}a & b \\ c & d\end{pmatrix}",

@@ -405,3 +405,18 @@ fn s_omml_7_long_division_shows_brought_down_digits_in_the_next_column() {
         }
     }
 }
+
+#[test]
+fn s_omml_8_chemical_spacing_has_no_zero_width_atoms() {
+    let xml = tex_to_omml(r"\ce{H2SO4 + 2NaOH -> Na2SO4 + 2H2O}").unwrap();
+    let doc = Document::parse(&xml).unwrap();
+    let text = visible_math_text(doc.root_element());
+    assert!(!text.contains('\u{200b}'), "{xml}");
+    assert!(!xml.contains("w:spacing"), "{xml}");
+    assert_eq!(text, "H2SO4+2\u{200a}NaOH→Na2SO4+2\u{200a}H2O");
+    assert_eq!(doc.descendants().filter(|n| n.has_tag_name((NS, "sSub"))).count(), 5);
+    let xml = tex_to_omml(r"a\hspace{0em}b").unwrap();
+    assert_eq!(visible_math_text(Document::parse(&xml).unwrap().root_element()), "ab");
+    let xml = tex_to_omml(r"a\hspace{-0.5em}b").unwrap();
+    assert!(xml.contains("w:spacing"), "explicit negative spacing is preserved");
+}
