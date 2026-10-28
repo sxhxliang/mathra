@@ -200,6 +200,18 @@ println!("{}", r.speech);
 
 For desktop images and PDF/DOCX exporters, `render_svg` takes `SvgRenderOptions` (font size, foreground color and font) and returns a standalone path-only SVG with explicit `width`, `height` and `ascent`. This avoids CSS `em` sizing, theme inheritance and a selectable text layer. See [native image output](spec/native-svg.md) and `cargo run -p mathra --example native_svg`.
 
+For editable native Word equations, `tex_to_omml` returns only a standalone OMML
+formula fragment, without SVG rendering or document packaging:
+
+```rust
+let omml = mathra::tex_to_omml(r"\frac{a}{b} + x^2")?;
+// <m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">…</m:oMath>
+```
+
+Insert the fragment into a Word paragraph. To create a complete example DOCX, run
+`cargo run -p mathra --example omml_docx -- target/equations.docx`.
+See [OMML support and limits](spec/omml.md); unsupported structures return an error.
+
 Structural chemistry is the `chem` feature, on by default; `mathra = { version = "…", default-features = false }` leaves it out of a build that only needs equations.
 
 ## What it converts

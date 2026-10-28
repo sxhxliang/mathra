@@ -32,3 +32,6 @@ roxmltree = "0.20"
 [dev-dependencies]
 # tests/fonts.rs reads the original fonts in tools/fonts to check the embedded subsets against them
 ttf-parser = "0.25"
+
+# DOCX packaging is used only by the omml_docx example.
+zip = { version = "0.6", default-features = false }

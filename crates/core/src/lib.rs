@@ -251,3 +251,20 @@ pub fn typeset_in_font(tex: &str, options: &Options, font: font::MathFont) -> Re
 pub fn tex_to_svg(tex: &str) -> Result<String, Error> {
     convert(tex, &Options::default()).map(|r| r.svg)
 }
+
+/// Convert LaTeX to a standalone, editable Office Math (`<m:oMath>`) fragment.
+/// Parses strictly, without SVG generation or font layout. Unsupported OMML
+/// constructions return [`OmmlError::Unsupported`]. The caller owns DOCX packaging.
+///
+/// ```
+/// let xml = mathra::tex_to_omml(r"\frac{a}{b} + x^2")?;
+/// assert!(xml.contains("<m:f>"));
+/// # Ok::<(), mathra::OmmlError>(())
+/// ```
+pub fn tex_to_omml(tex: &str) -> Result<String, OmmlError> {
+    let mut registry = rules::Registry::default();
+    let tree = input::latex::read_with(tex, Locale::En, &mut registry, true)?;
+    output::omml::generate(&tree)
+}
+
+pub use output::omml::OmmlError;
