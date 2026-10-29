@@ -130,6 +130,62 @@ fn k(e: Style, f: impl Fn(&Constants<'static>) -> ttf_parser::math::MathValue<'s
     e.font().c(f) * e.scale()
 }
 
+/// A graphicx length (`2\height`, `1cm`) for a box of width `w`, height `h` and depth `d`.
+fn length(l: &BoxLength, w: f32, h: f32, d: f32, e: Style) -> f32 {
+    em(e, l.em) + l.width * w + l.height * h + l.depth * d
+}
+
+/// `\scalebox{x}[y]`: a negative factor mirrors the box inside its own width (x) or turns its height
+/// into depth (y), as graphicx does.
+fn scale_xy(b: &mut MathBox, x: f32, y: f32) {
+    if y > 0.0 && (x.abs() - y).abs() < 1e-6 {
+        // the same factor both ways: scaled glyphs, no transform
+        if y != 1.0 {
+            b.scale_box(y);
+        }
+        if x < 0.0 {
+            b.mirror();
+        }
+        return;
+    }
+    let (w, h, d) = (b.width, b.height, b.depth);
+    b.transform([x, 0.0, 0.0, y, if x < 0.0 { -x * w } else { 0.0 }, 0.0]);
+    b.width = x.abs() * w;
+    (b.height, b.depth) = if y >= 0.0 { (y * h, y * d) } else { (-y * d, -y * h) };
+}
+
+/// `\rotatebox[origin=…]{degrees}`: turns the box counterclockwise around the origin point, and takes
+/// the box that holds the turned one, as graphicx does. Without `origin`, the point is the left end of
+/// the baseline; with it, each letter (l, r, t, b, B) sets one coordinate and the other is the center.
+fn rotate(b: &mut MathBox, degrees: f32, origin: &str) {
+    let (w, h, d) = (b.width, b.height, b.depth);
+    let (mut px, mut py) = if origin.is_empty() { (0.0, 0.0) } else { (w / 2.0, (h - d) / 2.0) };
+    for letter in origin.chars() {
+        match letter {
+            'l' => px = 0.0,
+            'r' => px = w,
+            't' => py = h,
+            'b' => py = -d,
+            'B' => py = 0.0,
+            _ => {}
+        }
+    }
+    let snap = |v: f32| if v.abs() < 1e-6 { 0.0 } else { v };
+    let (sin, cos) = degrees.to_radians().sin_cos();
+    let (sin, cos) = (snap(sin), snap(cos));
+    let turn = |x: f32, y: f32| (px + cos * (x - px) - sin * (y - py), py + sin * (x - px) + cos * (y - py));
+    let corners = [turn(0.0, -d), turn(w, -d), turn(0.0, h), turn(w, h)];
+    let left = corners.iter().map(|c| c.0).fold(f32::INFINITY, f32::min);
+    let right = corners.iter().map(|c| c.0).fold(f32::NEG_INFINITY, f32::max);
+    let low = corners.iter().map(|c| c.1).fold(f32::INFINITY, f32::min);
+    let high = corners.iter().map(|c| c.1).fold(f32::NEG_INFINITY, f32::max);
+    let (e, f) = turn(0.0, 0.0);
+    b.transform([cos, sin, -sin, cos, snap(e - left), snap(f)]);
+    b.width = right - left;
+    b.height = high.max(0.0);
+    b.depth = (-low).max(0.0);
+}
+
 fn em(e: Style, amount: f32) -> f32 {
     e.font().units_per_em() * amount * e.scale()
 }
@@ -294,15 +350,44 @@ fn compose_node(node: &Node, e: Style, ctx: &mut Context) -> R<MathBox> {
             table::compose(*kind, rows, columns, &lines, between, intertexts, e, ctx)
         }
         Node::Multicolumn { base, .. } | Node::Unit { base, .. } => compose(base, e, ctx),
-        Node::Raised { em: amount, base } => {
+        Node::Raised { em: amount, height, depth, base } => {
             let mut math_box = compose(base, e, ctx)?;
             math_box.shift_vertical(em(e, *amount));
             math_box.single_glyph = false;
+            // \height and \depth in the optional arguments are those of the raised box, as in LaTeX
+            let (w, h, d) = (math_box.width, math_box.height, math_box.depth);
+            if let Some(height) = height {
+                math_box.height = length(height, w, h, d, e);
+            }
+            if let Some(depth) = depth {
+                math_box.depth = length(depth, w, h, d, e);
+            }
             Ok(math_box)
         }
-        Node::Scaled { factor, base } => {
+        Node::Scaled { factor, vertical, base } => {
             let mut math_box = compose(base, e, ctx)?;
-            math_box.scale_box(*factor);
+            scale_xy(&mut math_box, *factor, vertical.unwrap_or(*factor));
+            Ok(math_box)
+        }
+        Node::Resized { width, height, total, base } => {
+            let mut math_box = compose(base, e, ctx)?;
+            let (w, h, d) = (math_box.width, math_box.height, math_box.depth);
+            let tall = if *total { h + d } else { h };
+            let factor = |target: &Option<BoxLength>, natural: f32| target.as_ref().map(|t| length(t, w, h, d, e) / natural).filter(|f| f.is_finite() && *f != 0.0);
+            let (x, y) = (factor(width, w), factor(height, tall));
+            // `!` keeps the ratio; a size that cannot be reached (an empty box) leaves it as it is
+            let (x, y) = match (x, y) {
+                (Some(x), Some(y)) => (x, y),
+                (Some(f), None) | (None, Some(f)) => (f, f),
+                (None, None) => (1.0, 1.0),
+            };
+            let limit = |f: f32| f.signum() * f.abs().clamp(0.05, 20.0);
+            scale_xy(&mut math_box, limit(x), limit(y));
+            Ok(math_box)
+        }
+        Node::Rotated { degrees, origin, base } => {
+            let mut math_box = compose(base, e, ctx)?;
+            rotate(&mut math_box, *degrees, origin);
             Ok(math_box)
         }
         Node::Rule { width, height, raise } => Ok(MathBox::bar(em(e, *width), em(e, *height), em(e, *raise))),
@@ -763,7 +848,7 @@ fn compose_scripts(base: &Node, sup: Option<&Node>, sub: Option<&Node>, e: Style
         }
     }
     let delta = b.italic;
-    let (x_sup, x_sub) = if integral { (b.width + delta * 0.5, b.width - delta * 0.5) } else { (b.width + delta, b.width) };
+    let (x_sup, x_sub) = if integral { (b.width, b.width - delta) } else { (b.width + delta, b.width) };
     let mut math_box = b.clone();
     math_box.single_glyph = false;
     let mut width = b.width;

@@ -271,7 +271,7 @@ fn classes_of_compound_nodes() {
     assert_eq!(class_of(&Node::Colored { color: "red".into(), base: Box::new(Node::row(vec![Node::Operator { symbol: '=', class: Class::Rel }])) }), Some(Class::Rel));
     assert_eq!(class_of(&Node::Colored { color: "red".into(), base: Box::new(Node::row(vec![ident("a"), ident("b")])) }), Some(Class::Ord));
     assert_eq!(class_of(&Node::Style { level: 1, base: rel() }), Some(Class::Rel));
-    assert_eq!(class_of(&Node::Scaled { factor: 2.0, base: rel() }), Some(Class::Rel));
+    assert_eq!(class_of(&Node::Scaled { factor: 2.0, vertical: None, base: rel() }), Some(Class::Rel));
     assert_eq!(class_of(&Node::Scripts { base: rel(), sup: Some(x()), sub: None }), Some(Class::Rel));
     assert_eq!(class_of(&Node::Space { em: 1.0 }), None);
 }
@@ -1045,7 +1045,7 @@ fn wide_accent_without_assembly_stops_at_largest_variant() {
 #[test]
 fn scaling_a_glyph_carries_the_accent_point() {
     let x = compose_node(&ident("x"), Style::display(), true).unwrap();
-    let node = Node::Scaled { factor: 3.0, base: Box::new(ident("x")) };
+    let node = Node::Scaled { factor: 3.0, vertical: None, base: Box::new(ident("x")) };
     let c = compose_node(&node, Style::display(), true).unwrap();
     assert!((c.accent_point.unwrap() - 3.0 * x.accent_point.unwrap()).abs() < 0.01);
     assert!(!c.single_glyph);

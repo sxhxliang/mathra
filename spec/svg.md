@@ -50,7 +50,7 @@ A `<style>` inside an inline SVG applies to the whole page. That is why the only
 
 ### S-SVG-5 · Each glyph drawn once
 
-Each glyph becomes a `<path>` in `<defs>`, in order of first appearance, and is reused with `<use>`.
+Each glyph becomes a `<path>` in `<defs>`, in order of first appearance, and is reused with `<use>`. A turned or unevenly scaled box (`\rotatebox`, `\scalebox{2}[1]`, L-BOX-1) is a `<g transform="matrix(…)">` around its drawing; its glyphs are in `<defs>` like the others.
 
 ### S-SVG-6 · Text layer
 

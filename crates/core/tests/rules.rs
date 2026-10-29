@@ -107,6 +107,20 @@ fn l_let_1_letters_in_math_italic() {
 }
 
 #[test]
+fn l_let_1_greek_variants_in_math_italic() {
+    // \phi is ϕ, which TeX sets in italic like \varphi (#66)
+    for (from, to) in [('ϕ', '𝜙'), ('φ', '𝜑'), ('ϵ', '𝜖'), ('ϑ', '𝜗'), ('ϰ', '𝜘'), ('ϱ', '𝜚'), ('ϖ', '𝜛')] {
+        assert_eq!(mathra::layout::math_italic(from), to, "{from}");
+    }
+    use mathra::tree::Variant::{Bold, BoldItalic};
+    assert_eq!(mathra::layout::alphabet::character('ϕ', Bold), '𝛟');
+    assert_eq!(mathra::layout::alphabet::character('ϕ', BoldItalic), '𝝓');
+    // drawn in italic, not as the upright ϕ of \mathrm
+    let glyphs = |tex: &str| convert(tex, &Options::default()).unwrap().svg.split("<defs>").nth(1).map(str::to_string);
+    assert_ne!(glyphs(r"\phi"), glyphs(r"\mathrm{\phi}"));
+}
+
+#[test]
 fn s_svg_2_portuguese_speech_in_title() {
     let r = pt(r"x \le 2,5");
     assert_eq!(r.speech, "x é menor ou igual a 2,5");
@@ -176,10 +190,36 @@ fn l_txt_1_tex_quotes_become_typographic_in_text() {
 }
 
 #[test]
+fn l_uni_4_siunitx_in_text() {
+    // in text as in math, with no warning
+    for (tex, math) in [
+        (r"\text{\SI{12}{\volt}}", r"\SI{12}{\volt}"),
+        (r"\text{\qty[mode=text]{12}{\volt}}", r"\qty{12}{\volt}"),
+        (r"\text{\si{\ohm}}", r"\si{\ohm}"),
+        (r"\text{\unit{\kilo\ohm}}", r"\unit{\kilo\ohm}"),
+        (r"\text{\num{12345}}", r"\num{12345}"),
+        (r"\text{\qtyrange{1}{5}{\volt}}", r"\qtyrange{1}{5}{\volt}"),
+        (r"\text{\SIrange{1}{5}{\volt}}", r"\SIrange{1}{5}{\volt}"),
+        (r"\text{\numrange{1}{5}}", r"\numrange{1}{5}"),
+        (r"\text{\SIlist{1;2}{\volt}}", r"\SIlist{1;2}{\volt}"),
+    ] {
+        let (t, m) = (en(tex), en(math));
+        assert!(t.warnings.is_empty(), "{tex}: {:?}", t.warnings);
+        assert_eq!((t.text, t.speech), (m.text, m.speech), "{tex}");
+    }
+    let r = en(r"\text{from \SI{12}{\volt} to \qtyrange{1}{5}{\volt}}");
+    assert_eq!(r.text, "from 12 V to 1 V to 5 V");
+    assert_eq!(r.speech, "from 12 volts to 1 volt to 5 volts");
+}
+
+#[test]
 fn l_uni_2_ranges_and_lists_repeat_the_unit() {
+    // siunitx's range-phrase: the language's "to", or an en dash where the font cannot write it
     let r = en(r"\SIrange{1}{10}{\kilo\gram}");
-    assert_eq!(r.text, "1 kg – 10 kg");
+    assert_eq!(r.text, "1 kg to 10 kg");
     assert!(rules(&r).contains(&"L-UNI-2"));
+    let r = convert(r"\qtyrange{1}{5}{\volt}", &Options { locale: Locale::Ja, ..Options::default() }).unwrap();
+    assert_eq!(r.text, "1 V – 5 V");
     let r = pt(r"\SIlist{1;2;3}{\meter}");
     assert_eq!(r.text, "1 m, 2 m e 3 m");
     assert!(rules(&r).contains(&"L-UNI-2"));

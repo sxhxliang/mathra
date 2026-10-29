@@ -554,6 +554,100 @@ fn reflectbox_mirrors_its_content() {
     assert_ink_inside(r"\reflectbox{$x^2$} + \reflectbox{f}", &Options::default());
 }
 
+/// Width, height and depth of a box.
+fn size(b: &MathBox) -> (f32, f32, f32) {
+    (b.width, b.height, b.depth)
+}
+
+fn close(a: f32, b: f32) -> bool {
+    (a - b).abs() < 0.5
+}
+
+#[test]
+fn l_box_1_scalebox_across_up_and_mirrored() {
+    let (w, h, d) = size(&math_box(r"\text{Qy}"));
+    // \scalebox{-1}[1] is \reflectbox: the same glyphs, flipped (the CircuiTikZ manual's \ctikzflipx)
+    let mirrored = math_box(r"\scalebox{-1}[1]{Qy}");
+    assert_eq!(size(&mirrored), (w, h, d));
+    assert_eq!(mirrored.items.iter().filter(|i| matches!(i, Item::Glyph { flip: true, .. })).count(), 2);
+    let wide = math_box(r"\scalebox{2}[1]{Qy}");
+    assert!(close(wide.width, 2.0 * w) && close(wide.height, h) && close(wide.depth, d), "{:?}", size(&wide));
+    // upside down: the height becomes the depth
+    let turned = math_box(r"\scalebox{1}[-1]{Qy}");
+    assert!(close(turned.height, d) && close(turned.depth, h), "{:?}", size(&turned));
+    for tex in [r"\scalebox{2}[1]{Qy}", r"\scalebox{-1}[2]{Qy}", r"\scalebox{1}[-1]{Qy}"] {
+        assert!(read(tex).svg.contains("matrix("), "{tex}");
+        assert_ink_inside(tex, &Options::default());
+    }
+    // one factor, as before: glyphs scaled, no transform
+    assert!(!read(r"\scalebox{2}{Qy}").svg.contains("matrix("));
+}
+
+#[test]
+fn l_box_1_rotatebox_takes_the_box_around_the_turned_one() {
+    let (w, h, d) = size(&math_box(r"\text{abc}"));
+    // a quarter turn around the left end of the baseline: the width is now the height
+    let up = math_box(r"\rotatebox{90}{abc}");
+    assert!(close(up.width, h + d) && close(up.height, w) && close(up.depth, 0.0), "{:?}", size(&up));
+    let down = math_box(r"\rotatebox{-90}{abc}");
+    assert!(close(down.width, h + d) && close(down.height, 0.0) && close(down.depth, w), "{:?}", size(&down));
+    let half = math_box(r"\rotatebox{180}{abc}");
+    assert!(close(half.width, w) && close(half.height, d) && close(half.depth, h), "{:?}", size(&half));
+    // around the center, the turned box is centered where the box was
+    let centered = math_box(r"\rotatebox[origin=c]{180}{abc}");
+    assert!(close(centered.height - centered.depth, h - d), "{:?}", size(&centered));
+    let svg = read(r"\rotatebox{90}{abc}").svg;
+    assert!(svg.contains(r#"<g transform="matrix(0 1 -1 0 "#), "{svg}");
+    for tex in [r"\rotatebox{90}{$I_0$}", r"\rotatebox{45}{abc}", r"\rotatebox[origin=c]{180}{abc} + x", r"\rotatebox[origin=lt]{-30}{abc}"] {
+        assert_ink_inside(tex, &Options::default());
+    }
+    assert_eq!(read(r"\rotatebox{90}{$I_0$}").speech, read("I_0").speech);
+}
+
+#[test]
+fn l_box_1_raisebox_height_and_depth() {
+    let (_, h, d) = size(&math_box(r"\text{gy}"));
+    assert!(d > 0.0);
+    // the CircuiTikZ manual's \killdepth: same height, no depth
+    let killed = math_box(r"\raisebox{0pt}[\height][0pt]{gy}");
+    assert!(close(killed.height, h) && killed.depth == 0.0, "{:?}", size(&killed));
+    let raised = math_box(r"\raisebox{1em}[0.5\height][\depth]{gy}");
+    let lifted = math_box(r"\raisebox{1em}{gy}");
+    assert!(close(raised.height, lifted.height / 2.0) && close(raised.depth, lifted.depth), "{:?}", size(&raised));
+    assert!(close(math_box(r"\raisebox{0pt}[\totalheight]{gy}").height, h + d));
+}
+
+#[test]
+fn l_box_1_resizebox_to_the_size_given() {
+    let (w, h, d) = size(&math_box(r"\text{abc}"));
+    let one_cm = math_box(r"\resizebox{1cm}{!}{abc}");
+    let em = math_box(r"\rule{1em}{1em}").width;
+    assert!(close(one_cm.width, 2.845 * em) && close(one_cm.height / one_cm.width, h / w), "{:?}", size(&one_cm));
+    let both = math_box(r"\resizebox{2\width}{\height}{abc}");
+    assert!(close(both.width, 2.0 * w) && close(both.height, h) && close(both.depth, d), "{:?}", size(&both));
+    let total = math_box(r"\resizebox*{!}{2\totalheight}{abc}");
+    assert!(close(total.height + total.depth, 2.0 * (h + d)) && close(total.width, 2.0 * w), "{:?}", size(&total));
+    assert_ink_inside(r"\resizebox{2cm}{0.5cm}{abc}", &Options::default());
+}
+
+#[test]
+fn l_box_1_graphicx_boxes_inside_text() {
+    // in a label (text mode) as in math, with no warning
+    for (text, math) in [
+        (r"\text{\scalebox{-1}[1]{Q1}}", r"\scalebox{-1}[1]{Q1}"),
+        (r"\text{\reflectbox{Q1}}", r"\reflectbox{Q1}"),
+        (r"\text{\rotatebox{90}{$I_0$}}", r"\rotatebox{90}{$I_0$}"),
+        (r"\text{\rotatebox[origin=c]{90}{$I_0$}}", r"\rotatebox[origin=c]{90}{$I_0$}"),
+        (r"\text{\raisebox{0pt}[\height][0pt]{gy}}", r"\raisebox{0pt}[\height][0pt]{gy}"),
+        (r"\text{\resizebox{1cm}{!}{abc}}", r"\resizebox{1cm}{!}{abc}"),
+        (r"\text{\resizebox*{1cm}{!}{abc}}", r"\resizebox*{1cm}{!}{abc}"),
+    ] {
+        assert_eq!(size(&math_box(text)), size(&math_box(math)), "{text}");
+    }
+    let r = read(r"\text{x \scalebox{2}[1]{y} z}");
+    assert_eq!(r.text, "x y z");
+}
+
 #[test]
 fn url_is_the_address_as_written_in_typewriter() {
     let out = read(r"\url{https://katex.org/a_b%20c#x}");

@@ -263,6 +263,8 @@ fn write_node(node: &Node, loc: Locale, s: &mut String) {
         | Node::Scaled { base, .. }
         | Node::Smashed { base, .. }
         | Node::VCenter { base }
+        | Node::Resized { base, .. }
+        | Node::Rotated { base, .. }
         | Node::Reflected { base }
         | Node::Overlapped { base, .. } => write_node(base, loc, s),
         Node::Rule { .. } => {}

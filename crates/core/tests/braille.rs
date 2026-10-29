@@ -316,9 +316,11 @@ fn signs_found_by_the_live_list_on_the_reference_page() {
         &[
             ("A \\backslash B", "⠠⠁⠸⠡⠠⠃", "Rule 20 table"),
             ("\\overarc{AB}", "⠐⠠⠁⠠⠃⠣⠫⠁⠻", "Ex. 15-54"),
-            ("\\SIrange{1}{10}{m}", "⠼⠂⠀⠍⠀⠤⠤⠀⠼⠂⠴⠀⠍", "Rule 8 dash, §20.1.1, §6.3.1 c"),
             ("\\ce{A <=>[K] B}", "⠠⠁⠀⠐⠫⠒⠒⠕⠫⠪⠒⠒⠣⠠⠅⠻⠀⠠⠃", "Rule 21 table: right over left arrow, modified"),
         ],
     );
+    // a range is drawn with an en dash where the font cannot write the language's "to" (L-UNI-2)
+    let r = convert("\\SIrange{1}{10}{m}", &Options { locale: Locale::Ja, braille: Some(BrailleCode::Nemeth), strict: true, ..Options::default() }).unwrap();
+    assert_eq!(r.braille, "⠼⠂⠀⠍⠀⠤⠤⠀⠼⠂⠴⠀⠍", "Rule 8 dash, §20.1.1, §6.3.1 c");
     check(BrailleCode::Cmu, &[("A \\backslash B", "⠨⠁⠐⠄⠨⠃", "§6.1: diferença de conjuntos"), ("x \\nsim y", "⠭⠘⠐⠢⠄⠽", "§4.3")]);
 }

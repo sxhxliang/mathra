@@ -303,6 +303,8 @@ impl Writer {
             | Node::Scaled { base, .. }
             | Node::Smashed { base, .. }
             | Node::VCenter { base }
+            | Node::Resized { base, .. }
+            | Node::Rotated { base, .. }
             | Node::Reflected { base }
             | Node::Overlapped { base, .. }
             | Node::Unit { base, .. }

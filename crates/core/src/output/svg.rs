@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::fmt::Write;
 
-use crate::font::MathFont;
+use crate::font::{Font, MathFont};
 use crate::layout::{Item, MathBox};
 use crate::locale::Locale;
 use crate::VERSION;
@@ -188,14 +188,7 @@ pub(crate) fn generate_with(c: &Content, native: Option<NativeOptions>) -> (Stri
 
     // S-SVG-5: each glyph drawn only once, in order of first appearance (deterministic)
     s.push_str("<defs>");
-    let mut seen = HashSet::new();
-    for item in &math_box.items {
-        if let Item::Glyph { id: g, .. } = item {
-            if seen.insert(g.0) {
-                let _ = write!(s, r#"<path id="{id}-g{}" d="{}"/>"#, g.0, f.outline(*g));
-            }
-        }
-    }
+    glyph_defs(&math_box.items, &id, f, &mut HashSet::new(), &mut s);
     s.push_str("</defs>");
 
     s.push_str(&body);
@@ -215,12 +208,31 @@ pub(crate) fn generate_with(c: &Content, native: Option<NativeOptions>) -> (Stri
     (s, metrics)
 }
 
+/// S-SVG-5: the outline of each glyph, once, in order of first appearance, inside turned boxes too.
+fn glyph_defs(items: &[Item], id: &str, f: &Font, seen: &mut HashSet<u16>, s: &mut String) {
+    for item in items {
+        match item {
+            Item::Glyph { id: g, .. } if seen.insert(g.0) => {
+                let _ = write!(s, r#"<path id="{id}-g{}" d="{}"/>"#, g.0, f.outline(*g));
+            }
+            Item::Transformed { items, .. } => glyph_defs(items, id, f, seen, s),
+            _ => {}
+        }
+    }
+}
+
 /// S-SVG-5 and S-SVG-10: the drawing, glyphs as `<use>` of their `<path>`, in the order the layout
 /// set them.
 fn items_svg(math_box: &MathBox, id: &str, steps: &mut Steps) -> String {
     let mut out = String::new();
     out.push_str(r#"<g fill="currentColor" stroke="none" transform="scale(1,-1)">"#);
-    for item in &math_box.items {
+    item_svg(&math_box.items, id, steps, &mut out);
+    out.push_str("</g>");
+    out
+}
+
+fn item_svg(items: &[Item], id: &str, steps: &mut Steps, out: &mut String) {
+    for item in items {
         match item {
             Item::Glyph { id: g, x, y, scale, color, flip } => {
                 let transform = if *flip {
@@ -262,10 +274,13 @@ fn items_svg(math_box: &MathBox, id: &str, steps: &mut Steps) -> String {
                     steps.next(Entry::Drawn)
                 );
             }
+            Item::Transformed { matrix: [a, b, c, d, e, f], items } => {
+                let _ = write!(out, r#"<g transform="matrix({} {} {} {} {} {})">"#, n(*a), n(*b), n(*c), n(*d), n(*e), n(*f));
+                item_svg(items, id, steps, out);
+                out.push_str("</g>");
+            }
         }
     }
-    out.push_str("</g>");
-    out
 }
 
 /// S-SVG-7: unique ids per equation, so several equations on one page do not clash.

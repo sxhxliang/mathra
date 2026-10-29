@@ -216,14 +216,42 @@ pub enum Node {
         alignment: char,
         base: Box<Node>,
     },
-    /// `\raisebox`: shifts the content vertically, in em.
+    /// `\raisebox{lift}[height][depth]`: shifts the content vertically, in em, and gives it the
+    /// height and depth asked for, if any.
     Raised {
         em: f32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        height: Option<BoxLength>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        depth: Option<BoxLength>,
         base: Box<Node>,
     },
-    /// `\scalebox`: changes the size of the content.
+    /// `\scalebox{factor}[vertical]`: changes the size of the content; a negative factor mirrors it.
     Scaled {
         factor: f32,
+        /// The vertical factor, when it is not `factor`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        vertical: Option<f32>,
+        base: Box<Node>,
+    },
+    /// `\resizebox{width}{height}` (graphicx): the content scaled to that size; `None` (`!`) keeps the
+    /// ratio. With `total` (`\resizebox*`), the height is the height plus the depth.
+    Resized {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        width: Option<BoxLength>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        height: Option<BoxLength>,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        total: bool,
+        base: Box<Node>,
+    },
+    /// `\rotatebox[origin=…]{degrees}{…}` (graphicx): the content turned counterclockwise around a point
+    /// of its box: `origin` holds graphicx's letters (l, r, c, t, b, B); the default is the left end of
+    /// the baseline.
+    Rotated {
+        degrees: f32,
+        #[serde(skip_serializing_if = "String::is_empty")]
+        origin: String,
         base: Box<Node>,
     },
     /// `\rule`: filled rectangle, sizes in em.
@@ -326,6 +354,24 @@ impl ProofBranch {
         }
         Node::row(children)
     }
+}
+
+/// A length of graphicx's box commands: `em` plus multiples of the box's own `\width`, `\height` and
+/// `\depth` (`\totalheight` is height plus depth), as in `\raisebox{0pt}[\height][0pt]`.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize)]
+pub struct BoxLength {
+    #[serde(skip_serializing_if = "is_zero")]
+    pub em: f32,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub width: f32,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub height: f32,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub depth: f32,
+}
+
+fn is_zero(x: &f32) -> bool {
+    *x == 0.0
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]

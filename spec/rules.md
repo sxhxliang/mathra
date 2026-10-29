@@ -52,7 +52,11 @@ In **pt-BR, fr, de and it**, where `]a, b[` is the usual notation, a `]` without
 
 ### L-UNI-2 · Ranges, lists and products
 
-`\SIrange`/`\qtyrange`, `\numrange` and `\angrange` join the two values with an en dash, read as "to" ("a" in pt-BR): `1 kg – 10 kg`. `\SIlist`/`\qtylist`, `\numlist` and `\anglist` separate the values with commas and close with the language's "and" (`1, 2 e 3` in pt-BR); where the embedded font cannot write that word (zh, ja, ko, hi, ar), the last separator is a comma too. `\SIproduct`/`\qtyproduct` and `\numproduct` join with ×. As in siunitx's defaults, the unit is repeated on every value. Options in brackets (`\SI[mode=text]{…}{…}`) are read and ignored.
+`\SIrange`/`\qtyrange`, `\numrange` and `\angrange` join the two values with the language's "to", as siunitx's `range-phrase` does: `1 kg to 10 kg` in en, `1 kg a 10 kg` in pt-BR, `1 kg bis 10 kg` in de (the word is `op.–` in the language's file); where the embedded font cannot write that word (zh, ja, ko, hi, ar), with an en dash: `1 kg – 10 kg`. `\SIlist`/`\qtylist`, `\numlist` and `\anglist` separate the values with commas and close with the language's "and" (`1, 2 e 3` in pt-BR); where the embedded font cannot write that word (zh, ja, ko, hi, ar), the last separator is a comma too. `\SIproduct`/`\qtyproduct` and `\numproduct` join with ×. As in siunitx's defaults, the unit is repeated on every value. Options in brackets (`\SI[mode=text]{…}{…}`) are read and ignored; `\qty[…]{…}{…}`, with two arguments in braces after the brackets, is siunitx's, not physics's `\qty[…]`.
+
+### L-UNI-4 · siunitx in text
+
+The siunitx commands work inside `\text{…}` (and every text argument) as in math, as siunitx typesets them in text too: `\text{at \SI{12}{\volt}}` sets the number upright, a thin space and the unit upright. The same holds for `\qty`, `\si`, `\unit`, `\num`, `\ang` and the ranges, lists and products (L-UNI-2).
 
 ## Chemistry
 
@@ -86,11 +90,22 @@ An input that starts with a `<math>` element (after an optional XML prolog or co
 
 Package imports are ignored and noted:
 
+- `\tiny`, `\scriptsize`, `\small`, `\large` and the rest of the size commands: the size comes from whoever uses the SVG. In text, `\fontsize{size}{skip}\selectfont` too.
 - `\usepackage{…}`, `\RequirePackage{…}` and MathJax's `\require{…}`, with their optional argument: the supported packages are already loaded.
 
 ### L-TXT-1 · Quotes in text
 
 Inside `\text{…}` (and every text argument), TeX's quote ligatures become typographic quotes: ``` `` ``` → “, `''` → ”, `` ` `` → ‘, `'` → ’. In math mode `'` is still a prime.
+
+### L-TXT-2 · Math inside text
+
+Inside `\text{…}` (and every text argument), these are set as LaTeX sets them:
+
+- `\textsubscript{…}` and `\textsuperscript{…}`: a script of the text before it (`H\textsubscript{2}O`).
+- `\ensuremath{…}`: its argument as math, as `$…$` would.
+- `\boldmath`: the math that follows (`$…$`, `\(…\)`, `\ensuremath`) is bold, until the end of the group it is in; `\unboldmath` ends it.
+
+A math command written in text (`\mathrm{V}`, `\frac{1}{2}`, `\sqrt{2}`) is an error in TeX: strict mode refuses it, and tolerant mode reads it as math, with a warning (E-REC-1).
 
 ## Macros
 
@@ -122,7 +137,7 @@ The input accepts LaTeX's English names and the Brazilian ones (`\sen`, `\tg`, `
 
 ### L-LET-1 · Math italic
 
-Latin letters and lowercase Greek letters are drawn with Unicode's math italic characters (block U+1D400; `h` lives at U+210E). Uppercase Greek letters stay upright, as in TeX.
+Latin letters and lowercase Greek letters are drawn with Unicode's math italic characters (block U+1D400; `h` lives at U+210E). The lowercase Greek variants are lowercase letters too: `\phi` (ϕ), `\epsilon` (ϵ), `\vartheta` (ϑ), `\varkappa` (ϰ), `\varrho` (ϱ) and `\varpi` (ϖ) are in italic, at U+1D716–U+1D71B, as TeX sets them. Uppercase Greek letters stay upright, as in TeX.
 
 ### L-LET-2 · Double-struck letters spoken
 
@@ -185,6 +200,17 @@ The rules for fractions, roots, scripts, limits, accents, bars, braces and arrow
 | Arrow diagrams (`tikz-cd`, `xymatrix`) | `AxisHeight` (arrows leave and reach each cell at the axis, and the diagram is centered on it), `FractionRuleThickness` (the strokes); tikz-cd's separations: 2.4 em between columns and 2.1 em between rows, widened to fit a label; labels in script style; a bend as tikz's `bend left`, a cubic Bézier with its control points 0.39 of the way along the leaving and arriving directions |
 
 The prime of `f'` uses the ′ glyph at normal size, attached to the base, because it is already drawn as a superscript.
+
+### L-BOX-1 · graphicx boxes
+
+graphicx's box commands set their argument in text mode, and work in math and inside `\text{…}` alike (the CircuiTikZ manual uses them in node labels):
+
+- `\scalebox{h}[v]{…}` scales the box by h across and v up (v is h when left out). A negative h mirrors it inside its own width, as `\reflectbox{…}` does (`\scalebox{-1}[1]`); a negative v turns it upside down, its height becoming its depth. Factors are kept between 0.05 and 20 in size.
+- `\resizebox{width}{height}{…}` scales it to that size; `!` for one of them keeps the ratio. `\resizebox*` counts the depth in the height.
+- `\rotatebox[origin=…]{angle}{…}` turns it counterclockwise, by degrees, and takes the smallest box around the turned one, as graphicx does. The turn is around the left end of the baseline; `origin` moves that point with graphicx's letters: `l`, `r` across, `t`, `b`, `B` (baseline) up and down, `c` the center; a direction it leaves out is centered (`origin=c`, `origin=lt`).
+- `\raisebox{lift}[height][depth]{…}` raises it, then gives it that height and depth, if asked: `\raisebox{0pt}[\height][0pt]{…}` (the manual's `\killdepth`) removes its depth, so labels with and without descenders share a baseline.
+
+The lengths take any TeX unit and the box's own `\width`, `\height`, `\depth` and `\totalheight`, with a factor (`2\height`); in `\raisebox`, those of the raised box. A length that cannot be read is an error in `\raisebox{lift}` and `\resizebox`; in `\raisebox`'s optional arguments it is ignored in tolerant mode (E-REC-9). Turned and unevenly scaled boxes are drawn through an SVG `matrix()` (S-SVG-5).
 
 ## Measured coverage
 

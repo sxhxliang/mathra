@@ -510,6 +510,21 @@ fn boxes_and_rules() {
     assert!(always_error(r"\raisebox{x}{a}").contains("unrecognized measure"));
     has(&tree(r"\scalebox{2}[1]{a}"), &["Scaled"]);
     assert!(always_error(r"\scalebox{dobro}{a}").contains("takes a number"));
+    // L-BOX-1: graphicx's lengths, factors and angles
+    has(&tree(r"\raisebox{0pt}[\height][0pt]{a}"), &["height: Some(BoxLength { em: 0.0, width: 0.0, height: 1.0", "depth: Some(BoxLength { em: 0.0,"]);
+    has(&tree(r"\raisebox{0pt}[-.5\totalheight]{a}"), &["height: -0.5, depth: -0.5"]);
+    has(&recovers(r"\raisebox{0pt}[alto]{a}", "E-REC-9"), &["height: None"]);
+    has(&tree(r"\scalebox{-1}[1]{a}"), &["factor: -1.0, vertical: Some(1.0)"]);
+    has(&tree(r"\scalebox{2}[2]{a}"), &["factor: 2.0, vertical: None"]);
+    assert!(always_error(r"\scalebox{1}[x]{a}").contains("takes numbers"));
+    assert!(always_error(r"\scalebox{inf}{a}").contains("takes a number"));
+    has(&tree(r"\resizebox{1cm}{!}{a}"), &["Resized", "height: None", "total: false"]);
+    has(&tree(r"\resizebox*{!}{\totalheight}{a}"), &["width: None", "total: true"]);
+    assert!(always_error(r"\resizebox{largo}{!}{a}").contains("unrecognized measure"));
+    has(&tree(r"\rotatebox{90}{a}"), &["Rotated { degrees: 90.0, origin: \"\""]);
+    has(&tree(r"\rotatebox[origin=br, units=360]{-30}{a}"), &["degrees: -30.0, origin: \"br\""]);
+    has(&tree(r"\rotatebox[origin]{30}{a}"), &["origin: \"c\""]);
+    assert!(always_error(r"\rotatebox{noventa}{a}").contains("takes a number"));
     has(&tree(r"\rule[1pt]{2em}{1ex}"), &["Rule"]);
     assert!(always_error(r"\rule{a}{b}").contains("unrecognized measures"));
     has(&tree(r"\smash[t]{x} \smash[b]{y}"), &["height: true, depth: false", "height: false, depth: true"]);
@@ -781,6 +796,38 @@ fn text_commands() {
     }
     has(&recovers(r"\text{a \@ b}", "E-REC-1"), &["@"]);
     has(&recovers(r"\text{a \foo b}", "E-REC-1"), &["\\\\foo"]);
+}
+
+#[test]
+fn l_txt_2_scripts_and_math_inside_text() {
+    // H₂O: the script of the text before it, as \textsubscript outside text
+    let t = tree(r"\text{H\textsubscript{2}O}");
+    has(&t, &["Text(\"H\")", "Math(Scripts", "sub: Some(Text", "Text(\"O\")"]);
+    has(&tree(r"\text{x\textsuperscript{th}}"), &["sup: Some(Text { parts: [Text(\"th\")]"]);
+    has(&tree(r"\text{n\textsuperscript 2}"), &["sup: Some"]);
+    // \ensuremath: math, whether in text or not
+    has(&tree(r"\text{a \ensuremath{x^2} b}"), &["Math(Scripts", "Italic"]);
+    assert_eq!(tree(r"\ensuremath{x}"), tree("x"));
+}
+
+#[test]
+fn l_txt_2_boldmath_until_the_end_of_its_group() {
+    let t = tree(r"\text{{\boldmath $x$} $y$}");
+    assert!(t.find("Bold").unwrap() < t.find("Italic").unwrap(), "{t}");
+    has(&tree(r"\text{\boldmath \ensuremath{x}}"), &["Bold"]);
+    assert!(!tree(r"\text{\boldmath\unboldmath $x$}").contains("Bold"));
+    // CircuiTikZ's op amp font: the size is the page's, the math bold
+    has(&tree(r"\text{\fontsize{10}{12}\selectfont\boldmath $V$}"), &["Bold"]);
+    assert!(!tree(r"\text{\fontsize{10}{12}\selectfont a}").contains("fontsize"));
+}
+
+#[test]
+fn l_txt_2_math_commands_in_text_read_as_math() {
+    has(&recovers(r"\text{\mathrm{V}}", "E-REC-1"), &["Math(Identifier", "Upright"]);
+    has(&recovers(r"\text{a \frac{1}{2} b}", "E-REC-1"), &["Math(Fraction"]);
+    has(&recovers(r"\text{\sqrt[3]{2}}", "E-REC-1"), &["Math(Root", "index: Some"]);
+    has(&recovers(r"\text{\operatorname*{argmax}}", "E-REC-1"), &["argmax"]);
+    has(&recovers(r"\text{\mathbb R}", "E-REC-1"), &["DoubleStruck"]);
 }
 
 #[test]

@@ -60,6 +60,19 @@ pub fn character(c: char, variant: Variant) -> char {
         '0'..='9' => digit.map(|d| d + (c as u32 - '0' as u32)),
         'Α'..='Ω' => greek_upper.map(|g| g + (c as u32 - 'Α' as u32)),
         'α'..='ω' => greek_lower.map(|g| g + (c as u32 - 'α' as u32)),
+        // the variant letters come after ω and ∂ in each block: ϵ ϑ ϰ ϕ ϱ ϖ (\epsilon, \vartheta,
+        // \varkappa, \phi, \varrho, \varpi), set in italic by TeX like the other lowercase Greek letters
+        'ϵ' | 'ϑ' | 'ϰ' | 'ϕ' | 'ϱ' | 'ϖ' => {
+            let from_alpha = match c {
+                'ϵ' => 26,
+                'ϑ' => 27,
+                'ϰ' => 28,
+                'ϕ' => 29,
+                'ϱ' => 30,
+                _ => 31,
+            };
+            greek_lower.map(|g| g + from_alpha)
+        }
         _ => None,
     };
     code.and_then(char::from_u32).unwrap_or(c)

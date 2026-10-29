@@ -22,6 +22,9 @@ pub enum Item {
     Line { x1: f32, y1: f32, x2: f32, y2: f32, thickness: f32, color: Option<String> },
     /// Ellipse outline (`\textcircled`).
     Ellipse { cx: f32, cy: f32, rx: f32, ry: f32, thickness: f32, color: Option<String> },
+    /// Items drawn through an affine map `[a, b, c, d, e, f]`: (x, y) → (a·x + c·y + e, b·x + d·y + f),
+    /// as SVG's `matrix()`. Turned and unevenly scaled boxes (`\rotatebox`, `\scalebox{2}[1]`).
+    Transformed { matrix: [f32; 6], items: Vec<Item> },
 }
 
 impl Item {
@@ -41,12 +44,22 @@ impl Item {
                 *cx += dx;
                 *cy += dy;
             }
+            Item::Transformed { matrix, .. } => {
+                matrix[4] += dx;
+                matrix[5] += dy;
+            }
         }
     }
 
     fn colorize(&mut self, new: &str) {
         let color = match self {
             Item::Glyph { color, .. } | Item::Rule { color, .. } | Item::Line { color, .. } | Item::Ellipse { color, .. } => color,
+            Item::Transformed { items, .. } => {
+                for item in items {
+                    item.colorize(new);
+                }
+                return;
+            }
         };
         if color.is_none() {
             *color = Some(new.to_string());
@@ -146,6 +159,11 @@ impl MathBox {
                     *ry *= f;
                     *thickness *= f;
                 }
+                Item::Transformed { matrix, .. } => {
+                    for m in matrix.iter_mut() {
+                        *m *= f;
+                    }
+                }
             }
         }
         self.width *= f;
@@ -171,10 +189,25 @@ impl MathBox {
                     *x2 = w - *x2;
                 }
                 Item::Ellipse { cx, .. } => *cx = w - *cx,
+                Item::Transformed { matrix, .. } => {
+                    matrix[0] = -matrix[0];
+                    matrix[2] = -matrix[2];
+                    matrix[4] = w - matrix[4];
+                }
             }
         }
         self.italic = 0.0;
         self.accent_point = self.accent_point.map(|p| w - p);
+        self.single_glyph = false;
+    }
+
+    /// Draws everything through the affine map `m` (see [`Item::Transformed`]). The width, height and
+    /// depth are the caller's to set.
+    pub fn transform(&mut self, m: [f32; 6]) {
+        let items = std::mem::take(&mut self.items);
+        self.items.push(Item::Transformed { matrix: m, items });
+        self.italic = 0.0;
+        self.accent_point = None;
         self.single_glyph = false;
     }
 
@@ -215,6 +248,17 @@ impl MathBox {
                 Item::Ellipse { cx, cy, rx, ry, thickness, .. } => {
                     let h = thickness / 2.0;
                     add(cx - rx - h, cy - ry - h, cx + rx + h, cy + ry + h);
+                }
+                // the corners of the inner ink, mapped: a turned box's ink fits inside them
+                Item::Transformed { ref matrix, ref items } => {
+                    let inner = MathBox { items: items.clone(), ..MathBox::default() };
+                    if let Some((x0, y0, x1, y1)) = inner.ink(f) {
+                        let [a, bb, c, d, e, g] = *matrix;
+                        for (x, y) in [(x0, y0), (x0, y1), (x1, y0), (x1, y1)] {
+                            let (px, py) = (a * x + c * y + e, bb * x + d * y + g);
+                            add(px, py, px, py);
+                        }
+                    }
                 }
             }
         }

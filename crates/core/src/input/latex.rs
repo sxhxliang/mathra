@@ -688,7 +688,7 @@ impl Reader<'_> {
         if self.definition(&name, col)? {
             return Ok(None);
         }
-        let star = if self.current() == Some('*') && matches!(name.as_str(), "operatorname" | "tag" | "smash") {
+        let star = if self.current() == Some('*') && matches!(name.as_str(), "operatorname" | "tag" | "smash" | "resizebox") {
             self.pos += 1;
             true
         } else {
@@ -1218,8 +1218,14 @@ impl Reader<'_> {
                 let unit = if matches!(name, "SIrange" | "qtyrange") { Some(self.raw_text()?) } else { None };
                 let a = self.listed_value(name, &a, unit.as_deref(), col)?;
                 let b = self.listed_value(name, &b, unit.as_deref(), col)?;
-                self.registry.note(rules::L_UNI_2, format!("\\{name}: range written with an en dash"));
-                Node::row(vec![a, Node::Operator { symbol: '–', class: Class::Rel }, b])
+                // siunitx's range-phrase: the language's "to", when the embedded font can write it, as for lists
+                let to = Some(self.locale.phrase("op.–")).filter(|w| w.chars().all(|c| crate::font::font().glyph(c).is_some()));
+                self.registry.note(rules::L_UNI_2, format!("\\{name}: range written with '{}'", to.unwrap_or("–")));
+                let between = match to {
+                    Some(to) => Node::Text { parts: vec![TextPart::Text(format!(" {to} "))] },
+                    None => Node::Operator { symbol: '–', class: Class::Rel },
+                };
+                Node::row(vec![a, between, b])
             }
             "SIlist" | "qtylist" | "numlist" | "anglist" => {
                 self.raw_optional();
@@ -1389,17 +1395,47 @@ impl Reader<'_> {
                 let base = if name.starts_with("math") { self.argument()? } else { self.text()? };
                 Node::Overlapped { base: Box::new(base), side }
             }
+            // graphicx's boxes, their argument in text mode
             "raisebox" => {
                 let measure = self.raw_text()?;
                 let em = measure_em(&measure).ok_or(Error::Syntax { column: col, message: format!("unrecognized measure: {measure}") })?;
-                self.raw_optional();
-                self.raw_optional();
-                Node::Raised { em, base: Box::new(self.text()?) }
+                let height = self.box_length(col)?;
+                let depth = if height.is_some() { self.box_length(col)? } else { None };
+                Node::Raised { em, height: height.flatten(), depth: depth.flatten(), base: Box::new(self.text()?) }
             }
             "scalebox" => {
-                let factor: f32 = self.raw_text()?.trim().parse().map_err(|_| Error::Syntax { column: col, message: "\\scalebox{factor}{…} takes a number".into() })?;
-                self.raw_optional();
-                Node::Scaled { factor: factor.clamp(0.05, 20.0), base: Box::new(self.text()?) }
+                let factor = |s: &str| s.trim().parse::<f32>().ok().filter(|f| f.is_finite()).map(|f| f.signum() * f.abs().clamp(0.05, 20.0));
+                let x = factor(&self.raw_text()?).ok_or(Error::Syntax { column: col, message: "\\scalebox{factor}{…} takes a number".into() })?;
+                let y = match self.raw_optional() {
+                    Some(y) => Some(factor(&y).ok_or(Error::Syntax { column: col, message: "\\scalebox{h}[v]{…} takes numbers".into() })?),
+                    None => None,
+                };
+                Node::Scaled { factor: x, vertical: y.filter(|y| *y != x), base: Box::new(self.text()?) }
+            }
+            "resizebox" => {
+                let mut size = Vec::with_capacity(2);
+                for _ in 0..2 {
+                    let raw = self.raw_text()?;
+                    size.push(match raw.trim() {
+                        "!" => None,
+                        m => match box_length(m) {
+                            Some(l) => Some(l),
+                            None => return self.error(col, format!("\\resizebox: unrecognized measure: {m}")),
+                        },
+                    });
+                }
+                Node::Resized { width: size[0], height: size[1], total: star, base: Box::new(self.text()?) }
+            }
+            "rotatebox" => {
+                // of the options, origin=…; x=, y= and units= are ignored
+                let options = self.raw_optional().unwrap_or_default();
+                let origin =
+                    options.split(',').find_map(|o| o.trim().strip_prefix("origin")).map(|o| o.trim_start().trim_start_matches('=').trim().to_string()).unwrap_or_default();
+                let origin = if options.contains("origin") && origin.is_empty() { "c".to_string() } else { origin };
+                let angle = self.raw_text()?;
+                let degrees =
+                    angle.trim().parse::<f32>().ok().filter(|a| a.is_finite()).ok_or(Error::Syntax { column: col, message: "\\rotatebox{angle}{…} takes a number".into() })?;
+                Node::Rotated { degrees: degrees % 360.0, origin, base: Box::new(self.text()?) }
             }
             "rule" => {
                 let raise = self.raw_optional().and_then(|m| measure_em(&m)).unwrap_or(0.0);
@@ -1553,6 +1589,19 @@ impl Reader<'_> {
         };
         items.push(node);
         Ok(None)
+    }
+
+    /// The optional `[length]` of a graphicx box: `None` without brackets; `Some(None)` for a length it
+    /// cannot read, ignored in tolerant mode (E-REC-9).
+    fn box_length(&mut self, col: usize) -> R<Option<Option<BoxLength>>> {
+        let Some(raw) = self.raw_optional() else { return Ok(None) };
+        match box_length(&raw) {
+            Some(l) => Ok(Some(Some(l))),
+            None => {
+                self.tolerate(rules::E_REC_9, col, format!("unrecognized measure: {}", raw.trim()), "ignored")?;
+                Ok(Some(None))
+            }
+        }
     }
 
     fn raw_measure(&mut self) -> String {
@@ -2015,7 +2064,10 @@ impl Reader<'_> {
         // end of the current group. Each entry is the group level and the marker that closes it.
         let mut level = 0usize;
         let mut open_until: Vec<(usize, char)> = Vec::new();
+        // L-TXT-2: \boldmath sets the math that follows in bold, until the end of its group
+        let mut bold_math: Option<usize> = None;
         while i < c.len() {
+            let math_variant = if bold_math.is_some() { Variant::Bold } else { Variant::Italic };
             match c[i] {
                 '$' => {
                     let end = c[i + 1..].iter().position(|&x| x == '$').map(|p| p + i + 1);
@@ -2029,7 +2081,7 @@ impl Reader<'_> {
                     if !current.is_empty() {
                         parts.push(TextPart::Text(std::mem::take(&mut current)));
                     }
-                    parts.push(TextPart::Math(self.sub_reader(&snippet, Variant::Italic)?));
+                    parts.push(TextPart::Math(self.sub_reader(&snippet, math_variant)?));
                     i = end + 1;
                 }
                 '~' => {
@@ -2044,6 +2096,9 @@ impl Reader<'_> {
                     while let Some(&(_, end)) = open_until.last().filter(|(at, _)| *at == level) {
                         open_until.pop();
                         current.push(end);
+                    }
+                    if bold_math == Some(level) {
+                        bold_math = None;
                     }
                     level = level.saturating_sub(1);
                     i += 1;
@@ -2062,7 +2117,7 @@ impl Reader<'_> {
                     if !current.is_empty() {
                         parts.push(TextPart::Text(std::mem::take(&mut current)));
                     }
-                    parts.push(TextPart::Math(self.sub_reader(&snippet, Variant::Italic)?));
+                    parts.push(TextPart::Math(self.sub_reader(&snippet, math_variant)?));
                     i = end + 2;
                 }
                 '\\' => {
@@ -2133,7 +2188,38 @@ impl Reader<'_> {
                             open_until.push((level, MONO_END));
                         }
                         "textit" | "emph" | "textrm" | "textsf" | "text" | "mbox" | "textup" | "textnormal" | "it" | "rm" | "sf" | "em" | "small" | "scriptsize"
-                        | "footnotesize" | "tiny" | "large" | "normalsize" | "mdseries" => {}
+                        | "footnotesize" | "tiny" | "large" | "normalsize" | "mdseries" | "selectfont" => {}
+                        // L-ENT-3: the size comes from whoever uses the SVG
+                        "fontsize" => {
+                            text_arguments(&c, &mut i, "{{");
+                        }
+                        "boldmath" => bold_math = Some(bold_math.map_or(level, |at| at.min(level))),
+                        "unboldmath" => bold_math = None,
+                        // L-TXT-2: commands that TeX sets as math inside text
+                        "textsubscript" | "textsuperscript" | "ensuremath" => {
+                            let tex = format!("\\{name}{}", text_arguments(&c, &mut i, "{"));
+                            if !current.is_empty() {
+                                parts.push(TextPart::Text(std::mem::take(&mut current)));
+                            }
+                            parts.push(TextPart::Math(self.sub_reader(&tex, math_variant)?));
+                        }
+                        // L-UNI-4: siunitx typesets its quantities in text as in math; L-BOX-1: graphicx's boxes
+                        other if siunitx_in_text(other).or(graphicx_box(other)).is_some() => {
+                            let tex = format!("\\{other}{}", text_arguments(&c, &mut i, siunitx_in_text(other).or(graphicx_box(other)).unwrap_or_default()));
+                            if !current.is_empty() {
+                                parts.push(TextPart::Text(std::mem::take(&mut current)));
+                            }
+                            parts.push(TextPart::Math(self.sub_reader(&tex, math_variant)?));
+                        }
+                        // E-REC-1: a math command in text is an error in TeX; read as math
+                        other if math_in_text(other).is_some() => {
+                            self.tolerate(rules::E_REC_1, col, format!("math command in text: \\{other}"), "read as math")?;
+                            let tex = format!("\\{other}{}", text_arguments(&c, &mut i, math_in_text(other).unwrap_or_default()));
+                            if !current.is_empty() {
+                                parts.push(TextPart::Text(std::mem::take(&mut current)));
+                            }
+                            parts.push(TextPart::Math(self.sub_reader(&tex, math_variant)?));
+                        }
                         "quad" => current.push('\u{2003}'),
                         "qquad" => current.push_str("\u{2003}\u{2003}"),
                         "ldots" | "dots" => current.push('…'),
@@ -2877,11 +2963,157 @@ fn negate(c: char) -> Option<char> {
     })
 }
 
+/// The arguments of a command inside text, as written, to read them again with the command: `spec` has
+/// `{` for each mandatory argument, `[` for each optional one and `*` for an optional star, in order. A
+/// mandatory argument without braces is one character or one command, as in TeX.
+fn text_arguments(c: &[char], i: &mut usize, spec: &str) -> String {
+    let mut out = String::new();
+    for kind in spec.chars() {
+        let mut k = *i;
+        while c.get(k) == Some(&' ') {
+            k += 1;
+        }
+        match kind {
+            '*' => {
+                if c.get(k) == Some(&'*') {
+                    out.push('*');
+                    *i = k + 1;
+                }
+            }
+            '[' => {
+                if c.get(k) != Some(&'[') {
+                    continue;
+                }
+                let mut depth = 0usize;
+                let end = (k + 1..c.len()).find(|&j| match c[j] {
+                    '{' => {
+                        depth += 1;
+                        false
+                    }
+                    '}' => {
+                        depth = depth.saturating_sub(1);
+                        false
+                    }
+                    ']' => depth == 0,
+                    _ => false,
+                });
+                if let Some(end) = end {
+                    out.extend(&c[k..=end]);
+                    *i = end + 1;
+                }
+            }
+            _ => match c.get(k) {
+                Some('{') => {
+                    let mut depth = 0usize;
+                    let mut j = k;
+                    while j < c.len() {
+                        match c[j] {
+                            '\\' => j += 1,
+                            '{' => depth += 1,
+                            '}' => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                        j += 1;
+                    }
+                    let end = j.min(c.len().saturating_sub(1));
+                    out.extend(&c[k..=end]);
+                    // an unclosed group is closed at the end, as raw_text does
+                    if j >= c.len() {
+                        out.push('}');
+                    }
+                    *i = end + 1;
+                }
+                Some('\\') => {
+                    let mut j = k + 1;
+                    while c.get(j).is_some_and(char::is_ascii_alphabetic) {
+                        j += 1;
+                    }
+                    let end = j.max(k + 2).min(c.len());
+                    out.push('{');
+                    out.extend(&c[k..end]);
+                    out.push('}');
+                    *i = end;
+                }
+                Some(&x) => {
+                    out.push('{');
+                    out.push(x);
+                    out.push('}');
+                    *i = k + 1;
+                }
+                None => {}
+            },
+        }
+    }
+    out
+}
+
+/// The siunitx commands, which work in text as in math, with their arguments (as for `text_arguments`).
+fn siunitx_in_text(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "SI" | "qty" | "SIlist" | "qtylist" | "SIproduct" | "qtyproduct" => "[{{",
+        "si" | "unit" | "ang" | "numlist" | "anglist" | "numproduct" => "[{",
+        "num" => "[{[",
+        "SIrange" | "qtyrange" => "[{{{",
+        "numrange" | "angrange" => "[{{",
+        _ => return None,
+    })
+}
+
+/// graphicx's box commands, with their arguments (as for `text_arguments`); their content is text.
+fn graphicx_box(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "scalebox" => "{[{",
+        "reflectbox" => "{",
+        "resizebox" => "*{{{",
+        "rotatebox" => "[{{",
+        "raisebox" => "{[[{",
+        _ => return None,
+    })
+}
+
+/// Math commands that authors write in text, with their arguments (as for `text_arguments`).
+fn math_in_text(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "mathrm" | "mathit" | "mathsf" | "mathtt" | "mathcal" | "mathbb" | "mathfrak" | "mathscr" | "mathbfit" | "mathnormal" | "boldsymbol" | "bm" => "{",
+        "frac" | "dfrac" | "tfrac" => "{{",
+        "sqrt" => "[{",
+        "operatorname" => "*{",
+        _ => return None,
+    })
+}
+
 fn is_integer(s: &str) -> bool {
     !s.is_empty() && s.len() <= 30 && s.chars().all(|c| c.is_ascii_digit())
 }
 
 /// Converts TeX measures to em (1em = 10pt in the 10pt font).
+/// A graphicx length: a measure (`1cm`, `0pt`) or a multiple of the box's `\width`, `\height`,
+/// `\depth` or `\totalheight` (`2\height`, `-.5\depth`).
+fn box_length(m: &str) -> Option<BoxLength> {
+    let m = m.trim();
+    for (name, l) in [
+        ("\\totalheight", BoxLength { height: 1.0, depth: 1.0, ..BoxLength::default() }),
+        ("\\height", BoxLength { height: 1.0, ..BoxLength::default() }),
+        ("\\depth", BoxLength { depth: 1.0, ..BoxLength::default() }),
+        ("\\width", BoxLength { width: 1.0, ..BoxLength::default() }),
+    ] {
+        if let Some(factor) = m.strip_suffix(name) {
+            let factor = match factor.trim() {
+                "" | "+" => 1.0,
+                "-" => -1.0,
+                f => f.replace(',', ".").parse::<f32>().ok().filter(|f| f.is_finite())?,
+            };
+            return Some(BoxLength { em: 0.0, width: l.width * factor, height: l.height * factor, depth: l.depth * factor });
+        }
+    }
+    measure_em(m).filter(|v| v.is_finite()).map(|em| BoxLength { em, ..BoxLength::default() })
+}
+
 fn measure_em(m: &str) -> Option<f32> {
     let m = m.trim().replace(',', ".");
     let units = [("em", 1.0), ("ex", 0.45), ("pt", 0.1), ("mu", 1.0 / 18.0), ("cm", 2.845), ("mm", 0.2845), ("in", 7.227), ("px", 0.075)];
@@ -3217,7 +3449,17 @@ impl Reader<'_> {
         let saved = self.pos;
         self.skip_spaces();
         let physics = match self.current() {
-            Some('(' | '[' | '|' | '<') => true,
+            Some('(' | '|' | '<') => true,
+            // \qty[options]{value}{unit} is siunitx's; physics's \qty[…] has no braces after it
+            Some('[') => {
+                let _ = self.raw_optional();
+                self.skip_spaces();
+                self.current() != Some('{') || {
+                    let _ = self.raw_text();
+                    self.skip_spaces();
+                    self.current() != Some('{')
+                }
+            }
             Some('{') => {
                 let _ = self.raw_text();
                 self.skip_spaces();

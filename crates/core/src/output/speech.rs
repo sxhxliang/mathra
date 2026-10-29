@@ -272,6 +272,8 @@ impl Speaker {
             | Node::Smashed { base, .. }
             | Node::Overlapped { base, .. }
             | Node::VCenter { base }
+            | Node::Resized { base, .. }
+            | Node::Rotated { base, .. }
             | Node::Reflected { base } => self.node(base),
             // the speech does not follow the style: \mathchoice reads as its text style's branch
             Node::Choice { branches } => {
