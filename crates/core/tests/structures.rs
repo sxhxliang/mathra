@@ -13,7 +13,7 @@ fn pt(tex: &str) -> mathra::Output {
 fn math_box(tex: &str) -> MathBox {
     let mut registry = Registry::default();
     let tree = mathra::input::latex::read(tex, Locale::PtBr, &mut registry).unwrap();
-    let mut ctx = Context { locale: Locale::PtBr, registry: &mut registry, strict: true };
+    let mut ctx = Context { locale: Locale::PtBr, registry: &mut registry, strict: true, kerning: Default::default() };
     compose(&tree, Style::display(), &mut ctx).unwrap()
 }
 

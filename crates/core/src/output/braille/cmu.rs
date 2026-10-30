@@ -384,7 +384,7 @@ impl Writer {
 
     fn text(&mut self, t: &str) {
         let mut digits = String::new();
-        for c in t.chars().filter(|c| !matches!(c, '\u{E000}'..='\u{E005}')) {
+        for c in t.chars().filter(|c| !crate::input::latex::MARKERS.contains(c)) {
             if c.is_ascii_digit() {
                 digits.push(c);
                 continue;

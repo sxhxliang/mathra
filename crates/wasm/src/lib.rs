@@ -21,7 +21,7 @@ pub fn convert_with(
     let locale = locale.map_or(Ok(mathra::Locale::default()), str::parse)?;
     let input = input.map_or(Ok(mathra::Input::default()), str::parse)?;
     let braille = braille.map(str::parse).transpose()?;
-    mathra::convert(tex, &mathra::Options { locale, display, strict, input, braille, animate, steps }).map_err(|e| e.to_string())
+    mathra::convert(tex, &mathra::Options { locale, display, strict, input, braille, animate, steps, ..Default::default() }).map_err(|e| e.to_string())
 }
 
 /// Everything at once, as JSON: `svg`, `speech`, `text`, `braille`, `braille_code`, `tree`, `applied` and `warnings`.

@@ -213,3 +213,12 @@ fn l_che_1_gas_and_precipitate_marks() {
     let r = en(r"\ce{CO2 ^ + AgCl v}");
     assert_eq!(r.text, "CO_2↑ + AgCl↓");
 }
+
+#[test]
+fn l_che_1_ce_and_pu_inside_text() {
+    // as in math, between the words of the text
+    let t = tree(r"\text{water, \ce{H2O}, at \pu{20 mol}}");
+    assert_eq!(t, tree(r"\text{water, $\ce{H2O}$, at $\pu{20 mol}$}"));
+    has(&t, &["Text(\"water, \")", "Math(Row { children: [Scripts", "Quantity"]);
+    assert_eq!(en(r"\text{water, \ce{H2O}}").text, en(r"\text{water, }\ce{H2O}").text);
+}

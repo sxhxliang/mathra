@@ -70,7 +70,7 @@ With the `chem` feature (on by default), `\chemfig{…}`, `\schemestart … \sch
 
 ### L-CHE-1 · mhchem
 
-`\ce{…}` reads chemical formulas: element symbols upright, digits after them as subscripts, charges as superscripts (`Ag+`, `SO4^2-`, `[H+]`), radicals (`^{.}` → •), oxidation states (`^{II}`), states (`(aq)`, `(s)`, `(l)`, `(g)`), isotopes on an empty base (`^{14}_{6}C`) and bonds (`-`, `=`, `#`, `\bond{…}`), which are drawn as lines and are not read as minus, equals or congruence. Coefficients may be integers, decimals (`0.5`), fractions (`1/2`, drawn small) or math (`$x$`, or a lone lowercase letter); after the dot of a hydrate (`CuSO4.5H2O`, also `*`) a number is a coefficient again, not a subscript. The arrows are `->`, `<-`, `<->` (resonance), `<-->`, `<=>`, `<=>>` and `<<=>`; `[above][below]` right after an arrow are labels, read as `\ce` themselves, and the arrow stretches over them. `\frac{…}{…}` inside `\ce` keeps formulas in numerator and denominator, and any other command (`\Delta`) is read as math. `\pu{123 kJ mol^-1}` writes a quantity with mhchem's unit syntax.
+`\ce{…}` reads chemical formulas: element symbols upright, digits after them as subscripts, charges as superscripts (`Ag+`, `SO4^2-`, `[H+]`), radicals (`^{.}` → •), oxidation states (`^{II}`), states (`(aq)`, `(s)`, `(l)`, `(g)`), isotopes on an empty base (`^{14}_{6}C`) and bonds (`-`, `=`, `#`, `\bond{…}`), which are drawn as lines and are not read as minus, equals or congruence. Coefficients may be integers, decimals (`0.5`), fractions (`1/2`, drawn small) or math (`$x$`, or a lone lowercase letter); after the dot of a hydrate (`CuSO4.5H2O`, also `*`) a number is a coefficient again, not a subscript. The arrows are `->`, `<-`, `<->` (resonance), `<-->`, `<=>`, `<=>>` and `<<=>`; `[above][below]` right after an arrow are labels, read as `\ce` themselves, and the arrow stretches over them. `\frac{…}{…}` inside `\ce` keeps formulas in numerator and denominator, and any other command (`\Delta`) is read as math. `\pu{123 kJ mol^-1}` writes a quantity with mhchem's unit syntax. Both work inside `\text{…}` (and every text argument) as in math, as mhchem typesets them in text too (`\text{water, \ce{H2O}}`).
 
 ## Input coming from other systems
 
@@ -104,8 +104,26 @@ Inside `\text{…}` (and every text argument), these are set as LaTeX sets them:
 - `\textsubscript{…}` and `\textsuperscript{…}`: a script of the text before it (`H\textsubscript{2}O`).
 - `\ensuremath{…}`: its argument as math, as `$…$` would.
 - `\boldmath`: the math that follows (`$…$`, `\(…\)`, `\ensuremath`) is bold, until the end of the group it is in; `\unboldmath` ends it.
+- An environment that starts math, up to its `\end`: the displays `equation`, `align`, `gather`, `multline`, `flalign`, `alignat`, `eqnarray`, `displaymath` and `math` (and their `*` forms), read as math like `\[…\]`.
+- Math does not end the text's style: in `\textbf{a $x$ b}`, b is bold, as are the letters after math in `\textsc`, `\texttt` and `\bf`, `\scshape`, `\ttfamily` until the end of their group. The math itself is not (that is `\boldmath`).
 
-A math command written in text (`\mathrm{V}`, `\frac{1}{2}`, `\sqrt{2}`) is an error in TeX: strict mode refuses it, and tolerant mode reads it as math, with a warning (E-REC-1).
+A math command written in text (`\mathrm{V}`, `\frac{1}{2}`, `\sqrt{2}`) is an error in TeX: strict mode refuses it, and tolerant mode reads it as math, with a warning (E-REC-1). So is an environment TeX allows only in math (`array`, `matrix`, `pmatrix` and the other matrices, `cases`, `aligned`, `gathered`, `split`, `subarray`), read as math up to its `\end`.
+
+### L-TXT-3 · Space inside text
+
+Inside `\text{…}` (and every text argument), `\hspace{…}` and `\hspace*{…}` add a space of that length (`a\hspace{1cm}b`). `\phantom{…}` leaves the room its argument takes, read as text, without drawing it; `\hphantom{…}` keeps only its width and `\vphantom{…}` only its height.
+
+A text is a box of its natural width, as `\text{…}` is in TeX: `\hfill`, `\hfil` and `\hss` take no room in it (`1 \hfill IA` is `1 IA`), and a line break, `\newline` or `\linebreak` (with its optional `[n]`), is a space, as `\\` is.
+
+### L-TXT-4 · Color inside text
+
+Inside `\text{…}` (and every text argument), `\textcolor{color}{…}` sets its argument in that color, and `\color{color}` the rest of the group it is in (`{\color{red}warm} and cold`), with the color models of math (`\color[rgb]{0.2,0.4,0.6}`). The colored text keeps the bold, small capitals or monospace around it, and the math in it is colored too.
+
+### L-TXT-5 · Italic inside text
+
+Inside `\text{…}` (and every text argument), `\textit{…}` and `\emph{…}` set their argument in italic, and `\itshape`, `\it` and `\em` the rest of their group; `\textit{…}` in math is text in italic. Italic text is a text font: its letters sit side by side, with no italic correction between them, nor after a word. After `\textit{…}` and `\emph{…}` comes the italic correction of their last letter, as LaTeX adds it (`\/`), except before a period or a comma. Italic goes on after math in its group, as bold does, and inside a color.
+
+`\mathit{…}`'s font is a text font too: its letters make one word, with no italic correction between them (TeXbook, Appendix G, rule 17), where the math italic of `$ff$` has one after each letter.
 
 ## Macros
 

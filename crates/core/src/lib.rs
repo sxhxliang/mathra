@@ -103,11 +103,13 @@ pub struct Options {
     /// Each element of the SVG numbered by that order (`data-step`, and `data-steps` on the `<svg>`),
     /// with no CSS: for a page that walks through the equation itself. The animation numbers them too.
     pub steps: bool,
+    /// Text kerned as TeX's OT1 or T1 fonts kern it; none by default.
+    pub text_kerning: layout::kerning::TextKerning,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { locale: Locale::default(), display: true, strict: false, input: Input::Latex, braille: None, animate: false, steps: false }
+        Options { locale: Locale::default(), display: true, strict: false, input: Input::Latex, braille: None, animate: false, steps: false, text_kerning: Default::default() }
     }
 }
 
@@ -197,8 +199,8 @@ fn convert_internal(tex: &str, options: &Options, font: font::MathFont, native: 
     let (tree, input) = read(tex, options, &mut registry)?;
     let style = if options.display { layout::Style::display() } else { layout::Style::text() }.in_font(font);
     let math_box = {
-        let mut ctx = layout::Context { locale: options.locale, registry: &mut registry, strict: options.strict };
-        layout::compose(&tree, style, &mut ctx)?
+        let mut ctx = layout::Context { locale: options.locale, registry: &mut registry, strict: options.strict, kerning: options.text_kerning };
+        layout::compose_list(&tree, style, &mut ctx)?
     };
     let speech = output::speech::speak(&tree, options.locale);
     let text = output::text::linear(&tree, options.locale);
@@ -241,8 +243,8 @@ pub fn typeset_in_font(tex: &str, options: &Options, font: font::MathFont) -> Re
     let mut registry = rules::Registry::default();
     let (tree, _) = read(tex, options, &mut registry)?;
     let style = if options.display { layout::Style::display() } else { layout::Style::text() }.in_font(font);
-    let mut ctx = layout::Context { locale: options.locale, registry: &mut registry, strict: options.strict };
-    let math_box = layout::compose(&tree, style, &mut ctx)?;
+    let mut ctx = layout::Context { locale: options.locale, registry: &mut registry, strict: options.strict, kerning: options.text_kerning };
+    let math_box = layout::compose_list(&tree, style, &mut ctx)?;
     registry.dedup();
     Ok((math_box, registry.warnings))
 }

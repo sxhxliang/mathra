@@ -4,6 +4,46 @@ What changed in each release of mathra: the crates `mathra` and `mathra-cli`, `@
 
 Each release has a headline (the line under its title), what changed, and the equations that show it (`Equations:`): a name from the gallery ([`corpus/gallery.json`](corpus/gallery.json)) or the LaTeX itself, drawn by the site with today's mathra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
+## 1.9.1 - 2026-10-29
+
+Italic text set as a text font sets it, and `\mathit`'s letters as one word.
+
+- Inside `\text{…}`, `\textit{…}` and `\emph{…}` set their argument in italic and `\itshape`, `\it` and `\em` the rest of their group, with no italic correction between the letters or after a word; after `\textit{…}` and `\emph{…}` comes their last letter's correction, as LaTeX's `\/`, except before a period or a comma. `\textit{…}` in math is text in italic (L-TXT-5, [#93](https://github.com/matheusmota-dev-br/mathra/issues/93)).
+- `\mathit{…}`'s letters make one word, with no italic correction between them, as in TeX's text font: since 1.9.0 each letter had one, as in math italic ([#92](https://github.com/matheusmota-dev-br/mathra/issues/92)).
+
+Equations: `\text{an \emph{italic} word, {\itshape and more}}`, `\mathit{diff} \ne diff`
+
+## 1.9.0 - 2026-10-29
+
+Chemistry, color, fills and math environments inside text, and TeX's italic correction at the end of a formula.
+
+- Inside `\text{…}`, mhchem's `\ce{…}` and `\pu{…}` are read as in math (`\text{water, \ce{H2O}}`), instead of being written as is (L-CHE-1, [#84](https://github.com/matheusmota-dev-br/mathra/issues/84)).
+- Inside `\text{…}`, `\color{…}` (also `\color[model]{…}`) colors the rest of its group and `\textcolor{…}{…}` its argument, math included, keeping the text's bold, small capitals or monospace (L-TXT-4, [#85](https://github.com/matheusmota-dev-br/mathra/issues/85)).
+- Inside `\text{…}`, `\hfill`, `\hfil` and `\hss` take no room, as in a box of natural width, and `\newline` and `\linebreak` are a space, as `\\` is (L-TXT-3, [#86](https://github.com/matheusmota-dev-br/mathra/issues/86)).
+- Inside `\text{…}`, `\begin{equation}`, `align`, `gather`, `multline` and the other displays are read as math up to their `\end`, like `\[…\]`; `array`, `pmatrix`, `cases`, `aligned` and the other math-only environments too, with a warning (E-REC-1), since TeX refuses them in text (L-TXT-2, [#87](https://github.com/matheusmota-dev-br/mathra/issues/87)).
+- A slanted letter that ends a math list gets its italic correction after it, as TeX does (Appendix G, rule 17). That covers the end of the formula, of a script, a fraction's parts, a radicand, a phantom, a lap and a table cell. In scripts, the base letter's correction stands in at the script's size. `$V$` was 5.83pt wide, TeX gives 8.06pt ([#89](https://github.com/matheusmota-dev-br/mathra/issues/89)).
+- `layout::compose_list`: a math list composed on its own, with that correction.
+
+Equations: `\text{water, \ce{H2O}, at \pu{20 mol}}`, `\text{the {\color{red}warm} and {\color{blue}cold} sides}`, `\text{so \begin{align*}a&=1\\b&=2\end{align*}}`, `V = f`, `V_0 + R_1`, `\frac{V}{f}`, `\sqrt{f}`
+
+## 1.8.0 - 2026-10-29
+
+Space and phantoms inside text, and text kerned as TeX kerns it.
+
+- Inside `\text{…}`, `\hspace{…}` and `\hspace*{…}` add their space, and `\phantom`, `\hphantom` and `\vphantom` leave the room of their argument, instead of being written in red (L-TXT-3, [#79](https://github.com/matheusmota-dev-br/mathra/issues/79)).
+- `Options::text_kerning`: text in `\text{…}` kerned by the pairs of TeX's OT1 Computer Modern (`cmr10`, `cmbx10`) or T1 Latin Modern (`ec-lmr10`, `ec-lmbx10`) fonts, as TeX's tables do (`va`, `AV`, `To`); none by default, as before (#81).
+- Code that builds an `Options` or a `layout::Context` listing every field needs the new one (`..Default::default()`) (#81).
+
+Equations: `\text{a\hspace{1cm}b}`, `\text{a\phantom{xy}b}`, `\text{AVA Today}`
+
+## 1.7.1 - 2026-10-29
+
+Bold text stays bold after math inside it.
+
+- Inside `\text{…}`, the text after math (`$…$`, `\(…\)`, `\ensuremath`, `\textsubscript`, siunitx, graphicx boxes) keeps the bold, small capitals or monospace of its group: in `\textbf{Z $x$ Z}` the second Z was upright ([#77](https://github.com/matheusmota-dev-br/mathra/pull/77)).
+
+Equations: `\text{\textbf{Z $x$ Z} and \textsc{Small $x$ Caps}}`
+
 ## 1.7.0 - 2026-10-29
 
 Labels as LaTeX sets them: subscripts, siunitx and graphicx boxes inside text, and `\phi` in italic.

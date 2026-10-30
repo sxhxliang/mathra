@@ -6,7 +6,7 @@ fn convert(tex: &str, locale: &str, display: bool, strict: bool, input: &str, br
     let locale = locale.parse().map_err(PyValueError::new_err)?;
     let input = input.parse().map_err(PyValueError::new_err)?;
     let braille = braille.map(str::parse).transpose().map_err(PyValueError::new_err)?;
-    mathra::convert(tex, &mathra::Options { locale, display, strict, input, braille, animate, steps }).map_err(|e| PyValueError::new_err(e.to_string()))
+    mathra::convert(tex, &mathra::Options { locale, display, strict, input, braille, animate, steps, ..Default::default() }).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
 /// Converts an equation (LaTeX, MathML or AsciiMath, by `input`) to SVG.

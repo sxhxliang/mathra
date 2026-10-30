@@ -69,8 +69,13 @@ pub const SMALL_CAPS_END: char = '\u{E003}';
 /// Typewriter markers (`\texttt{…}`, `\url{…}`).
 pub const MONO_START: char = '\u{E004}';
 pub const MONO_END: char = '\u{E005}';
+/// Italic markers (`\itshape`); `\textit{…}` and `\emph{…}` close with the second end, after which
+/// LaTeX adds the italic correction of the last letter (none before a period or a comma).
+pub const ITALIC_START: char = '\u{E006}';
+pub const ITALIC_END: char = '\u{E007}';
+pub const ITALIC_CORRECTED_END: char = '\u{E008}';
 /// Every marker, for the outputs that drop them.
-pub const MARKERS: [char; 6] = [BOLD_START, BOLD_END, SMALL_CAPS_START, SMALL_CAPS_END, MONO_START, MONO_END];
+pub const MARKERS: [char; 9] = [BOLD_START, BOLD_END, SMALL_CAPS_START, SMALL_CAPS_END, MONO_START, MONO_END, ITALIC_START, ITALIC_END, ITALIC_CORRECTED_END];
 
 /// L-ENT-1 and L-ENT-2: HTML entities and outer delimiters that arrive with the equation.
 fn prepare(tex: &str, registry: &mut Registry, strict: bool) -> String {
@@ -144,6 +149,22 @@ struct Reader<'a> {
 }
 
 type R<T> = Result<T, Error>;
+
+/// Neighbor letters of one variant as one identifier: a word, as a text font sets it.
+fn words(node: Node) -> Node {
+    let Node::Row { children } = node else { return node };
+    let mut merged: Vec<Node> = Vec::with_capacity(children.len());
+    for child in children {
+        if let (Some(Node::Identifier { name, variant }), Node::Identifier { name: next, variant: v }) = (merged.last_mut(), &child) {
+            if variant == v && name.chars().chain(next.chars()).all(char::is_alphabetic) {
+                name.push_str(next);
+                continue;
+            }
+        }
+        merged.push(child);
+    }
+    Node::row(merged).simplify()
+}
 
 impl Reader<'_> {
     // ---------- utilities ----------
@@ -940,7 +961,7 @@ impl Reader<'_> {
         let _ = (col, start, star);
         let node: Node = match name {
             // text and fonts
-            "text" | "textrm" | "textnormal" | "textup" | "mbox" | "hbox" | "textit" | "textsf" | "emph" | "textmd" | "textsl" | "fbox" | "framebox" => {
+            "text" | "textrm" | "textnormal" | "textup" | "mbox" | "hbox" | "textsf" | "textmd" | "textsl" | "fbox" | "framebox" => {
                 let text = self.text()?;
                 if matches!(name, "fbox" | "framebox") {
                     Node::Framed { base: Box::new(text), shape: Frame::Rectangle, background: None, border: None }
@@ -948,10 +969,11 @@ impl Reader<'_> {
                     text
                 }
             }
-            "textsc" | "textbf" | "texttt" => {
+            "textsc" | "textbf" | "texttt" | "textit" | "emph" => {
                 let (open, close) = match name {
                     "textsc" => (SMALL_CAPS_START, SMALL_CAPS_END),
                     "textbf" => (BOLD_START, BOLD_END),
+                    "textit" | "emph" => (ITALIC_START, ITALIC_CORRECTED_END),
                     _ => (MONO_START, MONO_END),
                 };
                 match self.text()? {
@@ -990,7 +1012,14 @@ impl Reader<'_> {
                     _ => Variant::Fraktur,
                 };
                 let raw = self.raw_text()?;
-                self.sub_reader(&raw, variant)?
+                let node = self.sub_reader(&raw, variant)?;
+                // \mathit's font is a text font (cmti, cmbxti): its letters make words, with no
+                // italic correction between them (TeXbook, Appendix G, rule 17)
+                if matches!(name, "mathit" | "mathbfit") {
+                    words(node)
+                } else {
+                    node
+                }
             }
             "operatorname" => {
                 let raw = self.raw_text()?;
@@ -2078,9 +2107,7 @@ impl Reader<'_> {
                         continue;
                     };
                     let snippet: String = c[i + 1..end].iter().collect();
-                    if !current.is_empty() {
-                        parts.push(TextPart::Text(std::mem::take(&mut current)));
-                    }
+                    split_text(&mut parts, &mut current, &open_until);
                     parts.push(TextPart::Math(self.sub_reader(&snippet, math_variant)?));
                     i = end + 1;
                 }
@@ -2114,9 +2141,7 @@ impl Reader<'_> {
                         continue;
                     };
                     let snippet: String = c[i + 2..end].iter().collect();
-                    if !current.is_empty() {
-                        parts.push(TextPart::Text(std::mem::take(&mut current)));
-                    }
+                    split_text(&mut parts, &mut current, &open_until);
                     parts.push(TextPart::Math(self.sub_reader(&snippet, math_variant)?));
                     i = end + 2;
                 }
@@ -2187,8 +2212,17 @@ impl Reader<'_> {
                             current.push(MONO_START);
                             open_until.push((level, MONO_END));
                         }
-                        "textit" | "emph" | "textrm" | "textsf" | "text" | "mbox" | "textup" | "textnormal" | "it" | "rm" | "sf" | "em" | "small" | "scriptsize"
-                        | "footnotesize" | "tiny" | "large" | "normalsize" | "mdseries" | "selectfont" => {}
+                        // L-TXT-5: italic text
+                        "textit" | "emph" => {
+                            current.push(ITALIC_START);
+                            open_until.push((level + 1, ITALIC_CORRECTED_END));
+                        }
+                        "it" | "itshape" | "em" => {
+                            current.push(ITALIC_START);
+                            open_until.push((level, ITALIC_END));
+                        }
+                        "textrm" | "textsf" | "text" | "mbox" | "textup" | "textnormal" | "rm" | "sf" | "small" | "scriptsize" | "footnotesize" | "tiny" | "large"
+                        | "normalsize" | "mdseries" | "selectfont" => {}
                         // L-ENT-3: the size comes from whoever uses the SVG
                         "fontsize" => {
                             text_arguments(&c, &mut i, "{{");
@@ -2198,27 +2232,91 @@ impl Reader<'_> {
                         // L-TXT-2: commands that TeX sets as math inside text
                         "textsubscript" | "textsuperscript" | "ensuremath" => {
                             let tex = format!("\\{name}{}", text_arguments(&c, &mut i, "{"));
-                            if !current.is_empty() {
-                                parts.push(TextPart::Text(std::mem::take(&mut current)));
+                            split_text(&mut parts, &mut current, &open_until);
+                            parts.push(TextPart::Math(self.sub_reader(&tex, math_variant)?));
+                        }
+                        // L-CHE-1: mhchem typesets its formulas and quantities in text as in math
+                        "ce" | "pu" => {
+                            let tex = format!("\\{name}{}", text_arguments(&c, &mut i, "{"));
+                            split_text(&mut parts, &mut current, &open_until);
+                            parts.push(TextPart::Math(self.sub_reader(&tex, math_variant)?));
+                        }
+                        // L-TXT-4: \textcolor colors its argument, \color the rest of its group; the
+                        // colored text keeps the bold, small capitals and monospace around it
+                        "textcolor" | "color" => {
+                            let color = text_arguments(&c, &mut i, "[{");
+                            let body = if name == "textcolor" {
+                                let arg = text_arguments(&c, &mut i, "{");
+                                arg[1..arg.len() - 1].to_string()
+                            } else {
+                                let end = group_end(&c, i);
+                                let rest: String = c[i..end].iter().collect();
+                                i = end;
+                                rest
+                            };
+                            let mut styles: String = open_until
+                                .iter()
+                                .map(|&(_, end)| match end {
+                                    BOLD_END => "\\bfseries ",
+                                    SMALL_CAPS_END => "\\scshape ",
+                                    ITALIC_END | ITALIC_CORRECTED_END => "\\itshape ",
+                                    _ => "\\ttfamily ",
+                                })
+                                .collect();
+                            if bold_math.is_some() {
+                                styles.push_str("\\boldmath ");
                             }
+                            split_text(&mut parts, &mut current, &open_until);
+                            parts.push(TextPart::Math(self.sub_reader(&format!("\\textcolor{color}{{\\text{{{styles}{body}}}}}"), math_variant)?));
+                        }
+                        // L-TXT-3: a text is a box of its natural width, where the fills take no room; a
+                        // line break, which one line of text cannot hold, is a space, as `\\` is
+                        "hfill" | "hfil" | "hss" => {}
+                        "newline" | "linebreak" => {
+                            text_arguments(&c, &mut i, "[");
+                            current.push(' ');
+                        }
+                        // L-TXT-2: an environment that starts math, read as math up to its \end
+                        "begin" if math_environment(&environment_name(&c, i)).is_some() => {
+                            let env = environment_name(&c, i);
+                            if math_environment(&env) == Some(false) {
+                                self.tolerate(rules::E_REC_1, col, format!("math environment in text: {env}"), "read as math")?;
+                            }
+                            let end = environment_end(&c, i, &env);
+                            let mut tex = format!("\\begin{}", c[i..end.unwrap_or(c.len())].iter().collect::<String>());
+                            if end.is_none() {
+                                self.tolerate(rules::E_REC_5, col, format!("\\begin{{{env}}} without \\end{{{env}}}"), "closed at the end")?;
+                                tex.push_str(&format!("\\end{{{env}}}"));
+                            }
+                            i = end.unwrap_or(c.len());
+                            split_text(&mut parts, &mut current, &open_until);
                             parts.push(TextPart::Math(self.sub_reader(&tex, math_variant)?));
                         }
                         // L-UNI-4: siunitx typesets its quantities in text as in math; L-BOX-1: graphicx's boxes
                         other if siunitx_in_text(other).or(graphicx_box(other)).is_some() => {
                             let tex = format!("\\{other}{}", text_arguments(&c, &mut i, siunitx_in_text(other).or(graphicx_box(other)).unwrap_or_default()));
-                            if !current.is_empty() {
-                                parts.push(TextPart::Text(std::mem::take(&mut current)));
-                            }
+                            split_text(&mut parts, &mut current, &open_until);
                             parts.push(TextPart::Math(self.sub_reader(&tex, math_variant)?));
                         }
                         // E-REC-1: a math command in text is an error in TeX; read as math
                         other if math_in_text(other).is_some() => {
                             self.tolerate(rules::E_REC_1, col, format!("math command in text: \\{other}"), "read as math")?;
                             let tex = format!("\\{other}{}", text_arguments(&c, &mut i, math_in_text(other).unwrap_or_default()));
-                            if !current.is_empty() {
-                                parts.push(TextPart::Text(std::mem::take(&mut current)));
-                            }
+                            split_text(&mut parts, &mut current, &open_until);
                             parts.push(TextPart::Math(self.sub_reader(&tex, math_variant)?));
+                        }
+                        // L-TXT-3: space inside text, set by the math reader, which knows lengths and phantoms
+                        "hspace" => {
+                            let tex = format!("\\hspace{}", text_arguments(&c, &mut i, "*{"));
+                            split_text(&mut parts, &mut current, &open_until);
+                            parts.push(TextPart::Math(self.sub_reader(&tex, math_variant)?));
+                        }
+                        "phantom" | "hphantom" | "vphantom" => {
+                            // the argument stays text: the room it takes is the text's
+                            let arg = text_arguments(&c, &mut i, "{");
+                            let arg = if arg.starts_with('{') { arg } else { format!("{{{arg}}}") };
+                            split_text(&mut parts, &mut current, &open_until);
+                            parts.push(TextPart::Math(self.sub_reader(&format!("\\{name}{{\\text{arg}}}"), math_variant)?));
                         }
                         "quad" => current.push('\u{2003}'),
                         "qquad" => current.push_str("\u{2003}\u{2003}"),
@@ -2963,6 +3061,25 @@ fn negate(c: char) -> Option<char> {
     })
 }
 
+/// The text so far as a part of its own, before math inside it: each part is set apart, so the bold,
+/// small capitals and monospace still open (`open`, by their closing markers) are closed at its end
+/// and opened again in the text that follows (`\textbf{a $x$ b}`: b is bold too). Text of markers
+/// alone stays, to go on after the math.
+fn split_text(parts: &mut Vec<TextPart>, current: &mut String, open: &[(usize, char)]) {
+    if current.chars().all(|c| MARKERS.contains(&c)) {
+        return;
+    }
+    let mut done = std::mem::take(current);
+    done.extend(open.iter().rev().map(|&(_, end)| end));
+    parts.push(TextPart::Text(done));
+    current.extend(open.iter().map(|&(_, end)| match end {
+        BOLD_END => BOLD_START,
+        SMALL_CAPS_END => SMALL_CAPS_START,
+        ITALIC_END | ITALIC_CORRECTED_END => ITALIC_START,
+        _ => MONO_START,
+    }));
+}
+
 /// The arguments of a command inside text, as written, to read them again with the command: `spec` has
 /// `{` for each mandatory argument, `[` for each optional one and `*` for an optional star, in order. A
 /// mandatory argument without braces is one character or one command, as in TeX.
@@ -3085,6 +3202,68 @@ fn math_in_text(name: &str) -> Option<&'static str> {
         "operatorname" => "*{",
         _ => return None,
     })
+}
+
+/// Environments that start math, read in text: `Some(true)` for the displays, which TeX allows in a
+/// paragraph, `Some(false)` for those TeX allows only in math.
+fn math_environment(name: &str) -> Option<bool> {
+    match name.trim_end_matches('*') {
+        "equation" | "align" | "alignat" | "gather" | "multline" | "flalign" | "eqnarray" | "displaymath" | "math" => Some(true),
+        "array" | "matrix" | "pmatrix" | "bmatrix" | "Bmatrix" | "vmatrix" | "Vmatrix" | "smallmatrix" | "cases" | "dcases" | "rcases" | "aligned" | "alignedat" | "gathered"
+        | "split" | "subarray" => Some(false),
+        _ => None,
+    }
+}
+
+/// The name in `{name}` at `c[i]` (after spaces), or nothing.
+fn environment_name(c: &[char], i: usize) -> String {
+    let rest = c[i..].iter().skip_while(|&&x| x == ' ');
+    let mut rest = rest.peekable();
+    if rest.next() != Some(&'{') {
+        return String::new();
+    }
+    rest.take_while(|&&x| x != '}').collect()
+}
+
+/// Where the environment `name` that starts at `c[i]` ends: after its `\end{name}`, counting the ones
+/// nested in it; nothing if it does not end.
+fn environment_end(c: &[char], i: usize, name: &str) -> Option<usize> {
+    let open: Vec<char> = format!("\\begin{{{name}}}").chars().collect();
+    let close: Vec<char> = format!("\\end{{{name}}}").chars().collect();
+    let mut level = 0;
+    let mut k = i;
+    while k < c.len() {
+        if c[k..].starts_with(&open) {
+            level += 1;
+            k += open.len();
+        } else if c[k..].starts_with(&close) {
+            if level == 0 {
+                return Some(k + close.len());
+            }
+            level -= 1;
+            k += close.len();
+        } else {
+            k += 1;
+        }
+    }
+    None
+}
+
+/// Where the group that `c[i]` is in closes: its `}`, or the end of the text.
+fn group_end(c: &[char], i: usize) -> usize {
+    let mut depth = 0usize;
+    let mut k = i;
+    while k < c.len() {
+        match c[k] {
+            '\\' => k += 1,
+            '{' => depth += 1,
+            '}' if depth == 0 => return k,
+            '}' => depth -= 1,
+            _ => {}
+        }
+        k += 1;
+    }
+    c.len()
 }
 
 fn is_integer(s: &str) -> bool {

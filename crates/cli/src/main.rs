@@ -67,7 +67,16 @@ struct Args {
 
 impl Args {
     fn options(&self) -> Options {
-        Options { locale: self.locale, display: self.display, strict: self.strict, input: self.input, braille: self.braille, animate: self.animate, steps: self.steps }
+        Options {
+            locale: self.locale,
+            display: self.display,
+            strict: self.strict,
+            input: self.input,
+            braille: self.braille,
+            animate: self.animate,
+            steps: self.steps,
+            ..Default::default()
+        }
     }
 }
 

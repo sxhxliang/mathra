@@ -43,7 +43,7 @@ fn assert_valid_svg(svg: &str, tex: &str) {
 /// Composes a hand-built tree (for nodes the reader only produces in rare combinations).
 fn compose_node(node: &Node, e: Style, strict: bool) -> Result<MathBox, Error> {
     let mut registry = Registry::default();
-    let mut ctx = Context { locale: Locale::PtBr, registry: &mut registry, strict };
+    let mut ctx = Context { locale: Locale::PtBr, registry: &mut registry, strict, kerning: Default::default() };
     compose(node, e, &mut ctx)
 }
 
@@ -230,6 +230,60 @@ fn bold_text_uses_block_letters() {
     assert!(bold.width > normal.width);
     // an accented letter stays regular, but without a box
     assert!(warnings(r"\text{\textbf{ação}}").is_empty());
+}
+
+#[test]
+fn italic_text_has_no_correction_inside_it() {
+    // L-TXT-5: text italic sets its letters side by side, as a text font does: no italic correction
+    // between them, and none after \itshape's group
+    let f = math_box(r"\text{\itshape f}").width;
+    assert!((math_box(r"\text{\itshape ff}").width - 2.0 * f).abs() < 1e-4);
+    assert!(math_box(r"\text{\itshape f}").width > math_box(r"\text{f}").width);
+    // \textit{…} ends with the last letter's correction (LaTeX's \/), but not before a period or a comma
+    assert!(math_box(r"\text{\textit{f}}").width > f + 1e-4);
+    let period = math_box(r"\text{{\itshape f}.}").width;
+    assert!((math_box(r"\text{\textit{f}.}").width - period).abs() < 1e-4);
+    assert!((math_box(r"\text{\textit{f},}").width - math_box(r"\text{{\itshape f},}").width).abs() < 1e-4);
+    // nor after a space
+    assert!((math_box(r"\text{\textit{f }}").width - math_box(r"\text{{\itshape f }}").width).abs() < 1e-4);
+    // bold italic in \textbf
+    assert!(math_box(r"\text{\textbf{\textit{f}}}").width != math_box(r"\text{\textit{f}}").width);
+}
+
+#[test]
+fn letters_of_mathit_make_a_word() {
+    // \mathit's font is a text font: no italic correction between its letters, as math italic has
+    let word = math_box(r"\mathit{ff}").width;
+    assert!(word < math_box(r"ff").width, "{word}");
+    // one letter is the same as math italic's, its correction at the end included
+    assert!((math_box(r"\mathit{f}").width - math_box(r"f").width).abs() < 1e-4);
+    assert!((math_box(r"\mathit{ff}+1").width - math_box(r"\mathit{f}\mathit{f}+1").width).abs() > 1e-4);
+}
+
+#[test]
+fn bold_small_capitals_and_monospace_go_on_after_math_in_their_group() {
+    // the glyphs of a box, left to right
+    let glyphs = |tex: &str| -> Vec<u16> { math_box(tex).items.iter().filter_map(|i| if let Item::Glyph { id, .. } = i { Some(id.0) } else { None }).collect() };
+    // `\textbf{Z $x$ Z}`: both Z bold, as TeX sets them
+    let g = glyphs(r"\text{\textbf{Z$x$Z}}");
+    assert_eq!(g[0], g[2], "{g:?}");
+    assert_eq!(g[0], glyphs(r"\text{\textbf{Z}}")[0]);
+    // after other math in text too (`\ensuremath`, `\(…\)`), and for small capitals and monospace:
+    // the letters on both sides are those of the group without math
+    for (tex, alone) in [
+        (r"\text{\textbf{ab\ensuremath{x}ab}}", r"\text{\textbf{ab}}"),
+        (r"\text{\textbf{ab\(x\)ab}}", r"\text{\textbf{ab}}"),
+        (r"\text{\textsc{ab $x$ ab}}", r"\text{\textsc{ab}}"),
+        (r"\text{\texttt{ab $x$ ab}}", r"\text{\texttt{ab}}"),
+    ] {
+        let (g, a) = (glyphs(tex), glyphs(alone));
+        assert!(g[..2] == a[..] && g[3..] == a[..], "{tex}: {g:?} against {a:?}");
+    }
+    // \bf until its group ends, not after
+    let g = glyphs(r"\text{{\bf Z $x$ Z} Z}");
+    assert!(g[0] == g[2] && g[2] != g[3], "{g:?}");
+    // math at the start of the group: what follows is bold
+    assert_eq!(glyphs(r"\text{\textbf{$x$Z}}")[1], glyphs(r"\text{\textbf{Z}}")[0]);
 }
 
 #[test]
@@ -1073,4 +1127,21 @@ fn dots_are_three_dots_set_as_tex_sets_them() {
     let script = f.script_form(period, 1);
     assert_eq!(glyphs(&inline_box(r"x_{\ldots}"), script), 3);
     assert_eq!(glyphs(&inline_box(r"\cdots"), f.glyph('⋅').unwrap()), 3);
+}
+
+#[test]
+fn text_is_kerned_as_tex_kerns_it() {
+    use mathra::layout::kerning::TextKerning;
+    let width = |tex: &str, kerning: TextKerning| mathra::typeset(tex, &Options { text_kerning: kerning, ..options() }).unwrap().0.width;
+    let plain = width(r"\text{va}", TextKerning::None);
+    let ot1 = width(r"\text{va}", TextKerning::Ot1);
+    let t1 = width(r"\text{va}", TextKerning::T1);
+    // cmr10 kerns `va` by 0.0278 em, ec-lmr10 by twice that
+    assert!(plain > ot1 && ot1 > t1, "{plain} {ot1} {t1}");
+    assert!(((plain - t1) - 2.0 * (plain - ot1)).abs() < 0.01 * plain, "{plain} {ot1} {t1}");
+    // nothing between letters a space apart, nor in math
+    assert_eq!(width(r"\text{v a}", TextKerning::None), width(r"\text{v a}", TextKerning::T1));
+    assert_eq!(width("va", TextKerning::None), width("va", TextKerning::T1));
+    // bold by its own table
+    assert!(width(r"\text{\textbf{AV}}", TextKerning::None) > width(r"\text{\textbf{AV}}", TextKerning::Ot1));
 }
