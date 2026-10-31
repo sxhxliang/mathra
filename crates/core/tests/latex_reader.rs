@@ -1524,3 +1524,16 @@ fn unbraced_command_as_an_argument() {
     assert_eq!(tree(r"\mathbf\alpha + \text\o"), tree(r"\mathbf{\alpha} + \text{\o}"));
     assert_eq!(tree(r"\frac\alpha\beta"), tree(r"\frac{\alpha}{\beta}"));
 }
+
+#[test]
+fn boldmath_is_bold_italic_and_reaches_a_rotatebox() {
+    has(&tree(r"\text{{\boldmath $x$}}"), &["BoldItalic"]);
+    has(&tree(r"\text{{\boldmath \rotatebox{90}{$x$}}}"), &["BoldItalic"]);
+}
+
+#[test]
+fn a_quantitys_value_as_siunitx_prints_it() {
+    assert_eq!(tree(r"\SI{+10}{V}"), tree(r"\SI{10}{V}"));
+    assert_eq!(tree(r"\SI{.25}{V}"), tree(r"\SI{0.25}{V}"));
+    assert_eq!(tree(r"\SI{-.5}{V}"), tree(r"\SI{-0.5}{V}"));
+}

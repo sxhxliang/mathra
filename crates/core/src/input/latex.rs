@@ -1220,6 +1220,14 @@ impl Reader<'_> {
             "SI" | "qty" => {
                 self.raw_optional();
                 let value = self.raw_text()?;
+                // siunitx leaves out an explicit plus (`retain-explicit-plus` is off) and adds the
+                // zero of a bare point (`add-integer-zero`)
+                let value = value.trim_start().strip_prefix('+').map_or(value.clone(), str::to_string);
+                let value = match value.trim_start().strip_prefix('-') {
+                    Some(rest) if rest.starts_with('.') => format!("-0{rest}"),
+                    _ if value.trim_start().starts_with('.') => format!("0{}", value.trim_start()),
+                    _ => value,
+                };
                 let unit = self.raw_text()?;
                 self.quantity(Some(value), &unit, col)?
             }
@@ -2093,10 +2101,11 @@ impl Reader<'_> {
         // end of the current group. Each entry is the group level and the marker that closes it.
         let mut level = 0usize;
         let mut open_until: Vec<(usize, char)> = Vec::new();
-        // L-TXT-2: \boldmath sets the math that follows in bold, until the end of its group
-        let mut bold_math: Option<usize> = None;
+        // L-TXT-2: \boldmath sets the math that follows in bold, until the end of its group (and
+        // into what a bold reader reads, as the text of `\rotatebox`)
+        let mut bold_math: Option<usize> = (self.variant == Variant::BoldItalic).then_some(0);
         while i < c.len() {
-            let math_variant = if bold_math.is_some() { Variant::Bold } else { Variant::Italic };
+            let math_variant = if bold_math.is_some() { Variant::BoldItalic } else { Variant::Italic };
             match c[i] {
                 '$' => {
                     let end = c[i + 1..].iter().position(|&x| x == '$').map(|p| p + i + 1);
