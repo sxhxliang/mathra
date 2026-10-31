@@ -143,6 +143,8 @@ fn node_depth(node: &Node) -> usize {
         | Node::Multicolumn { base, .. }
         | Node::Raised { base, .. }
         | Node::Scaled { base, .. }
+        | Node::Resized { base, .. }
+        | Node::Rotated { base, .. }
         | Node::VCenter { base }
         | Node::Reflected { base }
         | Node::Smashed { base, .. }

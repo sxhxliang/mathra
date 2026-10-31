@@ -374,8 +374,11 @@ impl Writer {
             }
             // Quantity.unit already contains the value and thin space; value is speech metadata.
             Quantity { unit, .. } | Unit { base: unit, .. } => self.write(unit, display)?,
-            Raised { em, base } => word_property(&self.write(base, display)?, "position", &((*em * self.font_size * 2.0).round().clamp(-3168.0, 3168.0) as i32).to_string(), true),
-            Scaled { factor, base } => {
+            Raised { em, base, .. } => word_property(&self.write(base, display)?, "position", &((*em * self.font_size * 2.0).round().clamp(-3168.0, 3168.0) as i32).to_string(), true),
+            Scaled { factor, vertical, base } => {
+                if vertical.is_some() {
+                    return Err(OmmlError::Unsupported("anisotropic scale".into()));
+                }
                 let size = self.font_size * factor;
                 if !size.is_finite() || size <= 0.0 {
                     return Err(OmmlError::Unsupported("nonpositive scale".into()));
@@ -400,6 +403,8 @@ impl Writer {
             Choice { branches } => branches.get(if display { 0 } else { self.level.clamp(1, 3) as usize }).map(|n| self.write(n, display)).transpose()?.unwrap_or_default(),
             Rule { .. } => return Err(OmmlError::Unsupported("arbitrary filled rule rectangle".into())),
             Reflected { .. } => return Err(OmmlError::Unsupported("reflected geometry".into())),
+            Resized { .. } => return Err(OmmlError::Unsupported("resized geometry".into())),
+            Rotated { .. } => return Err(OmmlError::Unsupported("rotated geometry".into())),
             Multicolumn { .. } => return Err(OmmlError::Unsupported("matrix column spanning".into())),
             VerticalArrow { .. } | ArrowDiagram { .. } => return Err(OmmlError::Unsupported("diagram geometry".into())),
             ColumnArithmetic { operation, terms } => self.column_arithmetic(*operation, terms)?,

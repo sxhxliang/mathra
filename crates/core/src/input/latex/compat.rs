@@ -27,7 +27,7 @@ impl Reader<'_> {
             let parsed = self.list();
             self.explicit_size = saved;
             let (body, stop) = parsed?;
-            items.push(Node::Scaled { factor: size / saved, base: Box::new(Node::Style { level: 1, base: Box::new(Node::row(body)) }) });
+            items.push(Node::Scaled { factor: size / saved, vertical: None, base: Box::new(Node::Style { level: 1, base: Box::new(Node::row(body)) }) });
             return Ok(Some(Some(stop)));
         }
         let node = match name {
@@ -69,7 +69,7 @@ impl Reader<'_> {
             base = Node::Colored { color, base: Box::new(base) };
         }
         if let Some(factor) = scale {
-            base = Node::Scaled { factor, base: Box::new(base) };
+            base = Node::Scaled { factor, vertical: None, base: Box::new(base) };
         }
         if let Some(background) = background {
             base = Node::Framed { base: Box::new(base), shape: Frame::Background, background: Some(background), border: None };

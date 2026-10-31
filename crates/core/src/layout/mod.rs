@@ -708,7 +708,7 @@ pub(crate) fn compose_row(children: &[Node], e: Style, ctx: &mut Context, initia
         if pending_italic > 0.0 {
             math_box.append(&MathBox::space(pending_italic));
         }
-        pending_italic = if matches!(node, Node::Identifier { variant: Variant::Italic | Variant::BoldItalic, .. }) { b.italic } else { 0.0 };
+        pending_italic = if ends_slanted(node) { b.italic } else { 0.0 };
         math_box.append(&b);
         if class.is_some() {
             previous = *class;
@@ -739,6 +739,13 @@ fn ends_slanted(node: &Node) -> bool {
     match node {
         Node::Identifier { variant: Variant::Italic | Variant::BoldItalic, .. } => true,
         Node::Row { children } if children.len() == 1 => ends_slanted(&children[0]),
+        Node::Style { base, .. }
+        | Node::Scaled { base, .. }
+        | Node::Colored { base, .. }
+        | Node::Framed { base, .. }
+        | Node::Bar { base, .. }
+        | Node::Canceled { base, .. }
+        | Node::ForcedClass { base, .. } => ends_slanted(base),
         _ => false,
     }
 }
@@ -1231,6 +1238,7 @@ fn compose_slashed(base: &Node, e: Style, ctx: &mut Context) -> R<MathBox> {
     let mut result = MathBox::space(width);
     result.place(&b, (width - b.width) / 2.0, 0.0);
     result.place(&overlay, (width - advance) / 2.0 + dx * b.width, y);
+    result.italic = b.italic;
     Ok(result)
 }
 
@@ -1255,6 +1263,9 @@ fn compose_frame(base: &Node, shape: Frame, background: Option<&str>, border: Op
                 math_box.items.push(Item::Rule { x: 0.0, y: -bottom, width, height: t, color: color.clone() });
                 math_box.items.push(Item::Rule { x: 0.0, y: -bottom, width: t, height: top + bottom, color: color.clone() });
                 math_box.items.push(Item::Rule { x: width - t, y: -bottom, width: t, height: top + bottom, color });
+            }
+            if shape == Frame::Background {
+                math_box.italic = b.italic;
             }
             math_box.height = top;
             math_box.depth = bottom;
