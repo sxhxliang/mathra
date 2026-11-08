@@ -187,3 +187,76 @@ mod subsets {
         check("latinmodern-math.otf");
     }
 }
+
+/// A font from outside: any OpenType math font, loaded from its bytes (here the full Latin Modern
+/// Math of tools/fonts, not the embedded subset, and without the `latin-modern` feature).
+mod loaded {
+    use mathra::font::{FontError, MathFont};
+    use mathra::{convert, Options};
+
+    fn latin_modern() -> MathFont {
+        let bytes = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../tools/fonts/latinmodern-math.otf")).unwrap();
+        MathFont::load(bytes).unwrap()
+    }
+
+    #[test]
+    fn is_named_by_the_font_and_loaded_once() {
+        let f = latin_modern();
+        assert_eq!(f.name(), "Latin Modern Math");
+        assert_eq!(f, latin_modern());
+        assert_ne!(f, MathFont::StixTwo);
+        assert!(MathFont::loaded().contains(&f));
+    }
+
+    #[test]
+    fn sets_the_equation_in_its_glyphs() {
+        let options = Options { font: latin_modern(), ..Options::default() };
+        let theirs = convert(r"x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}", &options).unwrap().svg;
+        let ours = convert(r"x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}", &Options::default()).unwrap().svg;
+        assert!(theirs.contains("<mathra:font>Latin Modern Math</mathra:font>"));
+        // other outlines, and other ids: both can be on one page
+        let id = |svg: &str| svg.split(r#"id=""#).nth(1).unwrap().split('-').take(2).collect::<Vec<_>>().join("-");
+        assert_ne!(id(&theirs), id(&ours));
+        assert_ne!(theirs.split("<defs>").nth(1), ours.split("<defs>").nth(1));
+    }
+
+    #[test]
+    fn draws_the_gallery() {
+        // every equation of the gallery the embedded font draws, a loaded math font draws too
+        let gallery: serde_json::Value = serde_json::from_str(include_str!("../../../corpus/gallery.json")).unwrap();
+        let font = latin_modern();
+        let (mut failed, mut drawn) = (Vec::new(), 0);
+        for row in gallery.as_array().unwrap().iter().flat_map(|g| g["rows"].as_array().unwrap()) {
+            let tex = row["tex"].as_str().unwrap();
+            let locale = row["locale"].as_str().unwrap_or("en").parse().unwrap();
+            let input = row.get("input").and_then(|i| i.as_str()).unwrap_or("latex").parse().unwrap();
+            let options = Options { locale, input, ..Options::default() };
+            if convert(tex, &options).is_ok() {
+                drawn += 1;
+                if let Err(e) = convert(tex, &Options { font, ..options }) {
+                    failed.push(format!("{}: {e}", row["name"]));
+                }
+            }
+        }
+        assert!(drawn >= 40, "only {drawn} equations");
+        assert!(failed.is_empty(), "{failed:#?}");
+    }
+
+    #[test]
+    fn the_pen_writes_in_it() {
+        let options = Options { font: latin_modern(), ..Options::default() };
+        let svg = mathra::pen("x^2", &options, &Default::default()).unwrap();
+        assert!(svg.contains("<animateMotion") && svg.contains("mathra-pen-"));
+    }
+
+    #[test]
+    fn what_is_not_a_math_font_is_refused() {
+        assert!(matches!(MathFont::load(b"not a font".to_vec()), Err(FontError::NotAFont(_))));
+        // a font without a MATH table: the embedded STIX Two Math with its MATH table renamed
+        let mut bytes = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/STIXTwoMath-Regular-subset.otf")).unwrap();
+        let at = bytes.windows(4).position(|w| w == b"MATH").expect("a table directory entry");
+        bytes[at..at + 4].copy_from_slice(b"XATH");
+        let e = MathFont::load(bytes).unwrap_err();
+        assert!(matches!(e, FontError::NoMathTable { .. }) && e.to_string().contains("no OpenType MATH table"), "{e}");
+    }
+}

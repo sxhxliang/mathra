@@ -6,5 +6,7 @@ cd "$(dirname "$0")/.."
 tgz=$(cd pkg && npm pack --silent --pack-destination ..)
 project=$(mktemp -d)
 cp test/*.test.* "$project/"
-(cd "$project" && npm init -y >/dev/null && npm install --silent "$OLDPWD/$tgz" && node --test)
+# a math font from outside the package, for the loadFont test
+font="$PWD/../tools/fonts/latinmodern-math.otf"
+(cd "$project" && npm init -y >/dev/null && npm install --silent "$OLDPWD/$tgz" && MATHRA_TEST_FONT="$font" node --test)
 rm -rf "$project" "$tgz"

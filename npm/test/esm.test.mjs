@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { init, texToSvg, render, locales, version } from "@mathlabs/mathra";
+import { init, texToSvg, render, locales, loadFont, catalogFonts, loadFontFromCatalog, version } from "@mathlabs/mathra";
 
 test("works right away in Node, init is optional", async () => {
   assert.match(texToSvg("x^2"), /^<svg/);
@@ -60,4 +60,55 @@ test("the writing animation and the steps", () => {
   assert.match(steps, /data-steps="3"/);
   assert.doesNotMatch(steps, /@keyframes/);
   assert.match(render("x", { animate: true }).svg, /mr-f/);
+});
+
+test("a math font from outside", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const font = loadFont(await readFile(process.env.MATHRA_TEST_FONT));
+  assert.equal(font.name, "Latin Modern Math");
+  assert.deepEqual(loadFont(await readFile(process.env.MATHRA_TEST_FONT)), font);
+  const svg = texToSvg(String.raw`\frac{a}{b}`, { font });
+  assert.match(svg, /<mathra:font>Latin Modern Math<\/mathra:font>/);
+  assert.equal(svg, texToSvg(String.raw`\frac{a}{b}`, { font: font.id }));
+  assert.notEqual(svg, texToSvg(String.raw`\frac{a}{b}`));
+  assert.match(render("x", { font }).svg, /Latin Modern Math/);
+  assert.throws(() => loadFont(new Uint8Array([1, 2, 3])), /not a font/);
+  assert.throws(() => texToSvg("x", { font: 99 }), /no font loaded/);
+});
+
+test("a font from a catalog, checked by its hash", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { createServer } = await import("node:http");
+  const { createHash } = await import("node:crypto");
+  const bytes = await readFile(process.env.MATHRA_TEST_FONT);
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const entry = { slug: "latin-modern-math", name: "Latin Modern Math", style: "Serif", base: "Latin Modern", designer: null, license: "GUST", license_file: "files/lm/LICENSE.txt", file: "files/lm/latinmodern-math.otf", size: bytes.length, sha256, coverage: 0 };
+  const catalogs = {
+    "/catalog.json": { version: 1, fonts: [entry] },
+    "/bad.json": { version: 1, fonts: [{ ...entry, sha256: "0".repeat(64) }] },
+  };
+  let fontRequests = 0;
+  const server = createServer((req, res) => {
+    if (catalogs[req.url]) return res.end(JSON.stringify(catalogs[req.url]));
+    if (req.url === "/files/lm/latinmodern-math.otf") { fontRequests++; return res.end(bytes); }
+    res.statusCode = 404;
+    res.end();
+  });
+  await new Promise((ok) => server.listen(0, "127.0.0.1", ok));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const fonts = await catalogFonts({ catalog: `${base}/catalog.json` });
+    assert.equal(fonts[0].url, `${base}/files/lm/latinmodern-math.otf`);
+    assert.equal(fonts[0].license_url, `${base}/files/lm/LICENSE.txt`);
+    const font = await loadFontFromCatalog("latin-modern-math", { catalog: `${base}/catalog.json` });
+    assert.deepEqual(font, loadFont(bytes));
+    await loadFontFromCatalog("latin-modern-math", { catalog: `${base}/catalog.json` });
+    assert.equal(fontRequests, 1, "a font is downloaded once");
+    assert.match(texToSvg("x", { font }), /Latin Modern Math/);
+    await assert.rejects(loadFontFromCatalog("nope", { catalog: `${base}/catalog.json` }), /no font "nope"/);
+    await assert.rejects(loadFontFromCatalog("latin-modern-math", { catalog: `${base}/bad.json` }), /sha256/);
+    await assert.rejects(catalogFonts({ catalog: `${base}/missing.json` }), /404/);
+  } finally {
+    server.close();
+  }
 });

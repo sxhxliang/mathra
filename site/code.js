@@ -1,4 +1,5 @@
-// colors the static <pre data-lang="js|html|py|rust|sh"> blocks; without it they stay plain text
+// colors the static <pre data-lang="js|html|py|rust|sh|tex"> blocks and, through colorCode, the ones the pages
+// fill in themselves; without it they stay plain text
 (function () {
   const escape = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const span = (cls, t) => `<span class="c-${cls}">${escape(t)}</span>`;
@@ -24,6 +25,15 @@
       classes: ["comment", "str", "fn", "flag"],
     },
   };
+  // the source of a figure or an equation
+  LANGS.tex = {
+    re: /(%[^\n]*)|(\\(?:begin|end)\{[^}]*\})|(\\[A-Za-z@]+\*?|\\.)|([{}\[\]])|(\b\d+(?:\.\d+)?\b)/g,
+    classes: ["comment", "kw", "fn", "tag", "num"],
+  };
+  // the SVG and MathML the tabs show
+  LANGS.xml = { re: /(<!--[\s\S]*?-->)|(<\/?[A-Za-z][\w:-]*|\/?>)|([\w:-]+(?==))|("[^"]*")/g, classes: ["comment", "tag", "fn", "str"] };
+  LANGS.json = { re: /("(?:[^"\\]|\\.)*"(?=\s*:))|("(?:[^"\\]|\\.)*")|\b(true|false|null)\b|(-?\d+(?:\.\d+)?)/g, classes: ["fn", "str", "kw", "num"] };
+  LANGS.grammar = { re: /(^[a-zA-Z]+(?= ::=))|(::=)|("[^"\n]*")/gm, classes: ["fn", "kw", "str"] };
   // the html example is a <script> around JavaScript
   LANGS.html = { re: new RegExp(String.raw`(<\/?[a-z][^>]*>)|` + LANGS.js.re.source, "g"), classes: ["tag", ...LANGS.js.classes] };
 
@@ -49,11 +59,11 @@
     }).join("\n");
   }
 
+  // `src` as HTML, in the colors of `lang`
+  window.colorCode = (src, lang) => (lang === "sh" ? shell(src) : LANGS[lang] ? color(src, LANGS[lang]) : escape(src));
+
   document.addEventListener("DOMContentLoaded", () => {
-    for (const pre of document.querySelectorAll("pre[data-lang]")) {
-      const lang = pre.dataset.lang;
-      if (lang === "sh") pre.innerHTML = shell(pre.textContent);
-      else if (LANGS[lang]) pre.innerHTML = color(pre.textContent, LANGS[lang]);
-    }
+    for (const pre of document.querySelectorAll("pre[data-lang]")) pre.innerHTML = colorCode(pre.textContent, pre.dataset.lang);
+    for (const cmd of document.querySelectorAll("code.cmd")) cmd.innerHTML = colorCode(cmd.textContent, "sh");
   });
 })();

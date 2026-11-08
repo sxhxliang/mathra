@@ -7,8 +7,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
-from typing import Any, List, Optional, TypedDict
+import os
+import pathlib
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, TypedDict, Union
 
 from . import _mathra
 
@@ -43,12 +49,127 @@ class Result(TypedDict):
     """Input problems the tolerant mode worked around (E-REC-*); empty in strict mode."""
 
 
+@dataclass(frozen=True)
+class Font:
+    """A math font loaded with :func:`load_font`, to pass as ``font``."""
+
+    id: int
+    name: str
+    """The font's family name, as the SVG's ``<mathra:font>`` carries it."""
+
+
+def load_font(source: Union[str, os.PathLike, bytes]) -> Font:
+    """Loads an OpenType math font (an .otf or .ttf with a MATH table, such as Libertinus Math or Fira
+    Math) from a path or its bytes. The same font again gives the same :class:`Font`. Raises
+    ValueError if it is not a font or has no MATH table.
+    """
+    if isinstance(source, (bytes, bytearray)):
+        data = bytes(source)
+    else:
+        with open(source, "rb") as f:
+            data = f.read()
+    font_id, name = _mathra.load_font(data)
+    return Font(font_id, name)
+
+
+#: mathfonts: a catalog of math fonts checked with mathra. Nothing is downloaded unless asked for.
+CATALOG = "https://matheusmota-dev-br.github.io/mathfonts/catalog.json"
+
+_catalogs: Dict[str, List["CatalogFont"]] = {}
+
+
+class CatalogFont(TypedDict):
+    """A font of the mathfonts catalog."""
+
+    slug: str
+    """What :func:`load_font_from_catalog` takes, such as "euler-math"."""
+    name: str
+    style: str
+    base: str
+    """The text font it goes with."""
+    designer: Optional[str]
+    license: str
+    """"OFL-1.1", "GUST", "Apache-2.0" or "MIT": all let the SVG carry the font's outlines."""
+    url: str
+    """The font file, absolute."""
+    license_url: str
+    size: int
+    sha256: str
+    """The file's hash, checked after the download."""
+    coverage: int
+    """Percent of the math symbols mathra draws that the font has."""
+
+
+def _get(url: str) -> bytes:
+    request = urllib.request.Request(url, headers={"User-Agent": f"mathra-python/{__version__}"})
+    with urllib.request.urlopen(request, timeout=60) as response:
+        return response.read()
+
+
+def catalog_fonts(catalog: str = CATALOG) -> List[CatalogFont]:
+    """The fonts of the mathfonts catalog (or of ``catalog``, another one in the same format). Downloads
+    only the catalog, a few KB, once per process.
+    """
+    if catalog not in _catalogs:
+        data = json.loads(_get(catalog))
+        if not isinstance(data, dict) or data.get("version") != 1 or not isinstance(data.get("fonts"), list):
+            raise ValueError(f"{catalog} is not a mathfonts catalog (version 1)")
+        _catalogs[catalog] = [
+            {**f, "url": urllib.parse.urljoin(catalog, f["file"]), "license_url": urllib.parse.urljoin(catalog, f["license_file"])}  # type: ignore[typeddict-item]
+            for f in data["fonts"]
+        ]
+    return [dict(f) for f in _catalogs[catalog]]  # type: ignore[misc]
+
+
+def _cache_dir() -> pathlib.Path:
+    if os.environ.get("MATHRA_CACHE"):
+        return pathlib.Path(os.environ["MATHRA_CACHE"])
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+    return pathlib.Path(base) / "mathra"
+
+
+def load_font_from_catalog(slug: str, *, catalog: str = CATALOG, cache: Union[bool, str, os.PathLike] = True) -> Font:
+    """Downloads a font of the mathfonts catalog by its slug, checks its sha256 and loads it, to pass as
+    ``font``. Nothing is downloaded unless this is called.
+
+    The file is kept in a cache named by its hash, so it is downloaded once: ``~/.cache/mathra/fonts``
+    (``$XDG_CACHE_HOME`` or ``$MATHRA_CACHE`` instead, when set), another folder with ``cache=path``, or
+    none with ``cache=False``. The same slug and hash always give the same font: a file that does not
+    match the catalog's hash is refused. Raises ValueError if the slug is not in the catalog.
+    """
+    entry = next((f for f in catalog_fonts(catalog) if f["slug"] == slug), None)
+    if entry is None:
+        raise ValueError(f'no font "{slug}" in the catalog; catalog_fonts() lists them')
+    path = None
+    if cache is not False:
+        folder = (_cache_dir() if cache is True else pathlib.Path(cache)) / "fonts"
+        path = folder / (entry["sha256"] + pathlib.PurePosixPath(entry["file"]).suffix)
+        if path.is_file():
+            data = path.read_bytes()
+            if hashlib.sha256(data).hexdigest() == entry["sha256"]:
+                return load_font(data)
+    data = _get(entry["url"])
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != entry["sha256"]:
+        raise ValueError(f"{entry['url']}: sha256 {digest}, the catalog says {entry['sha256']}")
+    if path is not None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        partial = path.with_name(path.name + ".part")
+        partial.write_bytes(data)
+        os.replace(partial, path)
+    return load_font(data)
+
+
+def _font_id(font: Optional[Font]) -> Optional[int]:
+    return None if font is None else font.id
+
+
 class Language(TypedDict):
     code: str
     name: str
 
 
-def tex_to_svg(tex: str, locale: str = "en", *, display: bool = True, strict: bool = False, input: str = "latex", braille: Optional[str] = None, animate: bool = False, steps: bool = False) -> str:
+def tex_to_svg(tex: str, locale: str = "en", *, display: bool = True, strict: bool = False, input: str = "latex", braille: Optional[str] = None, animate: bool = False, steps: bool = False, font: Optional[Font] = None) -> str:
     """Converts an equation to SVG.
 
     ``locale`` is a language code such as "en", "pt-BR", "fr" or "ja" (see :func:`locales`); ``display``
@@ -56,20 +177,21 @@ def tex_to_svg(tex: str, locale: str = "en", *, display: bool = True, strict: bo
     ``input`` is "latex" (default), "mathml" or "asciimath"; ``braille`` is "cmu" or "nemeth" (default:
     the locale's, CMU in pt-BR and es, Nemeth elsewhere). ``animate=True`` makes the SVG write itself in
     the browser, in the order the layout set it (CSS in the SVG); ``steps=True`` numbers each element by
-    that order instead (``data-step``, and ``data-steps`` on the ``<svg>``), with no CSS. Raises
-    ValueError on input it cannot read.
+    that order instead (``data-step``, and ``data-steps`` on the ``<svg>``), with no CSS. ``font`` is a
+    math font from :func:`load_font` (default: STIX Two Math). Raises ValueError on input it cannot
+    read.
     """
-    return _mathra.tex_to_svg(tex, locale, display=display, strict=strict, input=input, braille=braille, animate=animate, steps=steps)
+    return _mathra.tex_to_svg(tex, locale, display=display, strict=strict, input=input, braille=braille, animate=animate, steps=steps, font=_font_id(font))
 
 
-def tex_to_tree(tex: str, locale: str = "en", *, display: bool = True, strict: bool = False, input: str = "latex", braille: Optional[str] = None, animate: bool = False, steps: bool = False) -> str:
+def tex_to_tree(tex: str, locale: str = "en", *, display: bool = True, strict: bool = False, input: str = "latex", braille: Optional[str] = None, animate: bool = False, steps: bool = False, font: Optional[Font] = None) -> str:
     """The tree of meaning, as a JSON string."""
-    return _mathra.tex_to_tree(tex, locale, display=display, strict=strict, input=input, braille=braille, animate=animate, steps=steps)
+    return _mathra.tex_to_tree(tex, locale, display=display, strict=strict, input=input, braille=braille, animate=animate, steps=steps, font=_font_id(font))
 
 
-def render(tex: str, locale: str = "en", *, display: bool = True, strict: bool = False, input: str = "latex", braille: Optional[str] = None, animate: bool = False, steps: bool = False) -> Result:
+def render(tex: str, locale: str = "en", *, display: bool = True, strict: bool = False, input: str = "latex", braille: Optional[str] = None, animate: bool = False, steps: bool = False, font: Optional[Font] = None) -> Result:
     """Every output at once: svg, speech, text, braille, braille_code, tree, applied and warnings."""
-    return json.loads(_mathra.render(tex, locale, display=display, strict=strict, input=input, braille=braille, animate=animate, steps=steps))
+    return json.loads(_mathra.render(tex, locale, display=display, strict=strict, input=input, braille=braille, animate=animate, steps=steps, font=_font_id(font)))
 
 
 def locales() -> List[Language]:
@@ -77,4 +199,4 @@ def locales() -> List[Language]:
     return [{"code": code, "name": name} for code, name in _mathra.locales()]
 
 
-__all__ = ["Language", "Result", "Rule", "__version__", "core_version", "locales", "render", "tex_to_svg", "tex_to_tree"]
+__all__ = ["CATALOG", "CatalogFont", "Font", "Language", "Result", "Rule", "__version__", "catalog_fonts", "core_version", "load_font", "load_font_from_catalog", "locales", "render", "tex_to_svg", "tex_to_tree"]

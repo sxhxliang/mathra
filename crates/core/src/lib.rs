@@ -105,11 +105,24 @@ pub struct Options {
     pub steps: bool,
     /// Text kerned as TeX's OT1 or T1 fonts kern it; none by default.
     pub text_kerning: layout::kerning::TextKerning,
+    /// The math font the equation is set in: STIX Two Math by default, or one loaded with
+    /// [`font::MathFont::load`].
+    pub font: font::MathFont,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { locale: Locale::default(), display: true, strict: false, input: Input::Latex, braille: None, animate: false, steps: false, text_kerning: Default::default() }
+        Options {
+            locale: Locale::default(),
+            display: true,
+            strict: false,
+            input: Input::Latex,
+            braille: None,
+            animate: false,
+            steps: false,
+            text_kerning: Default::default(),
+            font: font::MathFont::StixTwo,
+        }
     }
 }
 
@@ -123,7 +136,7 @@ fn read(source: &str, options: &Options, registry: &mut rules::Registry) -> Resu
         other => other,
     };
     let tree = match input {
-        Input::Latex => input::latex::read_with(source, options.locale, registry, options.strict)?,
+        Input::Latex => input::latex::read_in_font(source, options.locale, registry, options.strict, options.font)?,
         Input::MathMl => input::mathml::read_with(source, options.locale, registry, options.strict)?,
         Input::AsciiMath => input::asciimath::read_with(source, options.locale, registry, options.strict)?,
     };
@@ -176,7 +189,7 @@ impl fmt::Display for Error {
         match self {
             Error::Syntax { column, message } => write!(f, "column {column}: {message}"),
             Error::MissingGlyph { character } => {
-                write!(f, "the {} font has no '{character}' character (U+{:04X})", font::NAME, *character as u32)
+                write!(f, "the math font has no '{character}' character (U+{:04X})", *character as u32)
             }
         }
     }
@@ -186,15 +199,16 @@ impl std::error::Error for Error {}
 
 /// Converts an equation (LaTeX by default; see [`Options::input`]) to SVG, speech, text and tree.
 pub fn convert(tex: &str, options: &Options) -> Result<Output, Error> {
-    convert_in_font(tex, options, font::MathFont::default())
+    convert_in_font(tex, options, options.font)
 }
 
-/// [`convert`], with the equation set in `font`.
+/// [`convert`], with the equation set in `font` (in place of [`Options::font`]).
 pub fn convert_in_font(tex: &str, options: &Options, font: font::MathFont) -> Result<Output, Error> {
     convert_internal(tex, options, font, None).map(|(output, _)| output)
 }
 
 fn convert_internal(tex: &str, options: &Options, font: font::MathFont, native: Option<output::svg::NativeOptions>) -> Result<(Output, output::svg::Metrics), Error> {
+    let options = &Options { font, ..options.clone() };
     let mut registry = rules::Registry::default();
     let (tree, input) = read(tex, options, &mut registry)?;
     let style = if options.display { layout::Style::display() } else { layout::Style::text() }.in_font(font);
@@ -235,11 +249,13 @@ fn convert_internal(tex: &str, options: &Options, font: font::MathFont, native: 
 /// The composed box, without generating SVG: for callers that draw the equation inside something
 /// else (tikra's figure labels). Also returns the tolerant mode's warnings.
 pub fn typeset(tex: &str, options: &Options) -> Result<(layout::MathBox, Vec<Applied>), Error> {
-    typeset_in_font(tex, options, font::MathFont::default())
+    typeset_in_font(tex, options, options.font)
 }
 
-/// [`typeset`], with the equation set in `font` (its glyph ids are that font's).
+/// [`typeset`], with the equation set in `font` (in place of [`Options::font`]; its glyph ids are
+/// that font's).
 pub fn typeset_in_font(tex: &str, options: &Options, font: font::MathFont) -> Result<(layout::MathBox, Vec<Applied>), Error> {
+    let options = &Options { font, ..options.clone() };
     let mut registry = rules::Registry::default();
     let (tree, _) = read(tex, options, &mut registry)?;
     let style = if options.display { layout::Style::display() } else { layout::Style::text() }.in_font(font);
@@ -247,6 +263,19 @@ pub fn typeset_in_font(tex: &str, options: &Options, font: font::MathFont) -> Re
     let math_box = layout::compose_list(&tree, style, &mut ctx)?;
     registry.dedup();
     Ok((math_box, registry.warnings))
+}
+
+/// The equation written by a pen: an SVG where a pen tip goes over each glyph's outline, rule and
+/// line, in the order the layout set them, and each fills in once drawn; SMIL, in a loop.
+pub fn pen(tex: &str, options: &Options, pen: &output::pen::Pen) -> Result<String, Error> {
+    let font = options.font;
+    let mut registry = rules::Registry::default();
+    let (tree, _) = read(tex, options, &mut registry)?;
+    let style = if options.display { layout::Style::display() } else { layout::Style::text() }.in_font(font);
+    let mut ctx = layout::Context { locale: options.locale, registry: &mut registry, strict: options.strict, kerning: options.text_kerning };
+    let math_box = layout::compose_list(&tree, style, &mut ctx)?;
+    let speech = output::speech::speak(&tree, options.locale);
+    Ok(output::pen::generate(&math_box, font, tex, &speech, pen))
 }
 
 /// Shortcut with the default locale (English).

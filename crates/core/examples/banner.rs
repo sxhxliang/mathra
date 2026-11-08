@@ -4,19 +4,17 @@
 //! `cargo run -p mathra --example banner` writes `docs/banner.svg`;
 //! `tests/banner.rs` checks that the file in the repository is up to date.
 
-use std::fmt::Write;
-
-use mathra::layout::Item;
 use mathra::{convert, font, Options};
 
 const WIDTH: f32 = 1280.0;
 const HEIGHT: f32 = 320.0;
 
-const BACKGROUND: &str = "#0e1726";
-const INK: &str = "#eef2f8";
-const MUTED: &str = "#8796ad";
-const BOX: &str = "#3a4b66";
-const ACCENT: &str = "#f2b544";
+const BOARD: &str = "#21403A";
+const CHALK: &str = "#F2EFE4";
+const DIM: &str = "#BFD0C8";
+const YELLOW: &str = "#F4E59A";
+const PINK: &str = "#F4B6BE";
+const WOOD: &str = "#8A5B33";
 
 /// mathra's SVG for `tex`, placed with its baseline at `(x, base)` and 1 em = `em` px.
 /// Returns the element and the width it takes, in px.
@@ -34,31 +32,6 @@ fn equation(tex: &str, x: f32, base: f32, em: f32, color: &str) -> (String, f32)
     (format!(r#"<g color="{color}">{placed}</g>"#), width)
 }
 
-/// The box of each letter of the name: the width the layout reserves and the height of the line.
-fn boxes(tex: &str, x: f32, base: f32, em: f32) -> String {
-    let (math_box, _) = mathra::typeset(tex, &Options::default()).unwrap();
-    let f = font::font();
-    let per_unit = em / f.units_per_em();
-    let top = base - math_box.height * per_unit;
-    let bottom = base + math_box.depth.max(220.0) * per_unit;
-    let mut s = String::new();
-    for item in &math_box.items {
-        if let Item::Glyph { id, x: gx, scale, .. } = item {
-            let left_x = x + gx * per_unit;
-            let w = f.advance(*id) * scale * per_unit;
-            let _ = write!(s, r#"<rect x="{}" y="{}" width="{}" height="{}"/>"#, num(left_x), num(top), num(w), num(bottom - top));
-        }
-    }
-    let end = x + math_box.width * per_unit;
-    format!(
-        r#"<g fill="none" stroke="{BOX}" stroke-width="1" stroke-dasharray="3 3">{s}</g><line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{ACCENT}" stroke-width="1.5"/>"#,
-        num(x - 24.0),
-        num(base),
-        num(end + 24.0),
-        num(base),
-    )
-}
-
 fn num(v: f32) -> String {
     let r = (v * 100.0).round() / 100.0;
     if r.fract() == 0.0 {
@@ -70,26 +43,22 @@ fn num(v: f32) -> String {
 
 pub fn generate() -> String {
     let mut body = String::new();
-    let (margin, name_baseline, name_em) = (88.0, 178.0, 116.0);
 
-    body.push_str(&boxes(r"\mathbf{mathra}", margin, name_baseline, name_em));
-    body.push_str(&equation(r"\mathbf{mathra}", margin, name_baseline, name_em, INK).0);
-    let (label, _) = equation(r"\text{baseline}", margin + 4.0, name_baseline + 22.0, 13.0, ACCENT);
-    body.push_str(&label);
-    body.push_str(&equation(r"\text{LaTeX to accessible SVG, no TeX install}", margin, 262.0, 27.0, MUTED).0);
+    body.push_str(&equation(r"\mathit{mathra}", 84.0, 176.0, 124.0, CHALK).0);
+    body.push_str(&equation(r"\text{LaTeX to accessible SVG, no TeX install}", 88.0, 246.0, 26.0, DIM).0);
 
-    // on the right, what it draws: from the simplest to the tallest
-    let right = 812.0;
-    body.push_str(&equation(r"x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}", right, 92.0, 30.0, INK).0);
-    body.push_str(&equation(r"\int_0^{\infty} e^{-x^2}\,dx = \frac{\sqrt{\pi}}{2}", right, 172.0, 30.0, ACCENT).0);
-    body.push_str(&equation(r"A = \begin{pmatrix} 1 & 0 \\ 0 & 1 \end{pmatrix}", right, 258.0, 30.0, INK).0);
+    // on the right, what it draws: a derivation, written down the board
+    let right = 700.0;
+    body.push_str(&equation(r"ax^2 + bx + c = 0", right, 62.0, 27.0, CHALK).0);
+    body.push_str(&equation(r"x^2 + \frac{b}{a}x = -\frac{c}{a}", right, 126.0, 27.0, CHALK).0);
+    body.push_str(&equation(r"\left(x + \frac{b}{2a}\right)^2 = \frac{b^2 - 4ac}{4a^2}", right, 196.0, 27.0, YELLOW).0);
+    body.push_str(&equation(r"x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}", right, 268.0, 27.0, PINK).0);
 
     format!(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}" role="img" aria-label="mathra: LaTeX to accessible SVG, no TeX install"><rect width="{w}" height="{h}" rx="16" fill="{BACKGROUND}"/><line x1="{x}" y1="40" x2="{x}" y2="280" stroke="{BOX}" stroke-width="1"/>{body}</svg>
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}" role="img" aria-label="mathra: LaTeX to accessible SVG, no TeX install"><rect width="{w}" height="{h}" fill="{BOARD}"/>{body}<rect y="304" width="{w}" height="16" fill="{WOOD}"/><rect x="1120" y="294" width="46" height="10" rx="3" fill="{CHALK}"/><rect x="1176" y="294" width="30" height="10" rx="3" fill="{PINK}"/></svg>
 "#,
         w = num(WIDTH),
         h = num(HEIGHT),
-        x = num(right - 56.0),
     )
 }
 

@@ -1,6 +1,7 @@
 """The Python package, used the way someone who installed it would."""
 
 import json
+import pathlib
 
 import pytest
 
@@ -100,3 +101,68 @@ def test_animate_and_steps():
     steps = mathra.tex_to_svg("x+1", steps=True)
     assert 'data-steps="3"' in steps and "@keyframes" not in steps
     assert "mr-f" in mathra.render("x", animate=True)["svg"]
+
+
+FONT = pathlib.Path(__file__).resolve().parents[3] / "tools" / "fonts" / "latinmodern-math.otf"
+
+
+def test_a_math_font_from_outside():
+    font = mathra.load_font(FONT)
+    assert font.name == "Latin Modern Math"
+    assert mathra.load_font(FONT.read_bytes()) == font
+    svg = mathra.tex_to_svg(r"\frac{a}{b}", font=font)
+    assert "<mathra:font>Latin Modern Math</mathra:font>" in svg
+    assert svg != mathra.tex_to_svg(r"\frac{a}{b}")
+    assert "Latin Modern Math" in mathra.render("x", font=font)["svg"]
+    with pytest.raises(ValueError, match="not a font"):
+        mathra.load_font(b"not a font")
+
+
+def test_a_font_from_a_catalog(tmp_path):
+    import hashlib
+    import http.server
+    import threading
+
+    data = FONT.read_bytes()
+    entry = {"slug": "latin-modern-math", "name": "Latin Modern Math", "style": "Serif", "base": "Latin Modern", "designer": None, "license": "GUST", "license_file": "files/lm/LICENSE.txt", "file": "files/lm/latinmodern-math.otf", "size": len(data), "sha256": hashlib.sha256(data).hexdigest(), "coverage": 0}
+    catalogs = {"/catalog.json": {"version": 1, "fonts": [entry]}, "/bad.json": {"version": 1, "fonts": [{**entry, "sha256": "0" * 64}]}}
+    font_requests = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path in catalogs:
+                body = json.dumps(catalogs[self.path]).encode()
+            elif self.path == "/files/lm/latinmodern-math.otf":
+                font_requests.append(self.path)
+                body = data
+            else:
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        fonts = mathra.catalog_fonts(f"{base}/catalog.json")
+        assert fonts[0]["url"] == f"{base}/files/lm/latinmodern-math.otf"
+        assert fonts[0]["license_url"] == f"{base}/files/lm/LICENSE.txt"
+        font = mathra.load_font_from_catalog("latin-modern-math", catalog=f"{base}/catalog.json", cache=tmp_path)
+        assert font == mathra.load_font(data)
+        assert (tmp_path / "fonts" / (entry["sha256"] + ".otf")).read_bytes() == data
+        assert mathra.load_font_from_catalog("latin-modern-math", catalog=f"{base}/catalog.json", cache=tmp_path) == font
+        assert len(font_requests) == 1, "the cached file is used"
+        mathra.load_font_from_catalog("latin-modern-math", catalog=f"{base}/catalog.json", cache=False)
+        assert len(font_requests) == 2
+        assert "Latin Modern Math" in mathra.tex_to_svg("x", font=font)
+        with pytest.raises(ValueError, match='no font "nope"'):
+            mathra.load_font_from_catalog("nope", catalog=f"{base}/catalog.json", cache=False)
+        with pytest.raises(ValueError, match="sha256"):
+            mathra.load_font_from_catalog("latin-modern-math", catalog=f"{base}/bad.json", cache=tmp_path / "other")
+    finally:
+        server.shutdown()

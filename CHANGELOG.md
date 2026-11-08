@@ -4,6 +4,38 @@ What changed in each release of mathra: the crates `mathra` and `mathra-cli`, `@
 
 Each release has a headline (the line under its title), what changed, and the equations that show it (`Equations:`): a name from the gallery ([`corpus/gallery.json`](corpus/gallery.json)) or the LaTeX itself, drawn by the site with today's mathra. `scripts/release.sh` will not release a version without its section here, and makes the GitHub release from it.
 
+## 1.10.1 - 2026-11-07
+
+The fonts of the mathfonts catalog, by name.
+
+- [mathfonts](https://matheusmota-dev-br.github.io/mathfonts/) is a catalog of 30 OpenType math fonts that are free to share, each one checked with mathra. JavaScript gets `catalogFonts()` and `loadFontFromCatalog(slug)`, and Python gets `catalog_fonts()` and `load_font_from_catalog(slug)`, which keeps the file in `~/.cache/mathra`. A font is downloaded only when asked for, once, and refused if it does not match the catalog's sha256, so the same name always gives the same SVG ([#109](https://github.com/matheusmota-dev-br/mathra/pull/109)).
+- The playground lists the catalog's fonts in its font picker and downloads one only when it is picked.
+- The Rust crate and the terminal download nothing; `--font` in the help points to the catalog. Loading a font from a file is unchanged, and so is what mathra draws.
+
+Equations: `e^{i\pi} + 1 = 0`
+
+## 1.10.0 - 2026-11-07
+
+A pen that writes the equation, and any OpenType math font.
+
+- `mathra::pen` draws an SVG where a pen tip goes over each glyph's outline, rule and line in the order the layout set them, and each one fills in once drawn. It uses SMIL only, plays in a loop and needs no script. Its time follows the length of the ink. wasm gets `texToPen`, and the playground gets a Pen button and a Pen SVG download ([#104](https://github.com/matheusmota-dev-br/mathra/issues/104)).
+- Any OpenType math font (an `.otf` or `.ttf` with a MATH table, such as Libertinus Math, Fira Math or Euler Math) can set an equation. Use `MathFont::load(bytes)` and `Options::font` in Rust, `--font` in the terminal, `loadFont` and `{ font }` in JavaScript, and `load_font` and `font=` in Python. The playground loads one from your computer. A font without a MATH table is refused with a reason. STIX Two Math stays embedded and is the default, and without a font the SVG is unchanged ([#106](https://github.com/matheusmota-dev-br/mathra/issues/106)).
+- Code that builds an `Options` listing every field needs the new one (`..Default::default()`). A missing glyph now reads "the math font has no …" (#106).
+
+Equations: `x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}`
+
+## 1.9.3 - 2026-10-31
+
+The site, banner and icon take an identity of their own, and a new demo video.
+
+- A slate board with a wood tray in the banner, the icon and the top of the site, where a derivation writes itself line by line. Around it the site is plain paper, or charcoal in the dark theme.
+- Code blocks are colored on every page, the SVG, the tree and the reference's grammar included.
+- In the reference tables the braille wraps, so the source keeps its room.
+- A new 60-second demo video in the README and on the site.
+- What the packages draw does not change.
+
+Equations: `x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}`
+
 ## 1.9.2 - 2026-10-30
 
 `\boldmath` in bold italic, and `\SI`'s values as siunitx prints them.

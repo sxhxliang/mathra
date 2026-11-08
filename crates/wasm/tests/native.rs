@@ -5,7 +5,7 @@ use mathra_wasm::{convert, tex_to_svg, tex_to_tree};
 
 #[test]
 fn happy_path() {
-    assert!(tex_to_svg("x", None, None, None, None, None, None, None).unwrap().starts_with("<svg"));
+    assert!(tex_to_svg("x", None, None, None, None, None, None, None, None).unwrap().starts_with("<svg"));
     assert!(tex_to_tree("x", Some("pt-BR".into())).unwrap().contains("identifier"));
 }
 
@@ -34,7 +34,7 @@ fn locales_lists_every_language() {
 
 #[test]
 fn input_formats() {
-    assert!(tex_to_svg("sqrt(x)", None, None, None, Some("asciimath".into()), None, None, None).unwrap().contains("square root of x"));
+    assert!(tex_to_svg("sqrt(x)", None, None, None, Some("asciimath".into()), None, None, None, None).unwrap().contains("square root of x"));
     let json: serde_json::Value =
         serde_json::from_str(&mathra_wasm::render_json("<math><mi>x</mi></math>", None, true, true, Some("mathml"), None, false, false).unwrap()).unwrap();
     assert_eq!(json["text"], "x");
@@ -53,12 +53,23 @@ fn braille_in_render() {
 
 #[test]
 fn animate_and_steps() {
-    let plain = tex_to_svg("x+1", None, None, None, None, None, None, None).unwrap();
-    let animated = tex_to_svg("x+1", None, None, None, None, None, Some(true), None).unwrap();
-    let steps = tex_to_svg("x+1", None, None, None, None, None, None, Some(true)).unwrap();
+    let plain = tex_to_svg("x+1", None, None, None, None, None, None, None, None).unwrap();
+    let animated = tex_to_svg("x+1", None, None, None, None, None, Some(true), None, None).unwrap();
+    let steps = tex_to_svg("x+1", None, None, None, None, None, None, Some(true), None).unwrap();
     assert!(!plain.contains("data-step"));
     assert!(animated.contains("@keyframes mr-f") && animated.contains(r#"data-steps="3""#));
     assert!(steps.contains(r#"data-steps="3""#) && !steps.contains("@keyframes"));
     let json: serde_json::Value = serde_json::from_str(&mathra_wasm::render_json("x", None, true, false, None, None, true, false).unwrap()).unwrap();
     assert!(json["svg"].as_str().unwrap().contains("mr-f"));
+}
+
+#[test]
+fn a_loaded_font_by_its_id() {
+    let bytes = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../tools/fonts/latinmodern-math.otf")).unwrap();
+    let (id, name) = mathra_wasm::load_font_bytes(bytes).unwrap();
+    assert_eq!(name, "Latin Modern Math");
+    let svg = mathra_wasm::convert_in("x", None, true, false, None, None, false, false, Some(id)).unwrap().svg;
+    assert!(svg.contains("<mathra:font>Latin Modern Math</mathra:font>"));
+    assert!(mathra_wasm::pen_svg("x", None, true, None, None, Some(id)).is_ok());
+    assert!(mathra_wasm::convert_in("x", None, true, false, None, None, false, false, Some(999)).unwrap_err().contains("no font loaded"));
 }

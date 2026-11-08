@@ -1,0 +1,23 @@
+# Groups the pull requests of a GitHub release by label (scripts/changelog.py release, through the
+# generate-notes API). The labels come from each pull request's title: .github/scripts/triage.js.
+changelog:
+  exclude:
+    labels: [release, duplicate, invalid, wontfix]
+    authors: [dependabot, github-actions]
+  categories:
+    - title: Breaking changes
+      labels: [breaking]
+    - title: Features
+      labels: [enhancement]
+    - title: Bug fixes
+      labels: [bug]
+    - title: Performance
+      labels: [performance]
+    - title: Accessibility
+      labels: [accessibility]
+    - title: Documentation
+      labels: [documentation]
+    - title: Maintenance
+      labels: [ci, build, refactor, test, dependencies, chore, style, revert]
+    - title: Other changes
+      labels: ["*"]

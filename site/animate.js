@@ -65,11 +65,11 @@ var mathraAnimation = (() => {
       return e;
     };
     const g = el("g", { transform: `translate(${x} ${y + h})`, "font-family": "system-ui, sans-serif", "font-size": bar * 0.42 }, svg);
-    el("rect", { width: w, height: bar, fill: "#f4f1ea" }, g);
+    el("rect", { width: w, height: bar, fill: "#E8E6DA" }, g);
     // the button: a triangle to play, two bars to pause, an arrow to start over
     const button = el("g", { cursor: "pointer", role: "button", tabindex: "0", "aria-label": "Play" }, g);
     el("rect", { width: bar, height: bar, fill: "transparent" }, button);
-    const icon = el("path", { fill: "#0e1726" }, button);
+    const icon = el("path", { fill: "#16302A" }, button);
     const s = bar * 0.3, c = bar / 2;
     const ICONS = {
       play: `M${c - s * 0.7} ${c - s}L${c + s} ${c}L${c - s * 0.7} ${c + s}Z`,
@@ -77,13 +77,13 @@ var mathraAnimation = (() => {
       again: `M${c} ${c - s}A${s} ${s} 0 1 1 ${c - s} ${c}h${s * 0.4}A${s * 0.6} ${s * 0.6} 0 1 0 ${c} ${c - s * 0.6}v${s * 0.45}l${-s * 0.7} ${-s * 0.65}l${s * 0.7} ${-s * 0.65}Z`,
     };
     // the bar to drag, and how many steps have started
-    const label = el("text", { x: w - pad, y: bar * 0.66, "text-anchor": "end", fill: "#5d6b80" }, g);
+    const label = el("text", { x: w - pad, y: bar * 0.66, "text-anchor": "end", fill: "#4C6258" }, g);
     label.textContent = `${starts.length}/${starts.length}`;
     const left = bar + pad * 0.5, right = w - pad * 2 - label.getComputedTextLength(), track = Math.max(bar, right - left);
     const hit = el("rect", { x: left, y: 0, width: track, height: bar, fill: "transparent", cursor: "pointer" }, g);
-    el("rect", { x: left, y: bar / 2 - bar * 0.06, width: track, height: bar * 0.12, rx: bar * 0.06, fill: "#e5dfd2", "pointer-events": "none" }, g);
-    const done = el("rect", { x: left, y: bar / 2 - bar * 0.06, width: 0, height: bar * 0.12, rx: bar * 0.06, fill: "#f2b544", "pointer-events": "none" }, g);
-    const knob = el("circle", { cy: bar / 2, r: bar * 0.18, fill: "#f2b544", "pointer-events": "none" }, g);
+    el("rect", { x: left, y: bar / 2 - bar * 0.06, width: track, height: bar * 0.12, rx: bar * 0.06, fill: "#CBD1C6", "pointer-events": "none" }, g);
+    const done = el("rect", { x: left, y: bar / 2 - bar * 0.06, width: 0, height: bar * 0.12, rx: bar * 0.06, fill: "#2F6B5B", "pointer-events": "none" }, g);
+    const knob = el("circle", { cy: bar / 2, r: bar * 0.18, fill: "#2F6B5B", "pointer-events": "none" }, g);
 
     // the clock is the script's: every animation paused, and set to the same moment
     let t = 0, playing = false, last = 0;

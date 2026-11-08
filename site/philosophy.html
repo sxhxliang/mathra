@@ -8,21 +8,21 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta name="theme-color" content="#fbf9f4">
+<meta name="theme-color" content="#F4F3EF">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=Karla:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script src="theme.js"></script>
 <script src="code.js"></script>
 <style>
   .essay { max-width: 720px; margin: 0 auto; padding: 40px 0 0; }
   .essay .kicker { color: var(--accent-ink); font-weight: 600; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 10px; }
-  .essay h1 { font-family: "STIX Two Text", Georgia, serif; font-weight: 600; font-size: clamp(34px, 5vw, 48px); line-height: 1.12; margin: 0 0 16px; letter-spacing: -0.01em; }
-  .essay .intro { font-family: "STIX Two Text", Georgia, serif; font-size: 21px; line-height: 1.55; color: var(--muted); margin: 0 0 12px; }
+  .essay h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(34px, 5vw, 48px); line-height: 1.12; margin: 0 0 16px; letter-spacing: -0.01em; }
+  .essay .intro { font-family: var(--font-display); font-size: 21px; line-height: 1.55; color: var(--muted); margin: 0 0 12px; }
   .principle { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 4px 18px; padding: 36px 0 0; }
   .principle .num {
-    font-family: "STIX Two Text", Georgia, serif; font-size: 34px; line-height: 1; color: var(--accent-ink);
+    font-family: var(--font-display); font-size: 34px; line-height: 1; color: var(--accent-ink);
     padding-bottom: 8px; border-bottom: 2.5px solid var(--accent); align-self: start; text-align: center;
   }
   .principle h2 { font-size: clamp(23px, 3vw, 28px); margin: 0 0 8px; }
@@ -33,7 +33,7 @@
   }
   .principle blockquote {
     margin: 4px 0 14px; padding: 12px 18px; border-left: 3px solid var(--accent); background: var(--surface);
-    font-family: "STIX Two Text", Georgia, serif; font-size: 20px; line-height: 1.45; border-radius: 0 10px 10px 0;
+    font-family: var(--font-display); font-size: 20px; line-height: 1.45; border-radius: 0 10px 10px 0;
   }
   .principle table { border-collapse: collapse; width: 100%; font-size: 14px; margin: 4px 0 14px; }
   .principle th, .principle td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -41,7 +41,7 @@
   .tablewrap { overflow-x: auto; }
   @media (max-width: 560px) { .principle { grid-template-columns: minmax(0, 1fr); } .principle .num { justify-self: start; padding: 0 6px 6px; } }
   .closing { margin-top: 48px; padding: 24px; text-align: center; }
-  .closing p { margin: 0 0 16px; font-family: "STIX Two Text", Georgia, serif; font-size: 20px; }
+  .closing p { margin: 0 0 16px; font-family: var(--font-display); font-size: 20px; }
 </style>
 </head>
 <body>

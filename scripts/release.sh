@@ -89,14 +89,14 @@ for t in $tags; do git tag "$t"; done
 git push origin $tags
 echo "Pushed:$tags. Follow the workflows with: gh run list --limit 5"
 
-# the GitHub release of the crates' tag, with its section of CHANGELOG.md as the notes
+# the GitHub release of the crates' tag: its section of CHANGELOG.md, the pull requests by label, how to install
 case " $tags " in
   *" v$crates "*)
-    if python3 -I scripts/changelog.py notes "$crates" | gh release create "v$crates" --title "mathra $crates" --notes-file - --verify-tag; then
+    if python3 -I scripts/changelog.py release "$crates" | gh release create "v$crates" --title "mathra $crates" --notes-file - --verify-tag; then
       echo "GitHub release v$crates created from CHANGELOG.md."
     else
       echo "Could not create the GitHub release; make it by hand with:"
-      echo "  python3 -I scripts/changelog.py notes $crates | gh release create v$crates --title \"mathra $crates\" --notes-file -"
+      echo "  python3 -I scripts/changelog.py release $crates | gh release create v$crates --title \"mathra $crates\" --notes-file -"
     fi
     ;;
 esac

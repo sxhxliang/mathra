@@ -8,10 +8,10 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta name="theme-color" content="#fbf9f4">
+<meta name="theme-color" content="#F4F3EF">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=Karla:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script src="theme.js"></script>
 <script src="code.js"></script>
@@ -33,8 +33,13 @@
   </div>
 
   <header class="hero">
-    <div class="logo" id="logo" role="img" aria-label="mathra"></div>
-    <p class="tagline">Math LaTeX to <em>accessible</em> SVG.<br>No TeX install. JavaScript, Python, Rust or the terminal.</p>
+    <div class="board">
+      <div>
+        <div class="logo" id="logo" role="img" aria-label="mathra"></div>
+        <p class="tagline">Math LaTeX to <em>accessible</em> SVG.<br>No TeX install. JavaScript, Python, Rust or the terminal.</p>
+      </div>
+      <div class="derivation" id="derivation" aria-hidden="true"></div>
+    </div>
     <p class="sub">mathra reads the equation (LaTeX, MathML or AsciiMath, chemistry and commutative diagrams included), builds a tree of meaning and draws it with numbered, tested rules. Every SVG says the equation out loud to screen readers and carries it in braille.</p>
     <div class="cta">
       <a class="button solid" href="#playground">Try it now</a>
@@ -73,6 +78,15 @@
             <option value="nemeth">Nemeth</option>
           </select>
         </label>
+        <label class="lang">Font
+          <select id="font" title="Any OpenType math font (.otf or .ttf with a MATH table)">
+            <option value="">STIX Two Math</option>
+            <optgroup label="mathfonts" id="font-catalog" hidden></optgroup>
+            <option value="load">Load a font…</option>
+            <option value="catalog">Browse mathfonts ↗</option>
+          </select>
+        </label>
+        <input type="file" id="font-file" accept=".otf,.ttf,font/otf,font/ttf" hidden>
         <label><input type="checkbox" id="inline"> Inline</label>
         <label><input type="checkbox" id="strict"> Strict</label>
       </div>
@@ -93,6 +107,8 @@
       <div class="messages" id="messages"></div>
       <div class="actions">
         <button class="button solid" id="animate" type="button">▶ Animate</button>
+        <button class="button" id="pen" type="button" title="A pen writes the equation: each glyph's outline, then its fill">✎ Pen</button>
+        <button class="button" id="download-pen" type="button">Pen SVG</button>
         <button class="button" id="download" type="button">Download SVG</button>
         <button class="button" id="download-animated" type="button">Animated SVG</button>
         <button class="button" id="download-gif" type="button">Download GIF</button>
@@ -118,11 +134,11 @@
 
   <section id="demo">
     <h2>In 60 seconds</h2>
-    <p class="lead">What mathra does, from one command to speech, braille and the platforms. Every drawing and phrase in it is mathra's real output.</p>
+    <p class="lead">One page, one take: an equation typed live, then chemistry, diagrams, speech and braille. Every drawing and phrase in it is mathra's real output.</p>
     <div class="video">
-      <iframe src="https://www.youtube-nocookie.com/embed/pXuaCwmWaDg?rel=0" title="mathra in 60 seconds" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+      <iframe src="https://www.youtube-nocookie.com/embed/Bbz_nwre2BQ?rel=0" title="mathra in 60 seconds" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
     </div>
-    <p class="video-link"><a href="https://youtu.be/pXuaCwmWaDg">Watch on YouTube</a></p>
+    <p class="video-link"><a href="https://youtu.be/Bbz_nwre2BQ">Watch on YouTube</a></p>
   </section>
 
   <section>
@@ -321,47 +337,40 @@ println!("{}", r.speech);</pre>
   const $ = (id) => document.getElementById(id);
   const tex = $("tex"), inline = $("inline"), strict = $("strict");
   const preview = $("preview"), messages = $("messages"), panel = $("panel");
-  let render = null, last = null, tab = "speech", locale = "en", input = "latex";
+  let render = null, pen = null, last = null, tab = "speech", locale = "en", input = "latex";
 
 
   const escape = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-  function convert(src, loc, display, strictMode, inp = "latex", braille = null, animate = false, steps = false) {
-    return JSON.parse(render(src, loc, display, strictMode, inp, braille, animate, steps));
+  function convert(src, loc, display, strictMode, inp = "latex", braille = null, animate = false, steps = false, font = null) {
+    return JSON.parse(render(src, loc, display, strictMode, inp, braille, animate, steps, font));
   }
   // the equation as now on screen, again with its steps numbered or animated
-  const again = (animate, steps) => convert(tex.value, locale, !inline.checked, strict.checked, input, brailleCode(), animate, steps).svg;
+  const again = (animate, steps) => convert(tex.value, locale, !inline.checked, strict.checked, input, brailleCode(), animate, steps, fontId()).svg;
   const brailleCode = () => $("braille").value || null;
+  // the font of the playground: STIX Two Math, or the id of one the visitor loaded
+  const fontId = () => { const v = $("font").value; return v === "" || v === "load" ? null : Number(v); };
 
-  // the wordmark, drawn by mathra: the box of each glyph and the baseline, as in docs/banner.svg
+  // the wordmark, drawn by mathra
   function drawLogo() {
-    const svg = convert(String.raw`\mathrm{mathra}`, "en", true, false).svg;
-    const doc = new DOMParser().parseFromString(svg, "image/svg+xml").documentElement;
-    const [, top, width] = doc.getAttribute("viewBox").split(" ").map(Number);
-    const xs = [...doc.querySelectorAll("use")].map((u) => Number(u.getAttribute("x")));
-    const depth = 230, pad = 260, margin = 60;
-    const ns = "http://www.w3.org/2000/svg";
-    const boxes = document.createElementNS(ns, "g");
-    boxes.setAttribute("class", "boxes");
-    xs.forEach((x, i) => {
-      const r = document.createElementNS(ns, "rect");
-      const w = (xs[i + 1] ?? width) - x;
-      Object.entries({ x, y: top - margin, width: w, height: -top + margin + depth, "vector-effect": "non-scaling-stroke" }).forEach(([k, v]) => r.setAttribute(k, v));
-      boxes.append(r);
-    });
-    const base = document.createElementNS(ns, "line");
-    Object.entries({ class: "base", x1: -pad, y1: 0, x2: width + pad, y2: 0, "vector-effect": "non-scaling-stroke" }).forEach(([k, v]) => base.setAttribute(k, v));
-    const glyphs = doc.querySelector("g[fill]");
-    doc.insertBefore(boxes, glyphs);
-    doc.insertBefore(base, glyphs);
-    const vbw = width + 2 * pad, vbh = -top + 2 * margin + depth;
-    doc.setAttribute("viewBox", `${-pad} ${top - 2 * margin} ${vbw} ${vbh}`);
-    doc.setAttribute("width", `${vbw / 1000}em`);
-    doc.setAttribute("height", `${vbh / 1000}em`);
+    const doc = new DOMParser().parseFromString(convert(String.raw`\mathit{mathra}`, "en", true, false).svg, "image/svg+xml").documentElement;
     doc.removeAttribute("style");
     doc.setAttribute("aria-hidden", "true");
     doc.querySelector("title")?.remove();
     $("logo").replaceChildren(doc);
+    drawSteps();
+  }
+
+  // the board filled in, one line after the other, by mathra's own animation: a derivation, then a bit of everything
+  function drawSteps() {
+    const lines = [String.raw`ax^2 + bx + c = 0`, String.raw`x^2 + \frac{b}{a}x = -\frac{c}{a}`, String.raw`\left(x + \frac{b}{2a}\right)^2 = \frac{b^2 - 4ac}{4a^2}`, String.raw`x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}`,
+      String.raw`\int_0^{\infty} e^{-x^2}\,dx = \frac{\sqrt{\pi}}{2}`, String.raw`\sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6}`, String.raw`A = \begin{pmatrix} 1 & 2 \\ 3 & 4 \end{pmatrix}`, String.raw`\ce{2H2 + O2 -> 2H2O}`];
+    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    lines.forEach((src, i) => {
+      const line = document.createElement("div");
+      $("derivation").append(line);
+      setTimeout(() => { line.innerHTML = convert(src, "en", true, false, "latex", null, !still).svg; }, still ? 0 : i * 900);
+    });
   }
 
   function readHash() {
@@ -484,6 +493,7 @@ println!("{}", r.speech);</pre>
     mathraAnimation.showSteps(preview, k);
   }
   function stopAnimation() {
+    stopPen();
     if (!stopLoop) return;
     stopLoop();
     stopLoop = null;
@@ -500,7 +510,7 @@ println!("{}", r.speech);</pre>
   }
   async function measure() {
     if (!last) return;
-    const args = [tex.value, locale, !inline.checked, strict.checked, input, brailleCode()];
+    const args = [tex.value, locale, !inline.checked, strict.checked, input, brailleCode(), false, false, fontId()];
     let runs = 0;
     const start = performance.now();
     while (runs < 400 && performance.now() - start < 30) { render(...args); runs++; }
@@ -522,7 +532,7 @@ println!("{}", r.speech);</pre>
     messages.replaceChildren();
     stopAnimation();
     try {
-      last = convert(tex.value, locale, !inline.checked, strict.checked, input, brailleCode());
+      last = convert(tex.value, locale, !inline.checked, strict.checked, input, brailleCode(), false, false, fontId());
       preview.innerHTML = tex.value.trim() ? last.svg : `<span class="status">Type some ${INPUT_NAMES[input]} on the left.</span>`;
       fit();
       scheduleStats();
@@ -562,7 +572,7 @@ println!("{}", r.speech);</pre>
       return;
     }
     const text = { text: last.text, tree: JSON.stringify(last.tree, null, 2), svg: last.svg }[tab];
-    panel.innerHTML = `<pre>${escape(text)}</pre>`;
+    panel.innerHTML = `<pre>${colorCode(text, { tree: "json", svg: "xml" }[tab])}</pre>`;
   }
 
   function load(src, loc, inp = "latex") {
@@ -699,7 +709,7 @@ println!("{}", r.speech);</pre>
     ["Rust", "cargo add mathra"],
   ];
   function showInstall(i) {
-    $("install-cmd").textContent = INSTALL[i][1];
+    $("install-cmd").innerHTML = colorCode(INSTALL[i][1], "sh");
     [...document.querySelectorAll(".installer-tabs button")].forEach((b, j) => b.setAttribute("aria-selected", String(i === j)));
   }
   INSTALL.forEach(([label], i) => {
@@ -723,6 +733,73 @@ println!("{}", r.speech);</pre>
   }
   $("locale").addEventListener("change", (e) => { setLocale(e.target.value); update(); });
   $("braille").addEventListener("change", update);
+  // a font of the visitor's own: read in the browser, nothing is sent anywhere
+  let fontChoice = "";
+  $("font").addEventListener("change", () => {
+    if ($("font").value === "catalog") {
+      $("font").value = fontChoice;
+      window.open(MATHFONTS, "_blank", "noopener");
+      return;
+    }
+    if ($("font").value.startsWith("cat:")) { loadCatalogFont($("font").selectedOptions[0]); return; }
+    if ($("font").value !== "load") { fontChoice = $("font").value; update(); return; }
+    $("font").value = fontChoice;
+    $("font-file").click();
+  });
+  // the mathfonts catalog: its list is read once (a few KB); a font is downloaded only when picked,
+  // checked against the catalog's sha256 and then loaded like a file of the visitor's own
+  const MATHFONTS = "https://matheusmota-dev-br.github.io/mathfonts/";
+  async function loadCatalogList() {
+    const response = await fetch(MATHFONTS + "catalog.json");
+    if (!response.ok) return;
+    const data = await response.json();
+    if (data?.version !== 1 || !Array.isArray(data.fonts)) return;
+    const group = $("font-catalog");
+    for (const f of data.fonts) {
+      if (f.slug === "stix-two-math") continue;
+      const o = new Option(f.name, `cat:${f.slug}`);
+      o.dataset.url = new URL(f.file, MATHFONTS).href;
+      o.dataset.sha256 = f.sha256;
+      o.title = `${f.style} · ${f.license} · ${Math.round(f.size / 1024)} KB · ${f.coverage}% of the symbols`;
+      group.append(o);
+    }
+    group.hidden = false;
+  }
+  async function loadCatalogFont(option) {
+    const name = option.textContent;
+    $("font").value = fontChoice;
+    option.textContent = `${name} (downloading…)`;
+    try {
+      const response = await fetch(option.dataset.url);
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
+      if (digest !== option.dataset.sha256) throw new Error("the file does not match the catalog's sha256");
+      const { id } = JSON.parse(wasm_bindgen.loadFont(bytes));
+      option.value = String(id);
+      $("font").value = fontChoice = String(id);
+      update();
+    } catch (e) {
+      alert(`${name}: ${String(e.message ?? e)}`);
+    } finally {
+      option.textContent = name;
+    }
+  }
+  $("font-file").addEventListener("change", async () => {
+    const file = $("font-file").files[0];
+    $("font-file").value = "";
+    if (!file) return;
+    try {
+      const { id, name } = JSON.parse(wasm_bindgen.loadFont(new Uint8Array(await file.arrayBuffer())));
+      if (![...$("font").options].some((o) => o.value === String(id))) {
+        $("font").querySelector('option[value="load"]').before(new Option(name, String(id)));
+      }
+      $("font").value = fontChoice = String(id);
+      update();
+    } catch (e) {
+      alert(`${file.name}: ${String(e.message ?? e)}`);
+    }
+  });
   for (const b of document.querySelectorAll("#input button")) b.onclick = () => { setInput(b.dataset.input); update(); };
   for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => { tab = b.dataset.tab; showTab(); };
   tex.addEventListener("input", update);
@@ -748,6 +825,32 @@ println!("{}", r.speech);</pre>
     stopLoop = mathraAnimation.loop(preview, again(true, false), last.svg);
     fit();
     $("animate").textContent = "■ Stop";
+  };
+  // the equation written by a pen: mathra's SMIL plays by itself, in a loop
+  let penOn = false;
+  const penSvg = () => pen(tex.value, locale, !inline.checked, input, null, fontId());
+  function stopPen() {
+    if (!penOn) return;
+    penOn = false;
+    $("pen").textContent = "✎ Pen";
+    if (last) { preview.innerHTML = last.svg; fit(); }
+  }
+  $("pen").onclick = () => {
+    if (penOn) return stopPen();
+    if (!last || !tex.value.trim()) return;
+    stopAnimation();
+    try {
+      preview.innerHTML = penSvg();
+    } catch (e) {
+      alert(`Could not write it: ${String(e.message ?? e)}`);
+      return;
+    }
+    penOn = true;
+    fit();
+    $("pen").textContent = "■ Stop";
+  };
+  $("download-pen").onclick = () => {
+    if (last && tex.value.trim()) save(new Blob([penSvg()], { type: "image/svg+xml" }), "equation-pen.svg");
   };
   $("download-animated").onclick = () => {
     if (last) save(new Blob([mathraAnimation.withControls(again(true, false))], { type: "image/svg+xml" }), "equation-animated.svg");
@@ -801,11 +904,13 @@ println!("{}", r.speech);</pre>
     .then((module_or_path) => wasm_bindgen({ module_or_path }))
     .then(() => {
       render = wasm_bindgen.render;
+      pen = wasm_bindgen.texToPen;
       $("locale").innerHTML = JSON.parse(wasm_bindgen.locales()).map((l) => `<option value="${l.code}">${escape(l.name)} · ${l.code}</option>`).join("");
       $("locale").value = locale;
       drawLogo();
       drawStatic();
       update();
+      loadCatalogList().catch(() => {});
     })
     .catch((e) => { preview.innerHTML = `<span class="status">Could not load WebAssembly: ${escape(String(e.message ?? e))}</span>`; });
 })();

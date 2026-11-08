@@ -228,3 +228,16 @@ fn animate_and_steps() {
     assert!(animated.contains(r#"data-steps="3""#) && animated.contains("@keyframes mr-f") && animated.contains("--mr-step"));
     assert!(stdout(&mathra(&["--help"], None)).contains("--animate"));
 }
+
+#[test]
+fn a_math_font_from_a_file() {
+    let font = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tools/fonts/latinmodern-math.otf");
+    let o = mathra(&[r"\frac{a}{b}", "--font", font], None);
+    assert!(o.status.success(), "{}", stderr(&o));
+    assert!(stdout(&o).contains("<mathra:font>Latin Modern Math</mathra:font>"));
+    // not a font: said, and nothing drawn
+    let o = mathra(&["x", "--font", concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")], None);
+    assert!(!o.status.success() && stderr(&o).contains("not a font"), "{}", stderr(&o));
+    let o = mathra(&["x", "--font", "no-such-font.otf"], None);
+    assert!(!o.status.success() && stderr(&o).contains("cannot read"), "{}", stderr(&o));
+}

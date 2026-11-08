@@ -1,6 +1,7 @@
 pub mod braille;
 pub mod omml;
 mod omml_colors;
+pub mod pen;
 pub mod speech;
 pub mod svg;
 pub mod text;

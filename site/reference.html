@@ -8,12 +8,13 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta name="theme-color" content="#fbf9f4">
+<meta name="theme-color" content="#F4F3EF">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=Karla:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script src="theme.js"></script>
+<script src="code.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -219,7 +220,7 @@ E ::= IE | I/I                       expression`;
       return `<section class="ref-section" id="${s.id}"><h2>${escape(s.title)}</h2><div class="ref-scroll"><table class="ref"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div></section>`;
     }).join("");
     const grammar = group === "asciimath"
-      ? `<section class="ref-section" id="am-grammar"><h2>Grammar</h2><p>As on asciimath.org. Brackets around a fraction's parts, a script or an argument are removed; any closing bracket closes, so <code>(a,b]</code> is an interval.</p><pre class="grammar">${escape(GRAMMAR)}</pre></section>`
+      ? `<section class="ref-section" id="am-grammar"><h2>Grammar</h2><p>As on asciimath.org. Brackets around a fraction's parts, a script or an argument are removed; any closing bracket closes, so <code>(a,b]</code> is an interval.</p><pre class="grammar">${colorCode(GRAMMAR, "grammar")}</pre></section>`
       : "";
     $("sections").innerHTML = html + grammar;
   }

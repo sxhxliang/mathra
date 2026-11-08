@@ -1,6 +1,7 @@
 use std::process::ExitCode;
 use std::{env, fs, io};
 
+use mathra::font::MathFont;
 use mathra::{convert, BrailleCode, Input, Locale, Options};
 
 const HELP: &str = "\
@@ -18,6 +19,9 @@ OPTIONS
                           LaTeX (starting with <math) is recognized on its own
       --inline            inline style, as in $…$; the default is display style
       --strict            refuse invalid LaTeX, like TeX (the default recovers and warns)
+      --font <file>       set the equation in this OpenType math font (.otf or .ttf with a
+                          MATH table); the default is STIX Two Math
+                          (math fonts to download: https://matheusmota-dev-br.github.io/mathfonts/)
       --animate           the SVG writes itself in the browser, in the order the layout set it
       --steps             each element numbered by its step (data-step), with no animation
       --explain           show the tree, the speech and the rules applied
@@ -40,6 +44,7 @@ EXAMPLES
   mathra 'sum_(i=1)^n i^2' --from asciimath
   mathra '<math><msqrt><mi>x</mi></msqrt></math>' --speech
   mathra '\\frac{3}{4}' --locale pt-BR --braille
+  mathra 'e^{i\\pi} + 1 = 0' --font LibertinusMath-Regular.otf -o euler.svg
 ";
 
 enum Mode {
@@ -62,6 +67,7 @@ struct Args {
     braille: Option<BrailleCode>,
     animate: bool,
     steps: bool,
+    font: MathFont,
     mode: Mode,
 }
 
@@ -75,6 +81,7 @@ impl Args {
             braille: self.braille,
             animate: self.animate,
             steps: self.steps,
+            font: self.font,
             ..Default::default()
         }
     }
@@ -91,6 +98,7 @@ fn read_args() -> Result<Option<Args>, String> {
         braille: None,
         animate: false,
         steps: false,
+        font: MathFont::default(),
         mode: Mode::Svg,
     };
     let mut it = env::args().skip(1);
@@ -112,6 +120,11 @@ fn read_args() -> Result<Option<Args>, String> {
             "--steps" => args.steps = true,
             "--inline" => args.display = false,
             "--strict" => args.strict = true,
+            "--font" => {
+                let path = it.next().ok_or("missing file after --font")?;
+                let bytes = fs::read(&path).map_err(|e| format!("cannot read {path}: {e}"))?;
+                args.font = MathFont::load(bytes).map_err(|e| format!("{path}: {e}"))?;
+            }
             "--tree" => args.mode = Mode::Tree,
             "--speech" => args.mode = Mode::Speech,
             "--text" => args.mode = Mode::Text,

@@ -2,9 +2,9 @@
 
 # mathra
 
-Accessible SVG equations from LaTeX, chemistry included, without a TeX install, for **JavaScript, Python, Rust and the terminal**. **[Try it in the browser](https://matheusmota-dev-br.github.io/mathra/)**, or **[watch the 60-second demo](https://youtu.be/pXuaCwmWaDg)**.
+Accessible SVG equations from LaTeX, chemistry included, without a TeX install, for **JavaScript, Python, Rust and the terminal**. **[Try it in the browser](https://matheusmota-dev-br.github.io/mathra/)**, or **[watch the 60-second demo](https://youtu.be/Bbz_nwre2BQ)**.
 
-<p align="center"><a href="https://youtu.be/pXuaCwmWaDg"><img src="https://img.youtube.com/vi/pXuaCwmWaDg/maxresdefault.jpg" alt="mathra in 60 seconds: watch the demo on YouTube" width="720"></a></p>
+<p align="center"><a href="https://youtu.be/Bbz_nwre2BQ"><img src="https://img.youtube.com/vi/Bbz_nwre2BQ/maxresdefault.jpg" alt="mathra in 60 seconds: watch the demo on YouTube" width="720"></a></p>
 
 mathra reads math LaTeX (and chemfig structures, reaction schemes and commutative diagrams), builds a **tree of meaning** (what each piece is) and draws it with **explicit rules**, numbered and tested. Every SVG carries the phrase a screen reader says, in 16 languages, and the locale decides the form: in pt-BR `3,14` is a single number and `\sin` comes out as `sen`. All four packages run the same core, so an equation gives the same SVG, byte for byte, wherever it is converted.
 
@@ -216,9 +216,20 @@ Structural chemistry is the `chem` feature, on by default; `mathra = { version =
 
 ## What it converts
 
-Layout follows the parameters of the embedded font's MATH table. The font is STIX Two Math; with the
+Layout follows the parameters of the font's MATH table. The font is STIX Two Math; with the
 `latin-modern` feature, `convert_in_font` and `typeset_in_font` can also set an equation in Latin
 Modern Math, the OpenType Computer Modern of TeX's own documents (about 430 KB more in the binary).
+
+Any other OpenType math font works too: an `.otf` or `.ttf` with a MATH table, such as Libertinus Math, Fira Math or the TeX Gyre math fonts. Load it from its bytes and set it as `Options::font`. Fonts without a MATH table are refused, because they have no fraction, radical or tall delimiter metrics. A font is kept for as long as the program runs, and the same bytes give the same font. The SVG carries the font's outlines, so check that its license allows that.
+
+```rust
+let font = mathra::font::MathFont::load(std::fs::read("LibertinusMath-Regular.otf")?)?;
+let svg = mathra::convert(r"e^{i\pi} + 1 = 0", &mathra::Options { font, ..Default::default() })?.svg;
+```
+
+The same in each package: `--font file.otf` in the terminal, `loadFont(bytes)` and `{ font }` in JavaScript, `mathra.load_font(path)` and `font=` in Python. The [playground](https://matheusmota-dev-br.github.io/mathra/) loads one from your computer, and the file stays in your browser.
+
+To find one, [mathfonts](https://matheusmota-dev-br.github.io/mathfonts/) is a catalog of 30 math fonts that are free to share, each one checked with mathra and shown in it. The JavaScript and Python packages load one by its name, and the playground lists them all: `await loadFontFromCatalog("euler-math")` in JavaScript, `mathra.load_font_from_catalog("euler-math")` in Python (kept in `~/.cache/mathra`). A font is downloaded only when asked for, and only if it matches the catalog's sha256, so the same name always gives the same SVG. The Rust crate and the terminal do not download anything: download the file from the catalog and pass it as above.
 
 - Fractions (`\frac`, `\dfrac`, `\tfrac`, `\cfrac`, `\over`), binomials, roots with an index
 - Scripts, primes (`f'`), limits (`\lim`, `\sum`, `\prod`, `\int` and family, `\limits`)
