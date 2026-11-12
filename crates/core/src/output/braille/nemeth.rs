@@ -247,12 +247,13 @@ impl Writer {
             }
             Node::Arrow { symbol, above, below } => self.labeled_arrow(*symbol, above.as_deref(), below.as_deref(), ctx),
             Node::Stacked { base, above, below } => self.modified(base, below.as_deref(), above.as_deref(), ctx),
-            // cancellation indicators around the canceled expression (§12)
+            // the Feynman slash is not a cancellation, and the code has no overlay sign for it: the base,
+            // then the full cell for the slash overlay (S-BRL-1)
             Node::Canceled { base, shape: Cancel::Slash } => {
                 self.node(base, ctx);
-                // This is Feynman slash notation, not the cancellation indicators of §12.
-                self.missing(ctx, '╱');
+                self.missing(ctx, '\u{0338}');
             }
+            // cancellation indicators around the canceled expression (§12)
             Node::Canceled { base, .. } => {
                 self.put(ctx, "⠪", Kind::Other);
                 self.node(base, ctx);
@@ -296,6 +297,7 @@ impl Writer {
             }
             Node::Framed { base, .. }
             | Node::Colored { base, .. }
+            | Node::Attributed { base, .. }
             | Node::ForcedClass { base, .. }
             | Node::Style { base, .. }
             | Node::Multicolumn { base, .. }
@@ -309,6 +311,7 @@ impl Writer {
             | Node::Overlapped { base, .. }
             | Node::Unit { base, .. }
             | Node::Quantity { unit: base, .. } => self.node(base, ctx),
+            Node::VdotsWithin { .. } => self.node(&Node::VDOTS, ctx),
             Node::Space { .. } | Node::Phantom { .. } | Node::Rule { .. } => {}
             Node::VerticalArrow { symbol, .. } => self.missing(ctx, *symbol),
             #[cfg(feature = "chem")]
@@ -377,6 +380,11 @@ impl Writer {
     }
 
     fn identifier(&mut self, name: &str, variant: Variant, ctx: &Ctx) {
+        // the double-struck one (\mathbb{1}, 𝟙): the digit, as before it was a symbol; its typeform is an
+        // open question for a transcriber (docs/braille-review.md)
+        if name.len() == 1 && name.as_bytes()[0].is_ascii_digit() {
+            return self.number(name, ctx);
+        }
         let mut chars = name.chars();
         let (Some(c), None) = (chars.next(), chars.next()) else {
             if matches!(variant, Variant::Italic | Variant::Upright) {
@@ -451,6 +459,8 @@ impl Writer {
     }
 
     fn symbol(&mut self, c: char, ctx: &Ctx) {
+        // #176: a symbol drawn by composition that is another one drawn another way (a short arrow)
+        let c = crate::composite::get(c).and_then(|k| k.meaning).unwrap_or(c);
         // the degree sign is written at superscript level, even when print does not raise it (§23.10)
         if c == '°' {
             self.put_dots(&ctx.at(format!("{}{SUPERSCRIPT}", ctx.level)), "46 16", Kind::Other);
@@ -555,6 +565,7 @@ impl Writer {
     }
 
     fn scripts(&mut self, base: &Node, sup: Option<&Node>, sub: Option<&Node>, ctx: &Ctx) {
+        let base = base.operator_core();
         // Σ, ∏, lim, max…: limits under and over, as a modified expression (§15)
         let limits = match base {
             // integrals take their bounds as scripts (Ex. 23-16), unless print stacks them (Ex. 23-17)
@@ -573,23 +584,23 @@ impl Writer {
             self.put(ctx, &"⠄".repeat(primes), Kind::Other);
         }
         if let Some(s) = sub {
-            let numeric = matches!(s, Node::Number { value, .. } if !value.contains('.'));
-            // a letter, also an upright one (H in H₂O), or an abbreviated function name
-            let base = match base {
-                Node::Unit { base, .. } => base.as_ref(),
-                other => other,
+            // the digits of a whole-number subscript
+            let numeric = match s {
+                Node::Number { value, .. } if !value.contains('.') => Some(value),
+                _ => None,
             };
+            // a letter, also an upright one (H in H₂O), or an abbreviated function name
+            let base = script_letter(base);
             let on_letter = matches!(base, Node::Identifier { name, .. } if name.chars().count() == 1)
                 || matches!(base, Node::Function { .. })
                 || matches!(base, Node::Text { parts } if matches!(parts.as_slice(), [TextPart::Text(t)] if !t.is_empty() && t.chars().all(|c| c.is_ascii_alphabetic())));
-            if numeric && on_letter && ctx.level.is_empty() {
+            match numeric {
                 // x₁: a numeric subscript of first order needs no indicator (§14.6)
-                if let Node::Number { value, .. } = s {
+                Some(value) if on_letter && ctx.level.is_empty() => {
                     let digits: String = value.chars().map(|d| cells(digit(d))).collect();
                     self.put(ctx, &digits, Kind::Other);
                 }
-            } else {
-                self.node(s, &ctx.at(format!("{}{SUBSCRIPT}", ctx.level)));
+                _ => self.node(s, &ctx.at(format!("{}{SUBSCRIPT}", ctx.level))),
             }
         }
         if let Some(s) = sup {
@@ -637,15 +648,19 @@ impl Writer {
 
     fn accent(&mut self, base: &Node, accent: char, below: bool, ctx: &Ctx) {
         let modifier = match accent {
-            '\u{0304}' => "156",
+            // the line segment with a tick at each end (KaTeX's \overlinesegment) as the bar of a segment
+            '\u{0304}' | '\u{20E9}' => "156",
             '\u{0302}' => "456 126",
             '\u{20D7}' | '→' => "1246 135",
+            // only the right arrow has a contracted form (⠫⠪ is the angle): the others keep their full sign (§22)
+            '←' => "1246 246 25 25",
+            '↔' => "1246 246 25 25 135",
             '\u{0307}' => "16",
             // two dots over: the dot twice, as in the compound ⩷ (Rule 21 table)
             '\u{0308}' => "16 16",
             // arcs concave downward and upward (Ex. 15-53 to 15-56)
-            '⏜' => "1246 1",
-            '⏝' => "1246 3",
+            '⏜' | '⏠' => "1246 1",
+            '⏝' | '⏡' => "1246 3",
             '\u{0303}' => "4 156",
             other => {
                 self.node(base, ctx);
@@ -871,11 +886,13 @@ fn typeform(c: char, variant: Variant) -> &'static str {
         (Variant::Bold | Variant::BoldItalic, true) => "⠸",
         (Variant::DoubleStruck, false) => "⠠⠸⠰",
         (Variant::DoubleStruck, true) => "⠠⠸",
-        (Variant::Calligraphic, false) => "⠈⠰",
-        (Variant::Calligraphic, true) => "⠈",
-        (Variant::SansSerif | Variant::SansSerifItalic, false) => "⠠⠨⠰",
-        (Variant::SansSerif | Variant::SansSerifItalic, true) => "⠠⠨",
-        (Variant::Fraktur, false) => "⠸",
+        // #173: the bold and italic forms of script, Fraktur and sans-serif take the indicator of their
+        // alphabet (this module follows no rule of the code for the combined typeforms)
+        (Variant::Calligraphic | Variant::BoldScript, false) => "⠈⠰",
+        (Variant::Calligraphic | Variant::BoldScript, true) => "⠈",
+        (Variant::SansSerif | Variant::BoldSansSerif | Variant::SansSerifItalic | Variant::SansSerifBoldItalic, false) => "⠠⠨⠰",
+        (Variant::SansSerif | Variant::BoldSansSerif | Variant::SansSerifItalic | Variant::SansSerifBoldItalic, true) => "⠠⠨",
+        (Variant::Fraktur | Variant::BoldFraktur, false) => "⠸",
         _ => "",
     }
 }
@@ -1031,7 +1048,7 @@ fn sign(c: char) -> Option<(&'static str, Kind)> {
 fn is_function(n: &Node) -> bool {
     match n {
         Node::Function { .. } => true,
-        Node::Scripts { base, .. } => matches!(**base, Node::Function { .. }),
+        Node::Scripts { base, .. } => matches!(base.operator_core(), Node::Function { .. }),
         _ => false,
     }
 }
@@ -1070,6 +1087,28 @@ fn enclosed_lists(children: &[Node]) -> Vec<bool> {
     inside
 }
 
+/// What a script's base ends with in braille, for the numeric subscript of a letter (§14.6): a unit is its
+/// letter, and a quantity (`\si{m}`, `\qty{3}{m}`) the last node of its row, where the subscript follows.
+/// A unit of several letters (`\si{kg}`, a row of two) is not a letter, and keeps the indicator.
+fn script_letter(base: &Node) -> &Node {
+    // inside a unit's row: a group of one node is that node
+    fn unit_end(n: &Node) -> &Node {
+        match n {
+            Node::Row { children } if children.len() == 1 => unit_end(&children[0]),
+            Node::Unit { base, .. } => unit_end(base),
+            other => other,
+        }
+    }
+    match base {
+        Node::Quantity { unit, .. } => match unit.as_ref() {
+            Node::Row { children } if !children.is_empty() => unit_end(&children[children.len() - 1]),
+            other => unit_end(other),
+        },
+        Node::Unit { base, .. } => base,
+        other => other,
+    }
+}
+
 /// How deep the fractions inside go: 0 for a simple fraction's parts.
 fn fraction_depth(n: &Node) -> usize {
     match n {
@@ -1079,7 +1118,12 @@ fn fraction_depth(n: &Node) -> usize {
         Node::Root { radicand, .. } => fraction_depth(radicand),
         // a fraction at script level does not make the outer one complex (§13.5)
         Node::Scripts { base, .. } => fraction_depth(base),
-        Node::Colored { base, .. } | Node::ForcedClass { base, .. } | Node::Style { base, .. } | Node::Framed { base, .. } | Node::Unit { base, .. } => fraction_depth(base),
+        Node::Colored { base, .. }
+        | Node::Attributed { base, .. }
+        | Node::ForcedClass { base, .. }
+        | Node::Style { base, .. }
+        | Node::Framed { base, .. }
+        | Node::Unit { base, .. } => fraction_depth(base),
         _ => 0,
     }
 }

@@ -1,0 +1,4 @@
+# where clasp pushes: a project in one Google account
+.clasp.json
+node_modules/
+dist/

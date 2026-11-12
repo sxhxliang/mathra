@@ -22,6 +22,7 @@
     <nav aria-label="Site">
       <a href="index.html#playground">Playground</a>
       <a href="gallery.html">Gallery</a>
+      <a href="editor.html">Editor <span class="new">New</span></a>
       <a href="changelog.html" aria-current="page">Evolution</a>
       <a href="docs.html">Docs</a>
       <a href="reference.html">Reference</a>
@@ -42,7 +43,7 @@
 
   <footer>
     <span>mathra · MIT or Apache-2.0 · STIX Two Math font under OFL-1.1</span>
-    <span><a href="https://github.com/sponsors/matheusmota-dev-br">Sponsor mathra</a> · <a href="https://github.com/matheusmota-dev-br/mathra">github.com/matheusmota-dev-br/mathra</a></span>
+    <span><a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="https://github.com/sponsors/matheusmota-dev-br">Sponsor mathra</a> · <a href="https://github.com/matheusmota-dev-br/mathra">github.com/matheusmota-dev-br/mathra</a></span>
   </footer>
 </div>
 
@@ -81,6 +82,7 @@
     const p = new URLSearchParams({ tex: e.tex });
     if (e.locale !== "en") p.set("locale", e.locale);
     if (e.input !== "latex") p.set("input", e.input);
+    if (e.maxWidth) p.set("width", String(e.maxWidth));
     return `index.html#${p}`;
   };
 
@@ -141,7 +143,7 @@
     .then(() => {
       const draw = (e, animate = false) => {
         try {
-          return JSON.parse(wasm_bindgen.render(e.tex, e.locale, true, false, e.input, null, animate, false)).svg;
+          return JSON.parse(wasm_bindgen.render(e.tex, e.locale, true, false, e.input, null, animate, false, null, e.maxWidth ?? null)).svg;
         } catch (err) {
           return `<span class="empty">${escape(String(err.message ?? err))}</span>`;
         }

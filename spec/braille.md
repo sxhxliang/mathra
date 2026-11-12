@@ -24,10 +24,10 @@ Two codes, chosen by the language unless `braille` (`--braille-code`) says other
 | Letters | Capitals ⠠, Greek ⠨ (alternative forms ⠨⠈), bold ⠸⠰, double-struck ⠠⠸⠰, script ⠈⠰. The English-letter indicator ⠰ before a single letter that stands alone, except next to a comparison sign, after a function name, in a matrix or an enclosed list (§6) |
 | Operations and comparisons | Comparison signs with a space on each side; negation is ⠌ before the sign (§20–22) |
 | Fractions | Simple ⠹ ⠌ ⠼, complex and hypercomplex with ⠠ per order, mixed numbers ⠸⠹ ⠸⠼, binomial coefficient with ⠩ (§13, §15.6) |
-| Levels | Superscript ⠘, subscript ⠰, nested levels spelled from the baseline, return with ⠐ (not before a space or punctuation); a numeric subscript of a letter needs no indicator; primes ⠄ before the scripts; ⠪ as a comma at script level (§14) |
+| Levels | Superscript ⠘, subscript ⠰, nested levels spelled from the baseline, return with ⠐ (not before a space or punctuation); a numeric subscript of a letter needs no indicator, also of a unit's letter (`\si{m}_1`, `\qty{3}{m}_1`); primes ⠄ before the scripts; ⠪ as a comma at script level (§14) |
 | Radicals | ⠣ index ⠜ … ⠻, inner radicals with ⠨ per depth (§16) |
 | Functions | The name's letters followed by a space (§18) |
-| Modified expressions | ⠐ expression ⠩ under ⠣ over ⠻ for Σ, Π, lim, accents and stacked labels; contracted bar x̄ = ⠭⠱ (§15); integrals with their bounds as scripts (§23) |
+| Modified expressions | ⠐ expression ⠩ under ⠣ over ⠻ for Σ, Π, lim, accents and stacked labels; contracted bar x̄ = ⠭⠱ (§15); an arrow over or under the expression is the contracted right arrow ⠫⠕ or the full sign of the others, ⠫⠪⠒⠒ and ⠫⠪⠒⠒⠕ (§22), and KaTeX's line segment with a tick at each end (`\overlinesegment`) written as the bar (inferred: no printed example); integrals with their bounds as scripts (§23) |
 | Matrices and systems | A braille line per row, enlarged grouping signs on every line, a blank cell between entries (§19.6, §25.8) |
 
 ## CMU
@@ -43,7 +43,7 @@ Two codes, chosen by the language unless `braille` (`--braille-code`) says other
 | Roots | ⠫ index ⠱ radicand; the square root omits the index (§5.3) |
 | Functions | Brazilian names (sen, tg, cossec, sh…) ended by ⠄; log base: log⠄ base ⠱; lim⠄ condition ⠱ (§7.2, §7.5) |
 | Σ, Π, ∫ | The sign, the lower bound, ⠒, the upper bound, ⠱ (§7.4, §7.5.1) |
-| Marks | Written before the letter: bar ⠈⠉, vector ⠒⠂, left arrow ⠐⠒, tilde ⠐⠢, arc ⠈⠒, dot ⠈ (§2.3.2, §8.1) |
+| Marks | Written before the letter: bar ⠈⠉, vector ⠒⠂, left arrow ⠐⠒, tilde ⠐⠢, arc ⠈⠒, dot ⠈ (§2.3.2, §8.1); KaTeX's line segment as the bar (inferred) |
 | Matrices | A line per row, in the print positions (§7.5.1) |
 
 ## S-BRL-1 · A symbol without a sign
@@ -55,6 +55,6 @@ A symbol the code has no sign for (or that mathra does not know in that code yet
 The comparison with MathCAT (`docs/braille-review.md`, `tools/braille-compare/`) settled several of the points this section used to list: ≈ (the double tilde of the Rule 21 table), ⇒/⟹ with two shaft cells (Ex. 22-19), the enlarged double bar ⠠⠳⠠⠳ (Rule 19 table), floor and ceiling (§19.4). What is still open:
 
 - **Inferred from a rule, with no printed example.** Nemeth: ⊗ as the circle with an interior cross (§15.10 applied to the cross), ⪯ ⪰ as a bar under the curved comparison signs (§21.9), \ddot as two dot modifiers, \boxed as the rectangle shape with the expression inside (§15.10), ∭ as three integral signs. CMU: the degree sign ⠴ (only in the 2024 Iberoamerican edition), nabla ⠈⠻ (the 2006 text has `^ï`; the CIB 2024 and MathCAT print 4-12456), the brace that opens each line of a system (cases are not covered by the 2006 edition), a limit under max/min as the "subscrito" ⠌⠌.
-- **No sign in the source** (they come out as ⠿ with S-BRL-1): Nemeth: ¬, ⋮, ⋱, ↦, ⊤, ⊢, ⊨, ⋉, ⋊, ⋈, ℓ, a brace with a label (§19.2: it must be drawn). CMU: the hat, cancellation, a framed expression, horizontal braces and brackets, floor and ceiling, ≅ (§7.6 leaves the tilde-like relations to the author), ↑ ↓, ≺ ≻, labeled arrows.
+- **No sign in the source** (they come out as ⠿ with S-BRL-1): Nemeth: ¬, ⋮, ⋱, ↦, ⊤, ⊢, ⊨, ⋉, ⋊, ⋈, ℓ, a brace with a label (§19.2: it must be drawn), the Feynman slash (`\slashed`: the letter, then ⠿ for U+0338). CMU: the hat, cancellation, a framed expression, horizontal braces and brackets, floor and ceiling, ≅ (§7.6 leaves the tilde-like relations to the author), ↑ ↓, ≺ ≻, labeled arrows, the Feynman slash.
 - **Questions for a transcriber**, listed with what mathra does now in `docs/braille-review.md`.
 - **Context the tree does not keep.** Print spacing is lost in the tree, so Nemeth spaces follow the usual layout (after a comma, around comparison signs). Words inside an equation are written letter by letter, without contractions. Nemeth's rules for a letter inside a print sentence (UEB context, opening and closing Nemeth indicators) are outside the equation and not applied.

@@ -6,8 +6,10 @@ use mathra::rules::Registry;
 use mathra::tree::{Class, Node, Variant};
 use mathra::{Error, Locale, Options};
 
+/// No fallback fonts, with or without the `emoji` feature: a character the math font lacks is a box
+/// here (tests/fallback.rs has the fallbacks).
 fn options() -> Options {
-    Options { locale: Locale::PtBr, ..Options::default() }
+    Options { locale: Locale::PtBr, fallback_fonts: Vec::new(), ..Options::default() }
 }
 
 /// Box composed through the public API, with the tolerant mode's warnings.
@@ -43,7 +45,7 @@ fn assert_valid_svg(svg: &str, tex: &str) {
 /// Composes a hand-built tree (for nodes the reader only produces in rare combinations).
 fn compose_node(node: &Node, e: Style, strict: bool) -> Result<MathBox, Error> {
     let mut registry = Registry::default();
-    let mut ctx = Context { locale: Locale::PtBr, registry: &mut registry, strict, kerning: Default::default() };
+    let mut ctx = Context { locale: Locale::PtBr, registry: &mut registry, strict, kerning: Default::default(), fallbacks: &[] };
     compose(node, e, &mut ctx)
 }
 
@@ -470,6 +472,15 @@ fn tall_delimiter_assembles_parts() {
     svg(&tex);
 }
 
+#[test]
+fn lgroup_grows_from_the_brace_halves() {
+    // the font has ⟮ ⟯ at one size: a tall \lgroup is built as cmex builds it (physics' \Pmqty)
+    let matrix = math_box(r"\begin{matrix} a \\ b \\ c \\ d \end{matrix}");
+    let grouped = math_box(r"\left\lgroup \begin{matrix} a \\ b \\ c \\ d \end{matrix} \right\rgroup");
+    assert!(total(&grouped) >= total(&matrix), "{} < {}", total(&grouped), total(&matrix));
+    assert_eq!(total(&math_box(r"\left\lgroup x \right\rgroup")), total(&math_box(r"\lgroup x \rgroup")), "at the size of a letter, the glyph");
+}
+
 // ---------- accents, bars, braces, arrows ----------
 
 #[test]
@@ -484,6 +495,35 @@ fn simple_stretchy_and_combining_accents() {
     consistent(&compose_node(&node, Style::display(), true).unwrap(), "arrow as an accent");
     let node = Node::Accent { base: Box::new(ident("x")), accent: '\u{0302}', stretchy: false, below: false };
     consistent(&compose_node(&node, Style::display(), true).unwrap(), "combinante");
+}
+
+#[test]
+fn drawn_wide_accents_and_marks_under() {
+    let rules = |b: &MathBox| b.items.iter().filter(|i| matches!(i, Item::Rule { .. })).count();
+    let ab = math_box("AB");
+    // KaTeX's line segment: a line and a tick across each end, over or under the base
+    let over = math_box(r"\overlinesegment{AB}");
+    let under = math_box(r"\underlinesegment{AB}");
+    assert_eq!((rules(&over), rules(&under)), (3, 3));
+    assert!(over.height > ab.height && over.depth == ab.depth && over.width == ab.width);
+    assert!(under.depth > ab.depth && under.height == ab.height);
+    consistent(&over, "overlinesegment");
+    // mathabx's \widebar: one rule as wide as the base, where \bar puts its macron (below \overline's bar)
+    for base in ["x", "AB", "ABCDEF"] {
+        let rule = |tex: String| match math_box(&tex).items.iter().find(|i| matches!(i, Item::Rule { .. })) {
+            Some(Item::Rule { width, y, .. }) => (*width, *y),
+            _ => panic!("{tex}: no rule"),
+        };
+        let (wide, overline) = (rule(format!(r"\widebar{{{base}}}")), rule(format!(r"\overline{{{base}}}")));
+        assert!((wide.0 - overline.0).abs() < 1e-3 && wide.1 <= overline.1, "{base}: {wide:?} {overline:?}");
+    }
+    // a mark of its own size under the base (accents' \underaccent), not stretched to the base
+    let x = math_box("x");
+    let under_tilde = math_box(r"\underaccent{\tilde}{x}");
+    assert!(under_tilde.depth > x.depth && under_tilde.height == x.height, "{under_tilde:?}");
+    let glyphs = |b: &MathBox| b.items.iter().filter(|i| matches!(i, Item::Glyph { .. })).count();
+    assert_eq!(glyphs(&math_box(r"\underaccent{\hat}{ABCDEF}")), 7, "the hat's own glyph, not a stretched one");
+    consistent(&under_tilde, "underaccent");
 }
 
 #[test]
@@ -522,6 +562,52 @@ fn ink(items: &[Item]) -> (f32, f32) {
         }
         _ => (lo, hi),
     })
+}
+
+/// Leftmost and rightmost ink of some glyphs of a box.
+fn ink_x(items: &[Item]) -> (f32, f32) {
+    let f = mathra::font::font();
+    items.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), item| match item {
+        Item::Glyph { id, x, scale, .. } => {
+            let (x0, _, x1, _) = f.limits(*id);
+            (lo.min(x + x0 * scale), hi.max(x + x1 * scale))
+        }
+        _ => (lo, hi),
+    })
+}
+
+#[test]
+fn braces_have_a_minimum_width() {
+    // the font's first variant wider than the base glyph: over one character the brace is that
+    // wide, centered on the base, and the box widens to hold it (TeX gives braces a minimum too)
+    let f = mathra::font::font();
+    for (tex, symbol) in [(r"\underbrace{7}_{n}", '⏟'), (r"\overbrace{7}^{n}", '⏞'), (r"\underbrace{7}", '⏟'), (r"\underbracket{7}_{n}", '⎵'), (r"\overbracket{7}^{n}", '⎴')]
+    {
+        let id = f.glyph(symbol).unwrap();
+        let width = |g| {
+            let (x0, _, x1, _) = f.limits(g);
+            x1 - x0
+        };
+        let minimum = f.variants(id, false).into_iter().map(|(v, _)| width(v)).find(|w| *w > width(id)).unwrap();
+        let base = math_box("7");
+        let b = math_box(tex);
+        let n = base.items.len();
+        let (left, right) = ink_x(&b.items[n..n + 1]);
+        assert!(right - left >= minimum - 1.0 && right - left > base.width * 1.5, "{tex}: brace {} wide, minimum {minimum}", right - left);
+        assert!(b.width >= right - left - 1.0, "{tex}: box {} narrower than its brace {}", b.width, right - left);
+        let (base_left, base_right) = ink_x(&b.items[..n]);
+        let center = |(l, r): (f32, f32)| (l + r) / 2.0;
+        assert!((center((left, right)) - center((base_left, base_right))).abs() < 0.15 * base.width, "{tex}: the brace is not centered on its base");
+        consistent(&b, tex);
+    }
+    // in the SVG: 7 is 0.495em; under its brace the equation is as wide as the brace's 1em variant
+    let width = |svg: &str| svg.split("width=\"").nth(1).unwrap().split("em\"").next().unwrap().parse::<f32>().unwrap();
+    assert!(width(&svg(r"\underbrace{7}_{n}")) >= 1.0, "{}", width(&svg(r"\underbrace{7}_{n}")));
+    // a sequence of short braces takes the room of their braces, not of their digits
+    assert!(math_box(r"\underbrace{3}_{a} \ \underbrace{1}_{b} \ \underbrace{4}_{c}").width > 3.0 * 900.0);
+    // a wide base is unchanged: the brace stretches to it
+    let wide = math_box(r"\underbrace{a+b+c+d+e+f}_{n}");
+    assert!((wide.width - math_box("a+b+c+d+e+f").width).abs() < 1.0);
 }
 
 #[test]
@@ -616,6 +702,25 @@ fn cancels_and_frames() {
     assert_eq!(bars(&boxed), 4);
     let circ = math_box(r"\textcircled{1}");
     assert!(circ.items.iter().any(|i| matches!(i, Item::Ellipse { .. })));
+}
+
+#[test]
+fn slashed_overstrikes_a_slash_and_keeps_the_width() {
+    let glyphs = |b: &MathBox| b.items.iter().filter(|i| matches!(i, Item::Glyph { .. })).count();
+    // slashed.sty: the slash as a glyph over the letter, in a box as wide as the wider of the two
+    for letter in ["D", "p", "A"] {
+        let plain = math_box(letter);
+        let slashed = math_box(&format!(r"\slashed{{{letter}}}"));
+        assert_eq!(glyphs(&slashed), 2, "{letter}");
+        assert_eq!(lines(&slashed), 0, "{letter}: a glyph, not a drawn line");
+        assert!((slashed.width - plain.width).abs() < 1e-4, "{letter}: {} vs {}", slashed.width, plain.width);
+    }
+    // a slash wider than the letter (i) sets the width, both centered
+    let i = math_box("i");
+    let slash = math_box("/");
+    assert!((math_box(r"\slashed{i}").width - i.width.max(slash.width)).abs() < 1e-4);
+    // the spacing around it is a letter's
+    assert!((math_box(r"a\slashed{D}b").width - math_box("aDb").width).abs() < 1e-4);
 }
 
 #[test]
@@ -846,7 +951,18 @@ fn multicolumn_outside_table_is_just_content() {
 }
 
 fn table(rows: Vec<Vec<Node>>, verticals: Vec<usize>, between: Vec<(usize, Node)>) -> Node {
-    Node::Table { shape: mathra::tree::TableKind::Array, rows, columns: vec!['c', 'c'], verticals, dashed: vec![], horizontals: vec![], between, intertexts: vec![], stretch: 1.0 }
+    Node::Table {
+        shape: mathra::tree::TableKind::Array,
+        rows,
+        columns: vec!['c', 'c'],
+        verticals,
+        dashed: vec![],
+        horizontals: vec![],
+        between,
+        intertexts: vec![],
+        stretch: 1.0,
+        colsep: 500,
+    }
 }
 
 #[test]
@@ -1144,4 +1260,45 @@ fn text_is_kerned_as_tex_kerns_it() {
     assert_eq!(width("va", TextKerning::None), width("va", TextKerning::T1));
     // bold by its own table
     assert!(width(r"\text{\textbf{AV}}", TextKerning::None) > width(r"\text{\textbf{AV}}", TextKerning::Ot1));
+}
+
+/// Left edge and right edge of the glyphs of `letter` (math italic) in a box.
+fn letter_span(c: &MathBox, letter: char) -> (f32, f32) {
+    let f = mathra::font::font();
+    let id = f.glyph(letter).unwrap();
+    let xs: Vec<(f32, f32)> = c.items.iter().filter_map(|i| if let Item::Glyph { id: g, x, scale, .. } = i { (*g == id).then_some((*x, *scale)) } else { None }).collect();
+    assert!(!xs.is_empty(), "{letter} is drawn");
+    let start = xs.iter().map(|p| p.0).fold(f32::INFINITY, f32::min);
+    let end = xs.iter().map(|p| p.0 + f.advance(id) * p.1).fold(f32::NEG_INFINITY, f32::max);
+    (start, end)
+}
+
+#[test]
+fn multline_first_line_left_last_right_shoved_lines_at_their_side() {
+    let tex = r"\begin{multline} aaaaaaaa \\ b \\ \shoveleft{c} \\ \shoveright{d} \\ e \end{multline}";
+    let c = math_box(tex);
+    consistent(&c, tex);
+    let width = c.width;
+    // within 1/20 em
+    let near = |x: f32, at: f32| (x - at).abs() < 50.0;
+    let (a0, a1) = letter_span(&c, '𝑎');
+    let (b0, b1) = letter_span(&c, '𝑏');
+    let (c0, _) = letter_span(&c, '𝑐');
+    let (_, d1) = letter_span(&c, '𝑑');
+    let (_, e1) = letter_span(&c, '𝑒');
+    // the first line is the widest: it spans the box
+    assert!(near(a0, 0.0) && near(a1, width), "first line {a0}..{a1} in 0..{width}");
+    // a middle line is centered; a shoved one goes to its side; the last line goes right
+    assert!(near((b0 + b1) / 2.0, width / 2.0), "middle line {b0}..{b1} in 0..{width}");
+    assert!(near(c0, 0.0), "\\shoveleft at {c0}");
+    assert!(near(d1, width), "\\shoveright ends at {d1} of {width}");
+    assert!(near(e1, width), "last line ends at {e1} of {width}");
+    // multline* is the same layout, without a number
+    let starred = math_box(r"\begin{multline*} aaaaaaaa \\ b \\ \shoveleft{c} \\ \shoveright{d} \\ e \end{multline*}");
+    assert_eq!(starred.width, width);
+    assert_eq!(letter_span(&starred, '𝑒'), (letter_span(&c, '𝑒')));
+    // a short first line goes left, a short last line right
+    let c = math_box(r"\begin{multline} a \\ bbbbbbbb \\ e \end{multline}");
+    assert!(near(letter_span(&c, '𝑎').0, 0.0) && near(letter_span(&c, '𝑒').1, c.width));
+    assert!(warnings(tex).is_empty(), "{:?}", warnings(tex));
 }

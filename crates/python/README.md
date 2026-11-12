@@ -26,16 +26,20 @@ mathra.tex_to_svg(r"\sum_{n=1}^{\infty} \frac{1}{n^2}", display=False)   # inlin
 mathra.tex_to_svg(r"\vertA\vert", strict=True)                           # ValueError, like TeX
 mathra.render("sqrt(x)/2", input="asciimath")["speech"]                   # also input="mathml"
 mathra.render(r"\chemfig{H_3C-*6(=-=-=-)}")["speech"]                     # 'structure of C7 H8, with 1 aromatic ring'
+
+png = mathra.tex_to_png(r"e^{i\pi} + 1 = 0", background="white")           # PNG bytes, 300 dpi
+open("euler.png", "wb").write(png)
 ```
 
 | | |
 |---|---|
-| `tex_to_svg(tex, locale="en", *, display=True, strict=False, input="latex", braille=None, animate=False, steps=False)` | The SVG as a string. |
-| `render(tex, locale="en", *, display=True, strict=False, input="latex", braille=None, animate=False, steps=False)` | A dict: `svg`, `speech`, `text`, `braille`, `braille_code`, `tree`, `applied`, `warnings`. |
-| `tex_to_tree(tex, locale="en", *, display=True, strict=False, input="latex", braille=None, animate=False, steps=False)` | The tree of meaning as JSON. |
+| `tex_to_svg(tex, locale="en", *, display=True, strict=False, input="latex", braille=None, animate=False, steps=False, max_width=None, fallback_fonts=None, labels=None, citations=None)` | The SVG as a string. |
+| `render(tex, locale="en", *, display=True, strict=False, input="latex", braille=None, animate=False, steps=False, max_width=None, fallback_fonts=None, labels=None, citations=None)` | A dict: `svg`, `speech`, `text`, `braille`, `braille_code`, `mathml`, `tree`, `applied`, `warnings`, `boxes`. `mathml` is the equation as MathML Core (`display` decides `display="block"` or `"inline"`), with `intent` where it adds meaning, and a `<semantics>` with the source for what MathML cannot draw ([spec/mathml.md](https://github.com/matheusmota-dev-br/mathra/blob/main/spec/mathml.md)). | |
+| `tex_to_png(tex, locale="en", *, display=True, strict=False, input="latex", braille=None, font=None, dpi=300, background=None, color="#111", max_width=None, fallback_fonts=None, labels=None, citations=None)` | The PNG as bytes. |
+| `tex_to_tree(tex, locale="en", *, display=True, strict=False, input="latex", braille=None, animate=False, steps=False, max_width=None, fallback_fonts=None, labels=None, citations=None)` | The tree of meaning as JSON. |
 | `locales()` | `[{"code": "en", "name": "English"}, …]`: en, pt-BR, es, fr, de, it, ru, zh, ja, ko, hi, ar, id, tr, nl, pl. |
 
-`input` is `"latex"`, `"mathml"` or `"asciimath"`; MathML passed as LaTeX, starting with `<math`, is recognized on its own. `braille` is `"cmu"` or `"nemeth"`; by default the locale's (CMU in pt-BR and es, Nemeth elsewhere). Errors are `ValueError`. Types are included (`py.typed`).
+`input` is `"latex"`, `"mathml"` or `"asciimath"`; MathML passed as LaTeX, starting with `<math`, is recognized on its own. `braille` is `"cmu"` or `"nemeth"`; by default the locale's (CMU in pt-BR and es, Nemeth elsewhere). `tex_to_png` is for where SVG is not accepted (e-mail, some editors and LMSs): `dpi` is over a 12pt body, so an em is `dpi * 12 / 72` pixels (50 at 300 dpi), each side rounded up to a whole pixel; `background` (transparent by default) and `color`, the ink, are CSS colors, and colors set in the equation keep their own. A PNG is only the drawing, with no speech or source: give it the speech as its alt text. `labels` and `citations` give the numbers of the document's cross-references, which an equation converted alone cannot know: with `labels={"eq:a": 3}` and `citations={"knuth": 1}`, `\eqref{eq:a}` shows `(3)`, `\ref{eq:a}` shows `3` and `\cite{knuth}` shows `[1]`; an unknown key is `(??)`, `??` or `[?]`, as on LaTeX's first run, with a warning (a `ValueError` with `strict=True`). Errors are `ValueError`. Types are included (`py.typed`).
 
 ## What it draws
 
@@ -60,6 +64,8 @@ Speech in `<title>` linked with `aria-labelledby`, the source equation and the t
 
 With `animate=True` the equation writes itself in the browser, with CSS alone: each glyph fades in, each rule grows and each line is drawn, in the order the layout set them, in about three seconds (nothing moves with `prefers-reduced-motion`); `steps=True` numbers each element by that order (`data-step`) with no animation. Both are off by default, and without them the SVG is unchanged byte for byte.
 
+With `max_width=30` (in em) an equation wider than that is broken into lines: after a relation (`=`, `≤`, `→`…), and only when relations alone are not enough, after `+` and `−` too, only at its top level (never inside a fraction, a root, `\left…\right`, scripts or a table). Each line is a `<g data-line>` of the SVG; speech, text and braille do not change.
+
 ## Other math fonts
 
 STIX Two Math is embedded and is the default. Any OpenType math font (an `.otf` or `.ttf` with a MATH table, such as Libertinus Math or Fira Math) can be loaded from a path or its bytes:
@@ -81,10 +87,21 @@ mathra.tex_to_svg(r"e^{i\pi} + 1 = 0", font=font)
 
 All the fonts of the catalog are under licenses that let the SVG carry their outlines (OFL, GUST, Apache-2.0, MIT).
 
+## Emoji and other characters the math font lacks
+
+Emoji are drawn from Noto Emoji (the monochrome one), embedded in the package: `mathra.tex_to_svg("E = mc^2 😀")` draws the face, with no warning, in the text color. For other characters the math font lacks, such as Chinese in `\text{…}`, pass fallback fonts: any `.otf` or `.ttf` with outlines, tried in order before Noto Emoji. A math font from `load_font` can be one too.
+
+```python
+cjk = mathra.load_fallback_font("NotoSansSC-Regular.otf")  # FallbackFont(id=0, name='Noto Sans SC')
+mathra.tex_to_svg(r"\text{面积} = \pi r^2", fallback_fonts=[cjk])
+```
+
+A character no font has is drawn as a box, with the warning E-REC-8, or raises ValueError with `strict=True`. Noto Emoji adds about 540 KB to the wheel.
+
 ## Also for JavaScript, Rust and the terminal
 
 The same core is an npm package (`@mathlabs/mathra`), a Rust crate and a command-line tool: [github.com/matheusmota-dev-br/mathra](https://github.com/matheusmota-dev-br/mathra#install-and-use). Rules, languages and the full list of supported commands are there too.
 
 ## License
 
-The code is MIT or Apache-2.0; the embedded STIX Two Math font is under the SIL Open Font License 1.1.
+The code is MIT or Apache-2.0; the embedded STIX Two Math and Noto Emoji fonts are under the SIL Open Font License 1.1.

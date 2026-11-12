@@ -1,0 +1,83 @@
+# Publishes the VS Code extension when its version tag (vscode-v0.1.1) is pushed: to the Visual Studio
+# Marketplace, and to Open VSX (VSCodium, Cursor…) when its token is set. The extension has its own
+# version line, in vscode/package.json. A version already out is skipped, so rerunning never fails on it.
+#
+# Set up once, in the repository's Settings → Secrets and variables → Actions:
+# - VSCE_PAT: an Azure DevOps personal access token of the account that owns the Marketplace publisher
+#   matheusmota-dev-br, for "All accessible organizations", with the scope Marketplace → Manage. It
+#   expires (a year at most): renew it and replace the secret before then.
+# - OVSX_PAT (optional): an access token of open-vsx.org; without it, Open VSX is skipped.
+name: vscode
+
+on:
+  push:
+    tags: ["vscode-v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
+    steps:
+      - uses: actions/checkout@v4
+      # the extension is built and tested on the mathra package and the editor of this commit
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@0.2.129
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm/build.sh
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - name: the tag matches the version in vscode/package.json
+        run: test "vscode-v$(node -p "require('./vscode/package.json').version")" = "$GITHUB_REF_NAME"
+      - name: the Marketplace token is set
+        run: test -n "$VSCE_PAT" || { echo "Set the VSCE_PAT secret (see the top of .github/workflows/vscode.yml)" >&2; exit 1; }
+      - working-directory: editor
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+      - name: test and package the extension
+        working-directory: vscode
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm typecheck
+          pnpm coverage
+          pnpm package
+      - name: publish to the Marketplace unless already published
+        working-directory: vscode
+        run: |
+          id="$(node -p "require('./package.json').publisher").$(node -p "require('./package.json').name")"
+          version=$(node -p "require('./package.json').version")
+          # the Marketplace's public query: every version of the extension (none before the first publish)
+          versions=$(curl -sf -X POST "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery" \
+            -H "Content-Type: application/json" -H "Accept: application/json;api-version=3.0-preview.1" \
+            -d "{\"filters\":[{\"criteria\":[{\"filterType\":7,\"value\":\"$id\"}]}],\"flags\":1}")
+          if echo "$versions" | grep -q "\"version\":\"$version\""; then
+            echo "$id $version is already on the Marketplace"
+          else
+            node_modules/.bin/vsce publish --packagePath "mathra-$version.vsix"
+          fi
+      - name: publish to Open VSX unless already published
+        if: env.OVSX_PAT != ''
+        working-directory: vscode
+        run: |
+          publisher=$(node -p "require('./package.json').publisher")
+          version=$(node -p "require('./package.json').version")
+          if curl -sf -o /dev/null "https://open-vsx.org/api/$publisher/mathra/$version"; then
+            echo "$publisher.mathra $version is already on Open VSX"
+          else
+            # the namespace is made by the first publish; it exists after that
+            npx --yes ovsx@1.4.0 create-namespace "$publisher" -p "$OVSX_PAT" || true
+            npx --yes ovsx@1.4.0 publish "mathra-$version.vsix" -p "$OVSX_PAT"
+          fi

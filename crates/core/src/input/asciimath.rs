@@ -22,18 +22,12 @@ pub fn read_with(source: &str, locale: Locale, registry: &mut Registry, strict: 
     let mut children = Vec::new();
     loop {
         children.extend(parser.expression(false)?);
-        match parser.peek() {
-            None => break,
-            Some(Token { kind: Kind::Right(c), col, .. }) => {
-                // a closing bracket nothing opened
-                let (c, col) = (*c, *col);
-                parser.pos += 1;
-                parser.tolerate(rules::E_REC_5, col, format!("'{}' closes nothing", c.map_or(":)".into(), String::from)), "drawn as is")?;
-                if let Some(c) = c {
-                    children.push(symbol_node(c));
-                }
-            }
-            Some(_) => unreachable!("an expression stops only at the end or at a closing bracket"),
+        // an expression stops only at the end or at a closing bracket, here one nothing opened
+        let Some(&Token { kind: Kind::Right(c), col }) = parser.peek() else { break };
+        parser.pos += 1;
+        parser.tolerate(rules::E_REC_5, col, format!("'{}' closes nothing", c.map_or(":)".into(), String::from)), "drawn as is")?;
+        if let Some(c) = c {
+            children.push(symbol_node(c));
         }
     }
     Ok(Node::row(children))
@@ -130,9 +124,10 @@ const SYMBOLS: &[(&str, &str)] = &[
     ("and", "\\text{ and }"),
     ("or", "\\text{ or }"),
     ("not", "\\neg"),
-    ("=>", "\\implies"),
+    // AsciiMath's => and iff are the short arrows ⇒ and ⇔, not amsmath's spaced long ones (#250)
+    ("=>", "\\Rightarrow"),
     ("if", "\\text{ if }"),
-    ("iff", "\\iff"),
+    ("iff", "\\Leftrightarrow"),
     ("AA", "\\forall"),
     ("EE", "\\exists"),
     ("_|_", "\\bot"),
@@ -552,7 +547,14 @@ impl Parser<'_> {
             if matches!(self.peek().map(|t| &t.kind), Some(Kind::Over)) {
                 self.pos += 1;
                 let right = if self.peek().is_some_and(|t| !matches!(t.kind, Kind::Right(_))) { self.intermediate()? } else { Node::row(vec![]) };
-                out.push(Node::Fraction { num: Box::new(unbracket(left)), den: Box::new(unbracket(right)), style: FractionStyle::Auto, rule: true, thickness: None });
+                out.push(Node::Fraction {
+                    numerator_align: None,
+                    num: Box::new(unbracket(left)),
+                    den: Box::new(unbracket(right)),
+                    style: FractionStyle::Auto,
+                    rule: true,
+                    thickness: None,
+                });
             } else {
                 out.push(left);
             }
@@ -621,7 +623,7 @@ impl Parser<'_> {
                 if value.contains('.') && self.locale.comma_is_decimal() {
                     self.registry.note(rules::L_NUM_1, format!("'{value}': read as a decimal number"));
                 }
-                Node::Number { value, group: false, thousands: None }
+                Node::Number { value, group: false, thousands: None, variant: Variant::Upright }
             }
             Kind::Letter(c) if c.is_alphabetic() => {
                 let variant = if c.is_ascii_alphabetic() || ('α'..='ω').contains(&c) { Variant::Italic } else { Variant::Upright };
@@ -647,7 +649,7 @@ impl Parser<'_> {
                 let a = unbracket(self.simple()?);
                 let b = unbracket(self.simple()?);
                 match name {
-                    "frac" => Node::Fraction { num: Box::new(a), den: Box::new(b), style: FractionStyle::Auto, rule: true, thickness: None },
+                    "frac" => Node::Fraction { numerator_align: None, num: Box::new(a), den: Box::new(b), style: FractionStyle::Auto, rule: true, thickness: None },
                     "root" => Node::Root { radicand: Box::new(b), index: Some(Box::new(a)) },
                     "underset" => {
                         let class = class_of(&b);
@@ -693,7 +695,13 @@ impl Parser<'_> {
                 Node::Scripts { base: Box::new(Node::row(vec![])), sup: sup.map(Box::new), sub: sub.map(Box::new) }
             }
             Kind::Over => Node::Operator { symbol: '/', class: Class::Ord },
-            Kind::Right(_) => unreachable!("expression() stops before a closing bracket"),
+            Kind::Right(close) => {
+                // sqrt), x^): where an argument or a script is expected, the argument is empty and
+                // the bracket is left to what it closes
+                self.pos -= 1;
+                self.tolerate(rules::E_REC_7, col, format!("missing argument before '{}'", close.map_or(":}".into(), String::from)), "left empty")?;
+                Node::row(vec![])
+            }
         })
     }
 }
@@ -722,11 +730,14 @@ fn class_of(n: &Node) -> Class {
 /// Without the outer brackets: `(a+b)/2` has no parentheses on top, `x^(2n)` neither.
 fn unbracket(n: Node) -> Node {
     match n {
-        Node::Delimited { open: Some('(' | '[' | '{') | None, close: Some(')' | ']' | '}') | None, mut parts, middles } if parts.len() == 1 && middles.is_empty() => {
-            parts.pop().expect("one part").simplify()
-        }
+        Node::Delimited { open, close, mut parts, middles } if plain_brackets(open, close) && parts.len() == 1 && middles.is_empty() => parts.pop().expect("one part").simplify(),
         other => other,
     }
+}
+
+/// Brackets `unbracket` takes off: parentheses, square brackets, braces, or none.
+fn plain_brackets(open: Option<char>, close: Option<char>) -> bool {
+    matches!(open, Some('(' | '[' | '{') | None) && matches!(close, Some(')' | ']' | '}') | None)
 }
 
 fn unary(name: &str, arg: Node) -> Node {
@@ -782,10 +793,12 @@ fn unary(name: &str, arg: Node) -> Node {
 fn with_variant(node: Node, variant: Variant) -> Node {
     match node {
         Node::Identifier { name, .. } => Node::Identifier { name, variant },
-        Node::Text { parts } if matches!(parts.as_slice(), [TextPart::Text(_)]) => match parts.into_iter().next() {
-            Some(TextPart::Text(t)) => Node::Identifier { name: t, variant },
-            _ => unreachable!("one text part"),
-        },
+        // #203: digits in bold, sans-serif and typewriter (`bb(1)`)
+        Node::Number { value, group, thousands, .. } => Node::Number { value, group, thousands, variant: variant.of_digits() },
+        // the one part's text, as the guard asks
+        Node::Text { parts } if matches!(parts.as_slice(), [TextPart::Text(_)]) => {
+            Node::Identifier { name: parts.into_iter().filter_map(|p| if let TextPart::Text(t) = p { Some(t) } else { None }).collect(), variant }
+        }
         Node::Row { children } => Node::Row { children: children.into_iter().map(|c| with_variant(c, variant)).collect() },
         Node::Scripts { base, sup, sub } => Node::Scripts { base: Box::new(with_variant(*base, variant)), sup, sub },
         other => other,
@@ -807,7 +820,7 @@ fn bracketed(open: Option<char>, close: Option<char>, inner: Vec<Node>) -> Node 
         };
         if let Some(shape) = shape {
             let (rows, verticals) = augmented(rows);
-            return Node::Table { shape, rows, columns: vec![], verticals, dashed: vec![], horizontals: vec![], between: vec![], intertexts: vec![], stretch: 1.0 };
+            return Node::Table { shape, rows, columns: vec![], verticals, dashed: vec![], horizontals: vec![], between: vec![], intertexts: vec![], stretch: 1.0, colsep: 500 };
         }
     }
     if open.is_none() && close.is_none() {

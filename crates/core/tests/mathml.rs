@@ -61,7 +61,7 @@ fn token_elements() {
     assert_eq!(first("<mi mathvariant=\"bold\">AB</mi>"), Node::Identifier { name: "AB".into(), variant: Variant::Bold });
     assert_eq!(first("<mi mathvariant=\"bold\">v</mi>"), Node::Identifier { name: "v".into(), variant: Variant::Bold });
     assert_eq!(first("<mi> x </mi>"), Node::Identifier { name: "x".into(), variant: Variant::Italic });
-    assert_eq!(first("<mn>3.14</mn>"), Node::Number { value: "3.14".into(), group: false, thousands: None });
+    assert_eq!(first("<mn>3.14</mn>"), Node::Number { value: "3.14".into(), group: false, thousands: None, variant: Variant::Upright });
     assert!(matches!(first("<mo>∑</mo>"), Node::LargeOperator { symbol: '∑', .. }));
     assert!(matches!(first("<mo>lim</mo>"), Node::Function { limits: true, .. }));
     assert_eq!(mml("<mtext>if </mtext><ms>s</ms>").text, "if\"s\"");
@@ -73,9 +73,9 @@ fn token_elements() {
 fn numbers_follow_the_locale() {
     let pt = |m: &str| convert(&format!("<math>{m}</math>"), &Options { input: Input::MathMl, locale: Locale::PtBr, ..Options::default() }).unwrap();
     // a decimal comma in pt-BR (L-NUM-1), thousands with a dot (L-NUM-3)
-    assert_eq!(pt("<mn>3,14</mn>").tree.children()[0], Node::Number { value: "3.14".into(), group: false, thousands: None });
-    assert_eq!(pt("<mn>1.000</mn>").tree.children()[0], Node::Number { value: "1000".into(), group: false, thousands: Some('.') });
-    assert_eq!(first("<mn>1,000</mn>"), Node::Number { value: "1000".into(), group: false, thousands: Some(',') });
+    assert_eq!(pt("<mn>3,14</mn>").tree.children()[0], Node::Number { value: "3.14".into(), group: false, thousands: None, variant: Variant::Upright });
+    assert_eq!(pt("<mn>1.000</mn>").tree.children()[0], Node::Number { value: "1000".into(), group: false, thousands: Some('.'), variant: Variant::Upright });
+    assert_eq!(first("<mn>1,000</mn>"), Node::Number { value: "1000".into(), group: false, thousands: Some(','), variant: Variant::Upright });
     assert_eq!(pt("<mn>3.14</mn>").text, "3,14");
 }
 
@@ -132,6 +132,15 @@ fn tables_with_alignment_lines_and_labels() {
     // the label of mlabeledtr goes to the end of the row, like \tag
     let r = mml("<mtable><mlabeledtr><mtd><mtext>(1)</mtext></mtd><mtd><mi>x</mi></mtd></mlabeledtr></mtable>");
     assert!(r.text.contains("x (1)"), "{}", r.text);
+    // a row with only its label keeps it, after the same space as in a row with cells (#283)
+    let r = mml("<mtable><mlabeledtr><mtd><mtext>(1)</mtext></mtd></mlabeledtr></mtable>");
+    let Node::Table { rows, .. } = &r.tree.children()[0] else { panic!("{:?}", r.tree) };
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].len(), 1, "{rows:?}");
+    let cell = rows[0][0].children();
+    assert!(matches!(cell, [Node::Space { em }, Node::Text { .. }] if *em == 2.0), "{cell:?}");
+    assert_eq!(r.speech, "matrix 1 by 1: row 1: (1)");
+    assert!(r.mathml.contains("<mtr><mtd><mspace width=\"2em\"/><mtext>(1)</mtext></mtd></mtr>"), "{}", r.mathml);
 }
 
 #[test]
@@ -161,6 +170,37 @@ fn decorations_over_and_under() {
     let n = first("<munder><munder><mrow><mi>a</mi><mo>+</mo><mi>b</mi></mrow><mo>⏟</mo></munder><mi>n</mi></munder>");
     assert!(matches!(n, Node::Brace { above: false, label: Some(_), bracket: false, .. }), "{n:?}");
     assert!(matches!(first("<mover><mi>x</mi><mo>⎴</mo></mover>"), Node::Brace { above: true, bracket: true, .. }));
+}
+
+/// The drawing of an SVG (glyphs and what uses them), without the ids, which follow the source.
+fn drawing(svg: &str) -> String {
+    let id = svg.split("aria-labelledby=\"").nth(1).and_then(|s| s.split("-speech").next()).unwrap();
+    svg.split("<defs>").nth(1).unwrap().replace(id, "")
+}
+
+#[test]
+fn latex_enclose_meets_menclose_in_the_same_tree() {
+    for (notation, latex_notation) in [
+        ("box", "box"),
+        ("roundedbox", "roundedbox"),
+        ("circle", "circle"),
+        ("updiagonalstrike downdiagonalstrike", "updiagonalstrike,downdiagonalstrike"),
+        ("horizontalstrike", "horizontalstrike"),
+        ("downdiagonalstrike", "downdiagonalstrike"),
+        ("top bottom", "top bottom"),
+        ("actuarial", "actuarial"),
+        ("radical", "radical"),
+    ] {
+        let a = mml(&format!("<menclose notation=\"{notation}\"><mi>x</mi><mo>+</mo><mn>1</mn></menclose>"));
+        let b = latex(&format!(r"\enclose{{{latex_notation}}}{{x+1}}"));
+        assert_eq!(a.tree, b.tree, "{notation}");
+        assert_eq!(drawing(&a.svg), drawing(&b.svg), "{notation}: the same drawing");
+    }
+    // mathcolor colors the notation and the content, as MathML's attribute on menclose
+    let a = mml("<menclose notation=\"roundedbox\" mathcolor=\"red\"><mi>a</mi></menclose>");
+    let b = latex(r#"\enclose{roundedbox}[mathcolor="red"]{a}"#);
+    assert_eq!(a.tree, b.tree);
+    assert!(matches!(b.tree.single(), Node::Colored { color, base } if color == "red" && matches!(base.as_ref(), Node::Framed { .. })), "{:?}", b.tree);
 }
 
 #[test]
@@ -209,9 +249,9 @@ fn e_rec_10_unknown_elements_and_entities() {
     let rules: Vec<_> = r.warnings.iter().map(|a| a.rule).collect();
     assert_eq!(rules, vec!["E-REC-10", "E-REC-10"]);
     assert!(convert(src, &options(true)).unwrap_err().to_string().contains("unknown entity"));
-    // content MathML is named as such
-    let e = convert("<math><apply><plus/><ci>x</ci></apply></math>", &options(true)).unwrap_err();
-    assert!(e.to_string().contains("content MathML"), "{e}");
+    // content MathML outside the subset read is named as such
+    let e = convert("<math><apply><curl/><ci>x</ci></apply></math>", &options(true)).unwrap_err();
+    assert!(e.to_string().contains("content MathML <curl>"), "{e}");
     // a missing child of mfrac is left empty
     let r = convert("<math><mfrac><mn>1</mn></mfrac></math>", &options(false)).unwrap();
     assert_eq!(r.warnings[0].rule, "E-REC-10");
@@ -248,4 +288,151 @@ fn mathjax_norm_bars_are_a_norm() {
     let n = first(r#"<mo data-mjx-texclass="ORD">&#x2225;</mo><mi>x</mi><mo data-mjx-texclass="ORD">&#x2225;</mo>"#);
     assert!(matches!(n, Node::Delimited { open: Some('‖'), close: Some('‖'), .. }), "{n:?}");
     assert_eq!(mml("<mi>a</mi><mo>∥</mo><mi>b</mi>").text, latex(r"a \parallel b").text);
+}
+
+/// Content MathML (input/mathml/content.rs): the same tree as the LaTeX an author would write.
+#[test]
+fn content_mathml_is_the_same_tree_as_latex() {
+    let ci = |x: &str| format!("<ci>{x}</ci>");
+    let cn = |x: &str| format!("<cn>{x}</cn>");
+    let apply = |op: &str, args: &[String]| format!("<apply><{op}/>{}</apply>", args.concat());
+    let x2 = apply("power", &[ci("x"), cn("2")]);
+    let a_plus_b = apply("plus", &[ci("a"), ci("b")]);
+    let sin_x = apply("sin", &[ci("x")]);
+    for (m, tex) in [
+        (apply("plus", &[x2.clone(), cn("1")]), r"x^2 + 1"),
+        (apply("times", &[a_plus_b.clone(), ci("c")]), r"(a + b) \cdot c"),
+        (apply("power", &[a_plus_b.clone(), cn("2")]), r"(a + b)^2"),
+        (apply("eq", &[apply("plus", &[apply("times", &[cn("2"), ci("x")]), cn("3")]), cn("7")]), r"2x + 3 = 7"),
+        (apply("minus", &[ci("c"), a_plus_b.clone()]), r"c - (a + b)"),
+        (apply("minus", &[a_plus_b.clone(), ci("c")]), r"a + b - c"),
+        (apply("plus", &[apply("minus", &[ci("x")]), ci("y")]), r"-x + y"),
+        (apply("plus", &[ci("a"), apply("minus", &[ci("b")])]), r"a + (-b)"),
+        (apply("times", &[apply("divide", &[cn("1"), cn("2")]), ci("x")]), r"\frac{1}{2} x"),
+        (apply("times", &[cn("2"), cn("3")]), r"2 \cdot 3"),
+        (apply("times", &[ci("π"), apply("power", &[ci("r"), cn("2")])]), r"\pi r^2"),
+        (apply("divide", &[a_plus_b.clone(), cn("2")]), r"\frac{a + b}{2}"),
+        (apply("root", &[ci("x")]), r"\sqrt{x}"),
+        ("<apply><root/><degree><cn>3</cn></degree><ci>x</ci></apply>".into(), r"\sqrt[3]{x}"),
+        (apply("abs", &[ci("x")]), r"|x|"),
+        (apply("factorial", &[ci("n")]), r"n!"),
+        (apply("factorial", &[apply("plus", &[ci("n"), cn("1")])]), r"(n + 1)!"),
+        (sin_x.clone(), r"\sin x"),
+        (apply("cos", &[apply("plus", &[ci("a"), ci("b")])]), r"\cos(a + b)"),
+        (apply("power", &[sin_x.clone(), cn("2")]), r"\sin^2 x"),
+        ("<apply><log/><logbase><cn>2</cn></logbase><ci>x</ci></apply>".into(), r"\log_2 x"),
+        (apply("ln", &[ci("x")]), r"\ln x"),
+        (apply("exp", &[ci("x")]), r"e^{x}"),
+        ("<apply><ci>f</ci><ci>x</ci></apply>".into(), r"f(x)"),
+        ("<apply><int/><bvar><ci>x</ci></bvar><lowlimit><cn>0</cn></lowlimit><uplimit><cn>1</cn></uplimit>".to_string() + &x2 + "</apply>", r"\int_0^1 x^2 \, dx"),
+        ("<apply><int/><bvar><ci>x</ci></bvar><ci>x</ci></apply>".into(), r"\int x \, dx"),
+        (
+            "<apply><sum/><bvar><ci>i</ci></bvar><lowlimit><cn>1</cn></lowlimit><uplimit><ci>n</ci></uplimit><apply><power/><ci>i</ci><cn>2</cn></apply></apply>".into(),
+            r"\sum_{i=1}^{n} i^2",
+        ),
+        ("<apply><diff/><bvar><ci>x</ci></bvar><ci>y</ci></apply>".into(), r"\frac{dy}{dx}"),
+        ("<apply><diff/><bvar><ci>x</ci><degree><cn>2</cn></degree></bvar><ci>y</ci></apply>".into(), r"\frac{d^2 y}{dx^2}"),
+        ("<apply><diff/><bvar><ci>x</ci></bvar>".to_string() + &apply("plus", &[x2.clone(), cn("1")]) + "</apply>", r"\frac{d}{dx}(x^2 + 1)"),
+        ("<apply><partialdiff/><bvar><ci>x</ci></bvar><ci>f</ci></apply>".into(), r"\frac{\partial f}{\partial x}"),
+        (
+            "<apply><limit/><bvar><ci>x</ci></bvar><lowlimit><cn>0</cn></lowlimit>".to_string() + &apply("divide", &[sin_x.clone(), ci("x")]) + "</apply>",
+            r"\lim_{x \to 0} \frac{\sin x}{x}",
+        ),
+        (apply("in", &[ci("x"), apply("union", &[ci("A"), ci("B")])]), r"x \in A \cup B"),
+        (apply("intersect", &[ci("A"), ci("B")]), r"A \cap B"),
+        (apply("leq", &[ci("x"), cn("3")]), r"x \leq 3"),
+        (apply("neq", &[ci("x"), cn("0")]), r"x \neq 0"),
+        (apply("approx", &[ci("π"), cn("3.14")]), r"\pi \approx 3.14"),
+        (apply("lt", &[cn("0"), ci("x"), cn("1")]), r"0 < x < 1"),
+        ("<interval closure=\"closed-open\"><cn>0</cn><cn>1</cn></interval>".into(), r"[0, 1)"),
+        ("<interval><ci>a</ci><ci>b</ci></interval>".into(), r"[a, b]"),
+        ("<interval closure=\"open\"><cn>0</cn><infinity/></interval>".into(), r"(0, \infty)"),
+        ("<set><cn>1</cn><cn>2</cn><cn>3</cn></set>".into(), r"\{1, 2, 3\}"),
+        ("<set><bvar><ci>x</ci></bvar><condition><apply><gt/><ci>x</ci><cn>0</cn></apply></condition></set>".into(), r"\{x \mid x > 0\}"),
+        ("<apply><in/><ci>x</ci><reals/></apply>".into(), r"x \in \mathbb{R}"),
+        ("<cn type=\"rational\">1<sep/>2</cn>".into(), r"\frac{1}{2}"),
+        ("<cn type=\"e-notation\">1.5<sep/>3</cn>".into(), r"1.5 \times 10^{3}"),
+        (apply("power", &[cn("-3"), cn("2")]), r"(-3)^2"),
+        (apply("plus", &[ci("<msub><mi>x</mi><mn>1</mn></msub>"), ci("<msub><mi>x</mi><mn>2</mn></msub>")]), r"x_1 + x_2"),
+        ("<apply><csymbol cd=\"arith1\">plus</csymbol><ci>a</ci><cn>1</cn></apply>".into(), r"a + 1"),
+    ] {
+        let a = mml(&m);
+        let b = latex(tex);
+        assert_eq!(a.tree, b.tree, "{m}\n{tex}");
+        assert_eq!(a.speech, b.speech, "{m}");
+    }
+}
+
+#[test]
+fn content_mathml_follows_the_locale() {
+    let pt_mml = |m: &str| convert(&format!("<math>{m}</math>"), &Options { input: Input::MathMl, locale: Locale::PtBr, strict: true, ..Options::default() }).unwrap();
+    let pt_tex = |t: &str| convert(t, &Options { locale: Locale::PtBr, strict: true, ..Options::default() }).unwrap();
+    // the sine is "sen" in pt-BR, and 3.14 is written 3,14, as the LaTeX the author would type there
+    let m = pt_mml("<apply><plus/><apply><sin/><ci>x</ci></apply><cn>3.14</cn></apply>");
+    let t = pt_tex(r"\sen x + 3,14");
+    assert_eq!(m.tree, t.tree);
+    assert_eq!(m.speech, t.speech);
+    assert_eq!(m.text, "sen x + 3,14");
+}
+
+#[test]
+fn semantics_prefers_the_presentation() {
+    // presentation first, content annotation: the presentation
+    assert_eq!(mml(r#"<semantics><mi>x</mi><annotation-xml encoding="MathML-Content"><ci>y</ci></annotation-xml></semantics>"#).text, "x");
+    // content first, presentation annotation: the presentation
+    assert_eq!(mml(r#"<semantics><ci>y</ci><annotation-xml encoding="MathML-Presentation"><mi>x</mi></annotation-xml></semantics>"#).text, "x");
+    // content only: the content, with a TeX annotation ignored
+    assert_eq!(mml(r#"<semantics><apply><plus/><ci>a</ci><cn>1</cn></apply><annotation encoding="application/x-tex">b</annotation></semantics>"#).text, "a + 1");
+    // nothing but a content annotation
+    assert_eq!(mml(r#"<semantics><annotation-xml encoding="MathML-Content"><apply><minus/><ci>a</ci></apply></annotation-xml></semantics>"#).text, "−a");
+}
+
+#[test]
+fn e_rec_10_content_mathml_outside_the_subset() {
+    let r = convert("<math><apply><plus/><ci>a</ci><apply><curl/><ci>F</ci></apply></apply></math>", &options(false)).unwrap();
+    assert_eq!(r.warnings.iter().map(|w| w.rule).collect::<Vec<_>>(), ["E-REC-10"]);
+    assert!(r.warnings[0].description.contains("content MathML <curl>"), "{:?}", r.warnings);
+    assert_eq!(r.text, "a + F");
+    // a divide with one operand: the missing one left empty
+    let r = convert("<math><apply><divide/><cn>1</cn></apply></math>", &options(false)).unwrap();
+    assert_eq!(r.warnings[0].rule, "E-REC-10");
+    assert!(convert("<math><apply><divide/><cn>1</cn></apply></math>", &options(true)).is_err());
+    assert!(convert("<math><bind><csymbol>forall</csymbol></bind></math>", &options(true)).unwrap_err().to_string().contains("content MathML <bind>"));
+}
+
+/// What MathML Core writes, and mathra's own MathML output (spec/mathml.md), read to the tree it came from.
+#[test]
+fn mathml_core_conventions() {
+    // Unicode's mathematical letters are a letter in a variant
+    assert_eq!(first("<mi>𝐱</mi>"), Node::Identifier { name: "x".into(), variant: Variant::Bold });
+    assert_eq!(first("<mi>ℝ</mi>"), Node::Identifier { name: "R".into(), variant: Variant::DoubleStruck });
+    assert_eq!(first("<mi>𝛤</mi>"), Node::Identifier { name: "Γ".into(), variant: Variant::Italic });
+    // stretchy="false" keeps a parenthesis plain; a stretchy one inside is \middle; an empty fence is \left.
+    assert!(matches!(first(r#"<mrow><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo></mrow>"#), Node::Operator { symbol: '(', .. }));
+    let n = first(r#"<mrow><mo>⟨</mo><mi>a</mi><mo stretchy="true">|</mo><mi>b</mi><mo>⟩</mo></mrow>"#);
+    assert!(matches!(&n, Node::Delimited { parts, middles, .. } if parts.len() == 2 && middles == &['|']), "{n:?}");
+    let n = first(r#"<mrow><mo fence="true" form="prefix"></mo><mi>x</mi><mo>|</mo></mrow>"#);
+    assert!(matches!(n, Node::Delimited { open: None, close: Some('|'), .. }), "{n:?}");
+    // an <mrow> around one element is a group, as TeX's braces
+    assert!(matches!(first("<msup><mrow><mi>x</mi></mrow><mn>2</mn></msup>"), Node::Scripts { base, .. } if matches!(*base, Node::Row { .. })));
+    // the same minsize and maxsize: \big; lspace and rspace: a class
+    assert!(matches!(first(r#"<mo minsize="1.8em" maxsize="1.8em">(</mo>"#), Node::FixedDelimiter { size: 2, .. }));
+    assert!(matches!(first(r#"<mo lspace="0em" rspace="0em">,</mo>"#), Node::Operator { class: mathra::Class::Ord, .. }));
+    // ∑ under munderover is left to the style (movablelimits); at the side it is \nolimits
+    assert!(matches!(first("<munderover><mo>∑</mo><mi>i</mi><mi>n</mi></munderover>"), Node::Scripts { base, .. } if matches!(*base, Node::LargeOperator { limits: None, .. })));
+    assert!(
+        matches!(first(r#"<munder><mo movablelimits="false">∑</mo><mi>i</mi></munder>"#), Node::Scripts { base, .. } if matches!(*base, Node::LargeOperator { limits: Some(true), .. }))
+    );
+    assert!(matches!(first("<msub><mo>∑</mo><mi>i</mi></msub>"), Node::Scripts { base, .. } if matches!(*base, Node::LargeOperator { limits: Some(false), .. })));
+    // mpadded: \hphantom, \smash, \mathrlap; mtd columnspan: \multicolumn; mfrac's displaystyle: \dfrac
+    assert!(matches!(first(r#"<mpadded height="0em" depth="0em"><mphantom><mi>x</mi></mphantom></mpadded>"#), Node::Phantom { width: true, height: false, .. }));
+    assert!(matches!(first(r#"<mpadded height="0em" depth="0em"><mi>x</mi></mpadded>"#), Node::Smashed { height: true, depth: true, .. }));
+    assert!(matches!(first(r#"<mpadded width="0em"><mi>x</mi></mpadded>"#), Node::Overlapped { side: 'r', .. }));
+    let n = first(r#"<mtable><mtr><mtd columnspan="2"><mi>x</mi></mtd></mtr></mtable>"#);
+    assert!(matches!(&n, Node::Table { rows, .. } if matches!(rows[0][0], Node::Multicolumn { columns: 2, .. })), "{n:?}");
+    assert!(matches!(first(r#"<mfrac displaystyle="true"><mn>1</mn><mn>2</mn></mfrac>"#), Node::Fraction { style: mathra::tree::FractionStyle::Display, .. }));
+    // no-break spaces keep the spaces at the ends of the text
+    assert_eq!(first("<mtext>\u{A0}if\u{A0}</mtext>"), Node::Text { parts: vec![mathra::tree::TextPart::Text(" if ".into())] });
+    // a stretchy arrow with text over it: \xrightarrow
+    assert!(matches!(first(r#"<mover><mo stretchy="true">→</mo><mi>f</mi></mover>"#), Node::Arrow { symbol: '→', .. }));
 }

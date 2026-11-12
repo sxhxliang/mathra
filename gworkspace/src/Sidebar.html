@@ -1,0 +1,95 @@
+<!doctype html>
+<!-- mathra's sidebar in Google Docs and Slides: build an equation with mathra's editor (palettes, the
+     gallery, the options with the fonts, the keyboard, the outputs), and insert it as an image whose alt
+     text is what a screen reader says. Google's sidebar is 300 px wide: the gallery and the options open
+     over it. The page talks to Code.js through google.script.run. Its script is sidebar.js, which
+     build.mjs puts inside the page: Apps Script serves one HTML file. -->
+<html>
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<script type="importmap">
+{
+  "imports": {
+    "@mathlabs/mathra": "https://cdn.jsdelivr.net/npm/@mathlabs/mathra@1.12.0/web/index.js",
+    "@mathlabs/mathra-editor": "https://cdn.jsdelivr.net/npm/@mathlabs/mathra-editor@0.1.1/dist/index.js"
+  }
+}
+</script>
+<style>
+  :root { color-scheme: light; --ink: #202124; --muted: #5f6368; --line: #dadce0; --blue: #1a73e8; --soft: #f1f3f4; }
+  *, *::before, *::after { box-sizing: border-box; }
+  body { overflow-x: hidden; margin: 0; padding: 0 12px 16px; font: 13px/1.45 Roboto, Arial, sans-serif; color: var(--ink); background: #fff; }
+  .bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 2px; margin: 0 -12px 10px; padding: 6px 8px; background: #fff; border-bottom: 1px solid var(--line); }
+  .bar .sep { width: 1px; height: 20px; background: var(--line); margin: 0 4px; }
+  .bar .grow { flex: 1; }
+  .icon { display: inline-grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--muted); cursor: pointer; }
+  .icon:hover { background: var(--soft); color: var(--ink); }
+  .icon[aria-pressed="true"] { background: #e8f0fe; color: var(--blue); }
+  .icon:disabled { opacity: .35; cursor: default; background: none; }
+  .icon svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  mathra-toolbar { display: block; max-width: 100%; --mathra-palette-height: 168px; --mathra-button-size: 34px; margin-bottom: 10px; }
+  mathra-field { display: block; font-size: 24px; --mathra-align: center; }
+  mathra-field::part(box) { min-height: 92px; }
+  mathra-keyboard { display: block; margin-top: 8px; --mathra-key-height: 34px; }
+  mathra-output { display: block; margin-top: 8px; --mathra-output-height: 150px; }
+  [hidden] { display: none !important; }
+  .label { display: block; margin: 12px 0 4px; font-weight: 500; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  select { width: 100%; padding: 6px; border: 1px solid var(--line); border-radius: 4px; font: inherit; background: #fff; }
+  .alt { padding: 8px 10px; border-radius: 4px; background: var(--soft); min-height: 1.45em; }
+  .alt:empty::before { content: attr(data-empty); color: var(--muted); }
+  .row { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+  button.primary, button.secondary { font: 500 13px Roboto, Arial, sans-serif; padding: 8px 18px; border-radius: 4px; cursor: pointer; }
+  button.primary { background: var(--blue); color: #fff; border: 0; }
+  button.primary:disabled { background: #a8c7fa; cursor: default; }
+  button.secondary { background: #fff; color: var(--blue); border: 1px solid var(--line); }
+  #status { color: var(--muted); font-size: 12px; }
+  #status.error { color: #d93025; }
+  /* the gallery and the options: over the whole sidebar */
+  .panel { position: fixed; inset: 0; z-index: 5; display: grid; grid-template-rows: auto 1fr; background: #fff; }
+  .panel header { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 8px 14px; border-bottom: 1px solid var(--line); font-size: 15px; font-weight: 500; }
+  .panel .body { overflow: auto; padding: 12px; }
+  mathra-gallery { display: block; }
+</style>
+</head>
+<body>
+<div class="bar" role="toolbar" aria-label="mathra">
+  <button class="icon" data-run="undo" title="Undo"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+  <button class="icon" data-run="redo" title="Redo"><svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></svg></button>
+  <span class="sep"></span>
+  <button class="icon" data-open="gallery" title="Gallery"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button>
+  <button class="icon" data-open="settings" title="Options"><svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg></button>
+  <span class="grow"></span>
+  <button class="icon" data-toggle="keyboard" aria-pressed="false" title="Keyboard"><svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h0M10 10h0M14 10h0M18 10h0M7 14h10"/></svg></button>
+  <button class="icon" data-toggle="output" aria-pressed="false" title="Outputs"><svg viewBox="0 0 24 24"><path d="M8 7 3 12l5 5M16 7l5 5-5 5M14 4l-4 16"/></svg></button>
+</div>
+
+<mathra-toolbar for="field"></mathra-toolbar>
+<mathra-field id="field" aria-label="Equation"></mathra-field>
+<mathra-keyboard id="keyboard" for="field" hidden></mathra-keyboard>
+<mathra-output id="output" for="field" hidden></mathra-output>
+
+<span class="label" id="alt-label">Alt text (what a screen reader says)</span>
+<div class="alt" id="speech" aria-live="polite"></div>
+
+<span class="label" id="lang-label">Language</span>
+<select id="locale" aria-labelledby="lang-label"></select>
+
+<div class="row">
+  <button class="primary" id="insert" disabled>Insert</button>
+  <button class="secondary" id="clear">New</button>
+  <span id="status" role="status"></span>
+</div>
+
+<section class="panel" id="gallery" role="dialog" aria-labelledby="gallery-title" hidden>
+  <header><span id="gallery-title">Gallery</span><button class="icon" data-close title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
+  <div class="body"><mathra-gallery for="field"></mathra-gallery></div>
+</section>
+<section class="panel" id="settings" role="dialog" aria-labelledby="settings-title" hidden>
+  <header><span id="settings-title">Options</span><button class="icon" data-close title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
+  <div class="body"><mathra-settings for="field"></mathra-settings></div>
+</section>
+
+<script type="module" src="sidebar.js"></script>
+</body>
+</html>

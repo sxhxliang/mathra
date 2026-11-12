@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mathra editor: components alone</title>
+<script type="importmap">{ "imports": { "@mathlabs/mathra": "/npm/pkg/web/index.js" } }</script>
+<style>
+  body { margin: 0; padding: 24px 16px; font: 16px system-ui, sans-serif; display: grid; gap: 24px; max-width: 900px; }
+  .quiz { font: 18px Georgia, serif; display: grid; gap: 12px; }
+  .quiz mathra-field { font-size: 22px; min-width: 8em; }
+</style>
+</head>
+<body>
+<!-- the pieces used alone, for test/browser.mjs: a field with the command menu, and an inline field with a keyboard;
+     then a palette, a toolbar of some palettes and outputs of some formats for the first field, and an editor with
+     some controls and languages -->
+<mathra-field id="b" locale="pt-BR" placeholder="Digite \ para os comandos"></mathra-field>
+<mathra-command-menu for="b"></mathra-command-menu>
+<div class="quiz">
+  <div>Resposta: <mathra-field id="c" inline locale="pt-BR" aria-label="Resposta"></mathra-field> <span id="c-result"></span></div>
+  <mathra-keyboard for="c"></mathra-keyboard>
+</div>
+<mathra-palette id="p" for="b" set="greek"></mathra-palette>
+<mathra-toolbar id="t" for="b" palettes="greek calculus nothing" nosearch></mathra-toolbar>
+<mathra-output id="o" for="b" formats="speech latex nothing"></mathra-output>
+<mathra-editor id="e" controls="history language" languages="en pt-BR xx" locale="en" outputs="none" style="height: 260px"></mathra-editor>
+<script type="module">
+  import "/editor/dist/index.js";
+  document.getElementById("c").addEventListener("input", (e) => {
+    document.getElementById("c-result").textContent = e.detail.latex.replace(/\s/g, "") === "\\frac{8}{3}" ? "certo" : "";
+  });
+</script>
+</body>
+</html>

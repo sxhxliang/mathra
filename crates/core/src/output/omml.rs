@@ -89,6 +89,10 @@ impl Writer {
             Variant::Fraktur => ("fraktur", "p"),
             Variant::SansSerif => ("sans-serif", "p"),
             Variant::SansSerifItalic => ("sans-serif", "i"),
+            Variant::BoldScript => ("script", "b"),
+            Variant::BoldFraktur => ("fraktur", "b"),
+            Variant::BoldSansSerif => ("sans-serif", "b"),
+            Variant::SansSerifBoldItalic => ("sans-serif", "bi"),
             Variant::Monospace => ("monospace", "p"),
         };
         format!("<m:r><m:rPr><m:scr m:val=\"{script}\"/><m:sty m:val=\"{style}\"/></m:rPr><m:t xml:space=\"preserve\">{}</m:t></m:r>", xml(s))
@@ -203,7 +207,10 @@ impl Writer {
                 }
                 result
             }
-            Fraction { num, den, rule, style, thickness } => {
+            Fraction { num, den, rule, style, thickness, numerator_align } => {
+                if numerator_align.is_some_and(|a| a != 'c') {
+                    return Err(OmmlError::Unsupported("non-centered fraction numerator".into()));
+                }
                 let (level, fraction_display) = match style {
                     FractionStyle::Display => (0, true),
                     FractionStyle::Row => (1, false),
@@ -273,7 +280,10 @@ impl Writer {
                 }
                 self.delimiter(*open, *close, body)
             }
-            Table { shape, rows, columns, verticals, dashed, horizontals, between, intertexts, stretch } => {
+            Table { shape, rows, columns, verticals, dashed, horizontals, between, intertexts, stretch, colsep } => {
+                if *colsep != 500 {
+                    return Err(OmmlError::Unsupported("custom matrix column spacing".into()));
+                }
                 if !verticals.is_empty() || !dashed.is_empty() || !horizontals.is_empty() {
                     return Err(OmmlError::Unsupported("matrix grid rules (not available in OMML)".into()));
                 }
@@ -322,11 +332,15 @@ impl Writer {
                 let strikes = match shape {
                     Cancel::Bar | Cancel::Slash => "<m:strikeBLTR m:val=\"1\"/>",
                     Cancel::Backslash => "<m:strikeTLBR m:val=\"1\"/>",
+                    Cancel::CenterNot => return Err(OmmlError::Unsupported("centered negation overlay".into())),
                     Cancel::X => "<m:strikeBLTR m:val=\"1\"/><m:strikeTLBR m:val=\"1\"/>",
                 };
                 format!("<m:borderBox><m:borderBoxPr><m:hideTop m:val=\"1\"/><m:hideBot m:val=\"1\"/><m:hideLeft m:val=\"1\"/><m:hideRight m:val=\"1\"/>{strikes}</m:borderBoxPr>{}</m:borderBox>", self.arg("e", base, display)?)
             }
-            Framed { base, shape, background, border } => {
+            Framed { base, shape, background, border, padding, thickness } => {
+                if padding.is_some() || thickness.is_some() {
+                    return Err(OmmlError::Unsupported("custom frame padding or thickness".into()));
+                }
                 let hidden = match shape {
                     Frame::Rectangle => "",
                     Frame::Phase => "<m:hideTop m:val=\"1\"/><m:hideRight m:val=\"1\"/>",
@@ -367,6 +381,8 @@ impl Writer {
                 u8::from(!height),
                 self.arg("e", base, display)?
             ),
+            Attributed { base, .. } => self.write(base, display)?,
+            VdotsWithin { .. } => return Err(OmmlError::Unsupported("aligned vertical dots".into())),
             ForcedClass { base, .. } => self.write(base, display)?,
             Style { level, base } => {
                 let writer = Self { level: *level, ..*self };
@@ -374,7 +390,9 @@ impl Writer {
             }
             // Quantity.unit already contains the value and thin space; value is speech metadata.
             Quantity { unit, .. } | Unit { base: unit, .. } => self.write(unit, display)?,
-            Raised { em, base, .. } => word_property(&self.write(base, display)?, "position", &((*em * self.font_size * 2.0).round().clamp(-3168.0, 3168.0) as i32).to_string(), true),
+            Raised { em, base, .. } => {
+                word_property(&self.write(base, display)?, "position", &((*em * self.font_size * 2.0).round().clamp(-3168.0, 3168.0) as i32).to_string(), true)
+            }
             Scaled { factor, vertical, base } => {
                 if vertical.is_some() {
                     return Err(OmmlError::Unsupported("anisotropic scale".into()));

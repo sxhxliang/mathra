@@ -32,16 +32,31 @@ impl Reader<'_> {
         }
         let node = match name {
             "slashed" => Node::Canceled { base: Box::new(self.argument()?), shape: Cancel::Slash },
-            "htmlStyle" => self.html_style()?,
+            "htmlStyle" => self.html_style(col)?,
             _ => return Ok(None),
         };
         items.push(node);
         Ok(Some(None))
     }
 
-    fn html_style(&mut self) -> R<Node> {
+    fn html_style(&mut self, col: usize) -> R<Node> {
         let style = self.raw_text()?;
         let raw = self.raw_text()?;
+        // Retain safe page attributes alongside the native drawing properties.
+        let mut dropped = Vec::new();
+        let page_style = style
+            .split(';')
+            .filter(|d| d.split_once(':').is_none_or(|(property, _)| STYLE_PROPERTIES.contains(&property.trim().to_ascii_lowercase().as_str())))
+            .collect::<Vec<_>>()
+            .join(";");
+        let (mut kept, _) = style_declarations(&page_style, &mut dropped);
+        let mut seen = std::collections::HashSet::new();
+        kept.reverse();
+        kept.retain(|d| seen.insert(d.split(':').next().unwrap().to_string()));
+        kept.reverse();
+        if !dropped.is_empty() {
+            self.registry.warn(rules::E_REC_9, format!("column {col}: \\htmlStyle: unsafe or unsupported {}; dropped", dropped.join(", ")));
+        }
         let (mut color, mut background, mut scale) = (None, None, None);
         let (mut bold, mut italic, mut underline) = (false, false, false);
         for declaration in style.split(';') {
@@ -72,10 +87,13 @@ impl Reader<'_> {
             base = Node::Scaled { factor, vertical: None, base: Box::new(base) };
         }
         if let Some(background) = background {
-            base = Node::Framed { base: Box::new(base), shape: Frame::Background, background: Some(background), border: None };
+            base = Node::Framed { base: Box::new(base), shape: Frame::Background, background: Some(background), border: None, padding: None, thickness: None };
         }
         if underline {
             base = Node::Bar { base: Box::new(base), above: false };
+        }
+        if !kept.is_empty() {
+            base = Node::Attributed { attributes: vec![("style".into(), kept.join(";"))], base: Box::new(base) };
         }
         Ok(base)
     }
@@ -96,5 +114,5 @@ fn css_font_size(value: &str) -> Option<f32> {
 fn css_color(value: &str) -> Option<String> {
     // Same color spelling accepted by the existing reader, never copied into CSS/HTML.
     let valid = !value.is_empty() && value.len() < 40 && value.chars().all(|c| c.is_ascii_alphanumeric() || "#(),. ".contains(c));
-    valid.then(|| value.to_string())
+    (valid && !value.to_ascii_lowercase().contains("url(") && !value.to_ascii_lowercase().contains("expression(")).then(|| value.to_string())
 }

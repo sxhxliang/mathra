@@ -467,17 +467,15 @@ fn katex_list_readings_follow_latex() {
 
 #[test]
 fn unsupported_commands_are_refused_or_shown_in_red() {
-    // KaTeX-only names (texvc aliases, HTML extensions) are not LaTeX: refused in strict mode,
-    // and with a warning otherwise, never replaced in silence by a look-alike
-    for tex in [r"\R", r"\Reals", r"\larr", r"\hearts", r"\htmlClass{a}{x}", r"\mathreflectbox{x}", r"\foocommand"] {
+    // unknown names are refused in strict mode, and with a warning otherwise, never replaced in
+    // silence by a look-alike (KaTeX's texvc aliases, \R or \larr, are known since #172: texvc_aliases.rs)
+    for tex in [r"\mathreflectbox{x}", r"\foocommand"] {
         assert!(convert(tex, &strict()).is_err(), "{tex} accepted in strict mode");
         let out = convert(tex, &Options::default()).unwrap();
         assert!(out.warnings.iter().any(|w| w.rule == "E-REC-1"), "{tex}: {:?}", out.warnings);
     }
     // what has no reading at all is drawn in red, as written
-    for tex in [r"\R", r"\larr", r"\foocommand"] {
-        assert!(convert(tex, &Options::default()).unwrap().svg.contains("#c0392b"), "{tex}: not drawn in red");
-    }
+    assert!(convert(r"\foocommand", &Options::default()).unwrap().svg.contains("#c0392b"), "\\foocommand: not drawn in red");
 }
 
 // ---------- TeX primitives and package commands added after the audit ----------
@@ -660,4 +658,284 @@ fn url_is_the_address_as_written_in_typewriter() {
     assert!(has(r"\url{a}", mono) && has(r"\texttt{a}", mono) && has(r"\text{x \texttt{a}}", mono) && has(r"\text{\tt a}", mono));
     assert!(has(r"\textbf{a}", font.glyph('𝐚').unwrap()));
     assert!(!has(r"\text{a}", mono));
+}
+
+// ---------- MathJax's \stackbin (#121) ----------
+
+#[test]
+fn stackbin_is_stackrel_with_the_spacing_of_a_binary_operator() {
+    let tree = |tex: &str| format!("{:?}", read(tex).tree);
+    assert!(tree(r"a \stackbin{*}{+} b").contains("ForcedClass { class: Bin"), "{}", tree(r"a \stackbin{*}{+} b"));
+    // the same drawing as \stackrel; medium spaces around it (4mu), as around +, not thick ones (5mu)
+    let width = |tex: &str| math_box(tex).width;
+    assert_eq!(math_box(r"\stackbin{*}{+}").width, math_box(r"\stackrel{*}{+}").width);
+    let around = |tex: &str, alone: &str| width(&format!("a {tex} b")) - width(alone);
+    assert!((around(r"\stackbin{*}{+}", r"\stackbin{*}{+}") - around("+", "+")).abs() < 0.01);
+    assert!(width(r"a \stackbin{*}{+} b") < width(r"a \stackrel{*}{+} b"));
+    assert_eq!(width(r"x \stackbin{\text{def}}{\times} y"), width(r"x \overset{\text{def}}{\times} y"));
+    // with nothing before it, a binary operator is ordinary (TeX's rule 5)
+    assert_eq!(width(r"\stackbin{*}{+} b"), width(r"\overset{*}{\mathord{+}} b"));
+    assert_eq!(read(r"a \stackbin{*}{+} b").speech, read(r"a \overset{*}{+} b").speech);
+}
+
+// ---------- stmaryrd, marvosym, wasysym and \mathbold (#124) ----------
+
+#[test]
+fn stmaryrd_marvosym_wasysym_symbols_and_mathbold() {
+    let first = |tex: &str| {
+        let out = read(tex);
+        format!("{:?}", out.tree.children().first().unwrap_or(&out.tree))
+    };
+    // stmaryrd declares \lightning \mathord; marvosym's \Lightning is the same sign
+    for tex in [r"\lightning", r"\Lightning"] {
+        assert!(first(tex).contains("symbol: '↯', class: Ord"), "{tex}: {}", first(tex));
+    }
+    for (tex, symbol, class) in [
+        (r"\Mapsto", '⤇', "Rel"),
+        (r"\Mapsfrom", '⤆', "Rel"),
+        (r"\Longmapsto", '⟾', "Rel"),
+        (r"\Longmapsfrom", '⟽', "Rel"),
+        (r"\longmapsfrom", '⟻', "Rel"),
+        (r"\boxbox", '⧈', "Bin"),
+        (r"\boxslash", '⧄', "Bin"),
+        (r"\boxbslash", '⧅', "Bin"),
+        (r"\boxast", '⧆', "Bin"),
+        (r"\boxcircle", '⧇', "Bin"),
+        (r"\obar", '⦶', "Bin"),
+        (r"\obslash", '⦸', "Bin"),
+        (r"\olessthan", '⧀', "Bin"),
+        (r"\ogreaterthan", '⧁', "Bin"),
+        (r"\fatsemi", '⨟', "Bin"),
+        (r"\interleave", '⫴', "Bin"),
+        (r"\talloblong", '⫾', "Bin"),
+        (r"\sslash", '⫽', "Bin"),
+        (r"\Lbag", '⟅', "Open"),
+        (r"\Rbag", '⟆', "Close"),
+        (r"\llparenthesis", '⦇', "Open"),
+        (r"\rrparenthesis", '⦈', "Close"),
+        (r"\invneg", '⌐', "Rel"),
+        (r"\checked", '✓', "Ord"),
+        (r"\diameter", '⌀', "Ord"),
+    ] {
+        let tex = format!("a {tex} b");
+        let out = read(&tex);
+        let tree = format!("{:?}", out.tree);
+        assert!(tree.contains(&format!("symbol: '{symbol}', class: {class}")), "{tex}: {tree}");
+        // the font has it
+        assert!(font::font().glyph(symbol).is_some(), "{symbol}");
+    }
+    // the bags and the image brackets grow with \left and \right
+    read(r"\left\Lbag \frac{a}{b} \right\Rbag \left\llparenthesis \frac{a}{b} \right\rrparenthesis");
+    // \mathbold is \boldsymbol: bold italic, Latin and Greek
+    assert_eq!(read(r"\mathbold{x} + \mathbold{\alpha}").tree, read(r"\boldsymbol{x} + \boldsymbol{\alpha}").tree);
+    assert_eq!(read(r"\mathbold\alpha").tree, read(r"\boldsymbol\alpha").tree);
+    // in text, where tolerant mode reads it as math, as \boldsymbol
+    let tolerant = |tex: &str| convert(tex, &Options::default()).unwrap();
+    assert_eq!(tolerant(r"\text{a \mathbold{x}}").tree, tolerant(r"\text{a \boldsymbol{x}}").tree);
+}
+
+// ---------- group accents (#118) ----------
+
+#[test]
+fn overgroup_and_undergroup_are_stretchy_accents_over_and_under() {
+    let accent = |tex: &str| {
+        let out = read(tex);
+        match nodes(&out.tree).into_iter().find(|n| matches!(n, Node::Accent { .. })) {
+            Some(Node::Accent { accent, stretchy, below, .. }) => (*accent, *stretchy, *below),
+            _ => panic!("{tex}: {:?}", out.tree),
+        }
+    };
+    assert_eq!(accent(r"\overgroup{AB}"), ('⏠', true, false));
+    assert_eq!(accent(r"\undergroup{AB}"), ('⏡', true, true));
+    // \underparen goes under its base too, as the "under" in its name says
+    assert_eq!(accent(r"\underparen{AB}"), ('⏝', true, true));
+    // over: ink above the base and none below; under: the other way round
+    let (base, over, under) = (math_box("AB"), math_box(r"\overgroup{AB}"), math_box(r"\undergroup{AB}"));
+    assert!(over.height > base.height && over.depth <= base.depth + 0.01);
+    assert!(under.depth > base.depth && under.height <= base.height + 0.01);
+    // the speech reads the arc, as \overparen
+    assert_eq!(read(r"\overgroup{AB}").speech, read(r"\overparen{AB}").speech);
+}
+
+#[test]
+fn overgroup_covers_a_base_wider_than_the_widest_size_of_the_font() {
+    // STIX Two Math has sizes of ⏠ and ⏡ up to 2.6 em and no assembly: past that, the corners and
+    // a rule as long as needed
+    for tex in [r"\overgroup{ABCDEFGHIJKL}", r"\undergroup{a+b+c+d+e+f+g+h}", r"\overgroup{x+y+z}", r"\overgroup{A}"] {
+        let base = math_box(tex.split_once('{').unwrap().1.trim_end_matches('}'));
+        let b = math_box(tex);
+        let (x0, _, x1, _) = ink(&b);
+        let (b0, _, b1, _) = ink(&base);
+        assert!(x1 - x0 >= (b1 - b0) * 0.9, "{tex}: accent {x0}..{x1}, base {b0}..{b1}");
+        assert_ink_inside(tex, &Options::default());
+    }
+    // a wide one has its corners at the ends, the rule between them
+    let wide = math_box(r"\overgroup{ABCDEFGHIJKL}");
+    let drawn = wide.items.iter().filter(|i| matches!(i, Item::Line { .. } | Item::Rule { .. })).count();
+    assert_eq!(drawn, 3, "{:?}", wide.items);
+}
+
+// ---------- mathtools' \vdotswithin (#120) ----------
+
+/// Middles (x of the ink's center) of the glyphs of `c` in a box, top to bottom.
+fn glyph_middles(b: &MathBox, c: char) -> Vec<(f32, f32)> {
+    let f = font::font();
+    let id = f.glyph(c).unwrap();
+    let mut found: Vec<(f32, f32)> = b
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Glyph { id: g, x, y, scale, .. } if *g == id => {
+                let (x0, _, x1, _) = f.limits(id);
+                Some((x + (x0 + x1) / 2.0 * scale, *y))
+            }
+            _ => None,
+        })
+        .collect();
+    found.sort_by(|a, b| b.1.total_cmp(&a.1));
+    found
+}
+
+#[test]
+fn vdotswithin_centers_the_dots_under_the_symbol_above() {
+    for (tex, symbol) in [
+        (r"\begin{align*} a &= b \\ &\vdotswithin{=} \\ &= c \end{align*}", '='),
+        (r"\begin{align*} x + y &\le z \\ &\vdotswithin{\le} \\ &\le w \end{align*}", '≤'),
+        (r"\begin{align*} a &= b \\ \shortvdotswithin{=} &= c \end{align*}", '='),
+    ] {
+        let b = math_box(tex);
+        let symbols = glyph_middles(&b, symbol);
+        let dots = glyph_middles(&b, '⋮');
+        assert_eq!((symbols.len(), dots.len()), (2, 1), "{tex}");
+        assert!((dots[0].0 - symbols[0].0).abs() < 1.0, "{tex}: ⋮ at {}, {symbol} at {}", dots[0].0, symbols[0].0);
+        // between the two lines
+        assert!(symbols[0].1 > dots[0].1 && dots[0].1 > symbols[1].1, "{tex}");
+        assert_ink_inside(tex, &Options::default());
+    }
+    // the box is as wide as the symbol with its spaces, `{}={}`
+    assert_eq!(math_box(r"\vdotswithin{=}").width, math_box(r"{}={}").width);
+    // read as "and so on", as \vdots
+    let out = read(r"\begin{align*} a &= b \\ &\vdotswithin{=} \\ &= c \end{align*}");
+    assert_eq!(out.speech, "a equals b; and so on; equals c");
+    assert_eq!(out.text, "a = b; ⋮; = c");
+}
+
+#[test]
+fn shortvdotswithin_is_a_row_of_its_own_set_closer() {
+    let short = read(r"\begin{align*} a &= b \\ \shortvdotswithin{=} &= c \end{align*}");
+    let long = read(r"\begin{align*} a &= b \\ &\vdotswithin{=} \\ &= c \end{align*}");
+    assert_eq!(short.speech, long.speech);
+    let Node::Table { rows, .. } = short.tree.children().first().unwrap_or(&short.tree) else { panic!("{:?}", short.tree) };
+    assert_eq!(rows.len(), 3);
+    assert!(matches!(&rows[1][1], Node::VdotsWithin { short: true, .. }), "{:?}", rows[1]);
+    let Node::Table { rows, .. } = long.tree.children().first().unwrap_or(&long.tree) else { panic!("{:?}", long.tree) };
+    assert!(matches!(&rows[1][1], Node::VdotsWithin { short: false, .. }), "{:?}", rows[1]);
+    // the short row ends with its own row: a \vdotswithin after it is not short
+    let after = read(r"\begin{align*} a &= b \\ \shortvdotswithin{=} &= c \\ &\vdotswithin{=} \\ &= d \end{align*}");
+    let Node::Table { rows, .. } = after.tree.children().first().unwrap_or(&after.tree) else { panic!("{:?}", after.tree) };
+    assert!(matches!(&rows[3][1], Node::VdotsWithin { short: false, .. }), "{:?}", rows[3]);
+    let (s, l) = (math_box(r"\begin{align*} a &= b \\ \shortvdotswithin{=} &= c \end{align*}"), math_box(r"\begin{align*} a &= b \\ &\vdotswithin{=} \\ &= c \end{align*}"));
+    assert!(s.height + s.depth < l.height + l.depth - 100.0, "{} vs {}", s.height + s.depth, l.height + l.depth);
+    assert_eq!(s.width, l.width);
+    // the star puts the dots in the first column, under a symbol that ends it
+    let b = math_box(r"\begin{align*} a = {} &b \\ \shortvdotswithin*{=} c = {} &d \end{align*}");
+    let (symbols, dots) = (glyph_middles(&b, '='), glyph_middles(&b, '⋮'));
+    assert!((dots[0].0 - symbols[0].0).abs() < 1.0, "⋮ at {}, = at {}", dots[0].0, symbols[0].0);
+}
+
+/// Small reading slips found against the KaTeX and MathJax command lists (#164).
+#[test]
+fn text_dashes_cfrac_alignment_unicode_font_and_centernot() {
+    // LaTeX's (and KaTeX's) dash ligatures in text; typewriter type has none
+    assert_eq!(read(r"\text{a -- b --- c}").text, "a – b — c");
+    assert_eq!(read(r"\text{x - y}").text, "x - y");
+    assert_eq!(read(r"\texttt{a -- b}").text, "a -- b");
+    assert_eq!(read(r"\text{\ttfamily a -- b}").text, "a -- b");
+    // \cfrac[l], \cfrac[r]: the numerator at one side (MathML's numalign, as MathJax writes it)
+    let one = |tex: &str| glyph_middles(&math_box(tex), '1')[0].0;
+    let (left, center, right) = (one(r"\cfrac[l]{1}{x+x+x}"), one(r"\cfrac{1}{x+x+x}"), one(r"\cfrac[r]{1}{x+x+x}"));
+    assert!(left < center - 300.0 && right > center + 300.0, "{left} {center} {right}");
+    assert_eq!(one(r"\cfrac[c]{1}{x+x+x}"), center);
+    for (tex, align) in [(r"\cfrac[l]{1}{1+x}", "left"), (r"\cfrac[r]{1}{1+x}", "right")] {
+        let r = read(tex);
+        assert!(r.mathml.contains(&format!(r#"numalign="{align}""#)), "{}", r.mathml);
+        let back = convert(&r.mathml, &Options { input: mathra::Input::MathMl, ..Options::default() }).unwrap();
+        assert_eq!(back.tree, r.tree, "{tex}");
+    }
+    // MathJax's \unicode[font]{…} and \unicode[height,depth][font]{…}: the code point, the font ignored
+    for tex in [r"\unicode[Arial]{x22D6}", r"\unicode[1,0.2][Arial]{x22D6}", r"\unicode{0x22D6}"] {
+        assert_eq!(read(tex).tree, read(r"\unicode{x22D6}").tree, "{tex}");
+    }
+    // \centernot: \not's own slash over the middle, not a slash as long as the arrow
+    let r = read(r"A \centernot\longrightarrow B");
+    assert!(format!("{:?}", r.tree).contains("CenterNot"), "{:?}", r.tree);
+    let b = math_box(r"\centernot\longrightarrow");
+    let (slash, arrow) = (glyph_middles(&b, '⧸'), glyph_middles(&b, '⟶'));
+    assert_eq!(slash.len(), 1);
+    assert!((slash[0].0 - arrow[0].0).abs() < 1.0, "⧸ at {}, ⟶ at {}", slash[0].0, arrow[0].0);
+    // a negated symbol stays the symbol, as with \not
+    assert_eq!(read(r"a \centernot= b").tree, read(r"a \not= b").tree);
+}
+
+#[test]
+fn a_tree_node_stays_small() {
+    // every level of nesting holds nodes on the stack: a bigger node makes the deep-nesting cases
+    // overflow the 1 MiB and 2 MiB stacks of the tests (176 bytes when \vdotswithin came)
+    let size = std::mem::size_of::<Node>();
+    assert!(size <= 176, "Node is {size} bytes");
+}
+
+/// #204: MathJax's \unicode reads a bare number as decimal and `x…` or `0x…` as hexadecimal; TeX's \char
+/// keeps its own reading (decimal, "hex, 'octal), and the commands that expand to \unicode keep theirs.
+#[test]
+fn unicode_reads_decimal_as_mathjax() {
+    for options in [strict(), Options::default()] {
+        for (tex, text) in [
+            (r"\unicode{8918}", "⋖"),
+            (r"\unicode{x22D6}", "⋖"),
+            (r"\unicode{0x22D6}", "⋖"),
+            (r"\unicode{X22D6}", "⋖"),
+            (r"\unicode{U+22D6}", "⋖"),
+            (r"\unicode{65}", "A"),
+            (r"\unicode{8918} \quad \unicode{x22D6}", "⋖ ⋖"),
+            (r#"\char65 \char"41 \char'101 \char`A"#, "AAAA"),
+            (r"\grad f", "𝛁f"),
+        ] {
+            let out = convert(tex, &options).unwrap_or_else(|e| panic!("{tex}: {e}"));
+            assert!(out.warnings.is_empty(), "{tex}: {:?}", out.warnings);
+            assert_eq!(out.text, text, "{tex}");
+        }
+    }
+    // a decimal code point out of Unicode's range is not a character
+    assert!(convert(r"\unicode{99999999}", &strict()).is_err());
+}
+
+/// #205: `\not` before a long arrow is TeX's zero-width relation: its slash over the arrow's start, where it
+/// would cross an `=`, the arrow its own length and the whole a relation spaced as one.
+#[test]
+fn not_before_a_long_arrow_slashes_its_start() {
+    let equals = glyph_middles(&math_box("="), '=')[0].0;
+    for (tex, arrow) in [(r"\not\longrightarrow", '⟶'), (r"\not\Longrightarrow", '⟹'), (r"\not\longleftarrow", '⟵'), (r"\not\longmapsto", '⟼')] {
+        let b = math_box(tex);
+        let plain = math_box(&tex.replace(r"\not", ""));
+        let slash = glyph_middles(&b, '⧸');
+        assert_eq!(slash.len(), 1, "{tex}");
+        // the middle of an = set where the arrow starts (both boxes start at 0)
+        assert!((slash[0].0 - equals).abs() < 1.0, "{tex}: ⧸ at {}, = at {equals}", slash[0].0);
+        assert!(slash[0].0 < glyph_middles(&b, arrow)[0].0 - 100.0, "{tex}");
+        assert!(!b.items.iter().any(|i| matches!(i, Item::Line { .. })), "{tex}: no slash across the whole arrow");
+        assert_eq!(b.width, plain.width, "{tex}: the arrow keeps its length");
+        // a relation: spaced as the arrow alone
+        let spaced = math_box(&format!("A {tex} B")).width;
+        assert_eq!(spaced, math_box(&format!("A {} B", tex.replace(r"\not", ""))).width, "{tex}: spaced as a relation");
+    }
+    let _ = read(r"A \not\longrightarrow B \quad A \not\Longrightarrow B");
+    // a short relation without a negated character, and \cancel, are still crossed out whole
+    for tex in [r"\not\approxeq", r"\cancel{\longrightarrow}"] {
+        let b = math_box(tex);
+        assert!(b.items.iter().any(|i| matches!(i, Item::Line { .. })), "{tex}");
+        assert!(glyph_middles(&b, '⧸').is_empty(), "{tex}");
+    }
+    // \not before a relation with a negated character is that character
+    assert_eq!(read(r"a \not= b").text, "a ≠ b");
 }

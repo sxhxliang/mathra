@@ -24,10 +24,31 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+          components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
       # must match the wasm-bindgen version in Cargo.lock
       - run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
       - run: site/build.sh
+      # the editor page: mathra for browsers and the editor, built from main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - run: site/build-editor.sh
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      # the coverage of main, measured as scripts/check.sh measures it: the report at coverage/html/ and,
+      # for the README's badge, coverage/badge.json in shields.io's endpoint format (rounded down, so
+      # 99.996% shows 99.99%, never 100%)
+      - run: |
+          cargo llvm-cov --workspace --exclude mathra-python --features mathra/latin-modern --html --output-dir site/coverage
+          cargo llvm-cov report --json --summary-only --output-path site/coverage/summary.json
+          jq '.data[0].totals as $t | [$t.lines.percent, $t.functions.percent] | map(. * 100 | floor / 100)
+            | {schemaVersion: 1, label: "coverage", message: "\(.[0])% lines, \(.[1])% functions",
+               color: (if . == [100, 100] then "brightgreen" else "red" end)}' site/coverage/summary.json > site/coverage/badge.json
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

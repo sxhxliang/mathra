@@ -171,3 +171,5 @@ implicit unit powers (`s-2`, `m2`) as superscripts, preserves explicit braced
 powers, and converts double-slash units (`mol//L`) to a stacked native fraction.
 A single slash (`kJ/mol`) remains inline. Scientific-notation values keep their
 existing mantissa and power-of-ten tree.
+
+HTML attributes keep their math body and native foreground colors. Bold script, Fraktur and sans-serif alphabets use Office Math script/style properties. Custom fraction numerator alignment, matrix column spacing, frame padding/thickness, aligned vertical dots and centered negation overlays return unsupported errors. Color model components follow the LaTeX reader, which rejects out-of-range RGB values in strict mode.

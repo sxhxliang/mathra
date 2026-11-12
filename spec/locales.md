@@ -60,6 +60,6 @@ A phrase missing from a language falls back to English. The test `every_language
 
 ## Limits
 
-- The drawing uses STIX Two Math, which covers Latin, Greek and Cyrillic. Text in other scripts inside `\text{…}` (Chinese, Japanese, Arabic, Devanagari) is drawn as □ (E-REC-8); the speech, which lives in `<title>`, works in any script.
+- The drawing uses STIX Two Math, which covers Latin, Greek and Cyrillic. Text in other scripts inside `\text{…}` (Chinese, Japanese, Arabic, Devanagari) comes from a fallback font that has it (`Options::fallback_fonts`, S-SVG-5), or is drawn as □ (E-REC-8); the speech, which lives in `<title>`, works in any script. Shaping is not done: scripts whose letters join or reorder (Arabic, Devanagari) come out as isolated letters.
 - The speech is a linear phrase built in the order of the equation. Languages that put the argument before the function (ja, ko, hi, tr) read `sin x` as "サイン x", the way it is read aloud in class, not with the grammatical order of a sentence.
 - Right-to-left math notation (Arabic school notation) is out of scope: the equation is drawn left to right, as in Arabic scientific texts with Latin letters.

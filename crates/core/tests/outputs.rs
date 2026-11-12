@@ -115,7 +115,12 @@ const SPEECHES: &[(&str, &str, &str)] = &[
     (r"a \equiv b", "é côngruo a", "is congruent to"),
     (r"x \to 0", "tende a", "tends to"),
     (r"\cancel{x}", "x cancelado", "x canceled"),
+    (r"i\slashed{\partial}\psi", "derivada parcial cortado", "partial slash psi"),
+    (r"\slashed{D}", "D cortado", "D slash"),
     (r"\circled{1}", "1 circulado", "circled 1"),
+    (r"\vv{AB}", "vetor A B", "vector A B"),
+    (r"\overlinesegment{AB}", "segmento A B", "segment A B"),
+    (r"\widebar{AB}", "A B barra", "A B bar"),
     (r"\boxed{x}", "x", "x"),
 ];
 
@@ -135,10 +140,20 @@ fn speech_in_portuguese_and_english() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+#[test]
+fn the_feynman_slash_is_not_a_cancellation_in_any_language() {
+    for locale in Locale::ALL {
+        let slashed = speech(r"\slashed{D}", locale);
+        assert!(slashed.contains('D') && slashed != speech(r"\cancel{D}", locale), "{locale}: «{slashed}»");
+    }
+}
+
 /// (input, expected snippet of the linear text)
 const TEXTS: &[(&str, &str)] = &[
     (r"\sqrt[3]{x}", "∛"),
     (r"\sqrt[4]{x}", "∜"),
+    // the combining long solidus overlay after the letter
+    (r"\slashed{D}", "D\u{0338}"),
     (r"\sqrt[n]{x}", "√[n]"),
     (r"f'^{2}", "′^"),
     (r"f''", "″"),

@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_name__",
+  "version": "0.1.0",
+  "description": "__MSG_description__",
+  "action": {
+    "default_popup": "editor.html",
+    "default_title": "mathra"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "contextMenus",
+    "clipboardWrite"
+  ],
+  "icons": {
+    "16": "icon-16.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "default_locale": "en"
+}

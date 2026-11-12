@@ -1,0 +1,19 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "mathra: watch the VS Code extension",
+      "type": "shell",
+      "command": "pnpm install --silent && pnpm watch",
+      "options": { "cwd": "${workspaceFolder}/vscode" },
+      "isBackground": true,
+      "presentation": { "reveal": "silent" },
+      "problemMatcher": {
+        "owner": "esbuild",
+        "fileLocation": ["relative", "${workspaceFolder}/vscode"],
+        "pattern": { "regexp": "^✘ (.*):(\\d+):(\\d+): (.*)$", "file": 1, "line": 2, "column": 3, "message": 4 },
+        "background": { "activeBegins": true, "beginsPattern": "^\\[watch\\] build started", "endsPattern": "^\\[watch\\] build finished" }
+      }
+    }
+  ]
+}

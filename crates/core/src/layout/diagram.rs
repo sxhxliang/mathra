@@ -11,6 +11,10 @@ use super::{em, k, Context, Item, Level, MathBox, Style};
 type R<T> = Result<T, Error>;
 type P = (f32, f32);
 
+/// xy-pic's `@(d1,d2)` puts the curve's control points 3 pc from the entries, in the two directions
+/// (xyarrow.tex, `\ar@curveinout`): 3.6 em at 10 pt.
+const XY_CURVE_REACH: f32 = 3.6;
+
 /// Points per bent arrow, per hook and per barb: enough for a smooth stroke at any display size.
 const CURVE_STEPS: usize = 40;
 const BARB_STEPS: usize = 8;
@@ -77,10 +81,35 @@ fn exit(r: Rect, p: P, d: P) -> P {
     } else if d.1 < -1e-6 {
         t = t.min((r.y0 - p.1) / d.1);
     }
-    if !t.is_finite() {
-        t = 0.0;
+    // (`d` has a length of one, so one side stops it; nowhere for a ray that never leaves)
+    add(p, mul(d, if t.is_finite() { t.max(0.0) } else { 0.0 }))
+}
+
+/// xy-pic's `@(d1,d2)` (reference manual, note 24p): the cubic from the center `p` of the source to the
+/// center `q` of the target whose control points are `reach` from them, in direction d1 from `p` and
+/// d2 from `q`, so it leaves `p` in direction d1 and enters `q` from direction d2; cut at the borders
+/// of the two entries (the same one for a loop).
+fn in_out_curve(p: P, q: P, (d1, d2): (i16, i16), reach: f32, rf: Rect, rt: Rect) -> Vec<P> {
+    let towards = |degrees: i16| {
+        let (s, c) = (degrees as f32).to_radians().sin_cos();
+        (c, s)
+    };
+    let (c1, c2) = (add(p, mul(towards(d1), reach)), add(q, mul(towards(d2), reach)));
+    let full: Vec<P> = (0..=CURVE_STEPS * 2)
+        .map(|s| {
+            let t = s as f32 / (CURVE_STEPS * 2) as f32;
+            let u = 1.0 - t;
+            let w = [u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t];
+            (w[0] * p.0 + w[1] * c1.0 + w[2] * c2.0 + w[3] * q.0, w[0] * p.1 + w[1] * c1.1 + w[2] * c2.1 + w[3] * q.1)
+        })
+        .collect();
+    let first = full.iter().position(|x| !rf.contains(*x)).unwrap_or(0);
+    let last = full.iter().rposition(|x| !rt.contains(*x)).unwrap_or(full.len() - 1);
+    if first >= last {
+        Vec::new()
+    } else {
+        full[first..=last].to_vec()
     }
-    add(p, mul(d, t.max(0.0)))
 }
 
 fn polyline_length(path: &[P]) -> f32 {
@@ -270,8 +299,58 @@ pub fn compose(cells: &[Vec<Node>], arrows: &[DiagramArrow], e: Style, ctx: &mut
         let arrival = rotate(d, -theta);
         let start = exit(border(a.from), p, out);
         let end = exit(border(a.to), q, mul(arrival, -1.0));
-        let path: Vec<P> = if a.bend == 0 {
+        // the straight segments of a path with waypoints, each between the borders it leaves and reaches
+        let mut segments: Vec<(P, P)> = Vec::new();
+        let path: Vec<P> = if a.across {
+            // xy-pic's 2-cell Arrow: across the middle, clockwise, 0.6 em long, moved along itself by `sag`
+            let along = mul(left(d), -1.0);
+            let center = add(mul(add(p, q), 0.5), mul(along, em(e, a.sag)));
+            vec![sub(center, mul(along, em(e, 0.3))), add(center, mul(along, em(e, 0.3)))]
+        } else if a.sag != 0.0 {
+            // a 2-cell curve: the quadratic through the middle moved `sag` to the left, cut at the borders
+            let control = add(mul(add(p, q), 0.5), mul(left(d), em(e, a.sag)));
+            let full: Vec<P> = (0..=CURVE_STEPS * 2)
+                .map(|s| {
+                    let t = s as f32 / (CURVE_STEPS * 2) as f32;
+                    let u = 1.0 - t;
+                    add(add(mul(p, u * u), mul(control, 2.0 * u * t)), mul(q, t * t))
+                })
+                .collect();
+            let (rf, rt) = (border(a.from), border(a.to));
+            let first = full.iter().position(|x| !rf.contains(*x)).unwrap_or(0);
+            let last = full.iter().rposition(|x| !rt.contains(*x)).unwrap_or(full.len() - 1);
+            if first >= last {
+                vec![start, end]
+            } else {
+                full[first..=last].to_vec()
+            }
+        } else if let Some(directions) = a.directions {
+            in_out_curve(p, q, directions, em(e, XY_CURVE_REACH), border(a.from), border(a.to))
+        } else if !a.via.is_empty() {
+            // xy-pic's straight segments (reference manual, note 24d): each one between the objects it
+            // joins, so an entry with something in it interrupts the path; an empty one does not
+            let mut stops = vec![a.from];
+            stops.extend(&a.via);
+            stops.push(a.to);
+            let mut path = Vec::new();
+            for w in stops.windows(2) {
+                let (u, v) = (add(anchor(w[0]), shift), add(anchor(w[1]), shift));
+                let dir = unit(sub(v, u));
+                let empty = |c: (usize, usize)| boxes[c.0][c.1].width == 0.0 && boxes[c.0][c.1].items.is_empty();
+                let s = if w[0] == a.from || !empty(w[0]) { exit(border(w[0]), u, dir) } else { u };
+                let t = if w[1] == a.to || !empty(w[1]) { exit(border(w[1]), v, mul(dir, -1.0)) } else { v };
+                segments.push((s, t));
+                path.push(s);
+                path.push(t);
+            }
+            path
+        } else if a.bend == 0 {
             vec![start, end]
+        } else {
+            Vec::new()
+        };
+        let path: Vec<P> = if !path.is_empty() {
+            path
         } else {
             let reach = length(sub(end, start)) * 0.3915 / theta.cos().max(0.2);
             let (c1, c2) = (add(start, mul(out, reach)), sub(end, mul(arrival, reach)));
@@ -285,17 +364,20 @@ pub fn compose(cells: &[Vec<Node>], arrows: &[DiagramArrow], e: Style, ctx: &mut
                 .collect()
         };
         let total = polyline_length(&path);
-        if total < 1e-3 {
-            continue;
-        }
+        // (a path of no length, which the borders an arrow leaves and reaches never give, draws nothing)
+        let false = total < 1e-3 else { continue };
 
         // labels beside the arrow or on it, at their position along it (the middle by default)
         let mut breaks: Vec<Rect> = Vec::new();
         for (l, b) in a.labels.iter().zip(labels) {
-            let (middle, along) = point_at(&path, total * l.position.clamp(0.0, 1.0));
+            let (middle, along) = match segments.get(l.segment) {
+                Some(&(s, t)) if !a.via.is_empty() => (add(s, mul(sub(t, s), l.position.clamp(0.0, 1.0))), unit(sub(t, s))),
+                _ => point_at(&path, total * l.position.clamp(0.0, 1.0)),
+            };
             let normal = left(along);
             let reach = normal.0.abs() * b.width / 2.0 + normal.1.abs() * b.total() / 2.0;
-            let gap = em(e, 0.16);
+            // beside a 2-cell's Arrow, clear of its double head
+            let gap = em(e, if a.across { 0.4 } else { 0.16 });
             let center = match l.side {
                 LabelSide::Left => add(middle, mul(normal, gap + reach)),
                 LabelSide::Right => sub(middle, mul(normal, gap + reach)),
@@ -327,9 +409,22 @@ pub fn compose(cells: &[Vec<Node>], arrows: &[DiagramArrow], e: Style, ctx: &mut
         let head_trim = trim(a.head != ArrowHead::None);
         let tail_trim = trim(a.tail == ArrowTail::Head);
         let body_path = slice(&path, tail_trim, (total - head_trim).max(tail_trim));
-        let visible = |seg: (P, P)| !breaks.iter().any(|r| r.contains(mul(add(seg.0, seg.1), 0.5)));
+        // between two segments, the part inside a waypoint's entry is not drawn
+        let gaps: Vec<(P, P)> = segments.windows(2).filter(|w| length(sub(w[1].0, w[0].1)) > 1e-3).map(|w| (w[0].1, w[1].0)).collect();
+        let in_gap = |m: P| {
+            gaps.iter().any(|&(g0, g1)| {
+                let gl = length(sub(g1, g0));
+                let t = ((m.0 - g0.0) * (g1.0 - g0.0) + (m.1 - g0.1) * (g1.1 - g0.1)) / (gl * gl);
+                let closest = add(g0, mul(sub(g1, g0), t.clamp(0.0, 1.0)));
+                (0.0..=1.0).contains(&t) && length(sub(m, closest)) < 1e-3
+            })
+        };
+        let visible = |seg: (P, P)| {
+            let m = mul(add(seg.0, seg.1), 0.5);
+            !breaks.iter().any(|r| r.contains(m)) && !in_gap(m)
+        };
         let draw = |pen: &mut Pen, line: &[P]| {
-            let line = if breaks.is_empty() { line.to_vec() } else { resample(line, em(e, 0.04)) };
+            let line = if breaks.is_empty() && gaps.is_empty() { line.to_vec() } else { resample(line, em(e, 0.04)) };
             for w in line.windows(2) {
                 if visible((w[0], w[1])) {
                     pen.line(w[0], w[1]);

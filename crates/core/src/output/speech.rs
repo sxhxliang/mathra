@@ -7,7 +7,8 @@ use crate::tree::*;
 pub fn speak(node: &Node, loc: Locale) -> String {
     let mut f = Speaker { loc, words: Vec::new() };
     f.node(node);
-    let phrase = f.words.join(" ");
+    // #176: a symbol drawn by composition that no phrase read is its closest text
+    let phrase = crate::composite::spell(&f.words.join(" "));
     phrase.split_whitespace().collect::<Vec<_>>().join(" ").replace(" ,", ",").replace(" ;", ";").replace(" :", ":")
 }
 
@@ -188,7 +189,9 @@ impl Speaker {
                     '\u{0307}' => "accent.dot",
                     '\u{0308}' => "accent.ddot",
                     '\u{0303}' => "accent.tilde",
-                    '⏜' => "accent.arc",
+                    '⏜' | '⏠' => "accent.arc",
+                    // KaTeX's \overlinesegment and \underlinesegment
+                    '\u{20E9}' => "accent.segment",
                     _ => {
                         self.say(b);
                         return;
@@ -222,6 +225,7 @@ impl Speaker {
             Node::Space { .. } | Node::Phantom { .. } => {}
             Node::Canceled { base, shape } => {
                 let b = self.spoken(base);
+                // the Feynman slash is notation, not a cancellation: "D slash"
                 self.say(self.t(if *shape == Cancel::Slash { "slashed" } else { "canceled" }, &[&b]));
             }
             Node::Framed { base, shape, .. } => {
@@ -234,7 +238,7 @@ impl Speaker {
                     Frame::Fill | Frame::Background => self.say(b),
                 }
             }
-            Node::Colored { base, .. } | Node::ForcedClass { base, .. } | Node::Style { base, .. } | Node::Unit { base, .. } => self.node(base),
+            Node::Colored { base, .. } | Node::Attributed { base, .. } | Node::ForcedClass { base, .. } | Node::Style { base, .. } | Node::Unit { base, .. } => self.node(base),
             Node::Quantity { value, unit } => {
                 let named = units_by_name(unit, value.as_deref(), self.loc);
                 self.node(&named);
@@ -275,6 +279,7 @@ impl Speaker {
             | Node::Resized { base, .. }
             | Node::Rotated { base, .. }
             | Node::Reflected { base } => self.node(base),
+            Node::VdotsWithin { .. } => self.node(&Node::VDOTS),
             // the speech does not follow the style: \mathchoice reads as its text style's branch
             Node::Choice { branches } => {
                 if let Some(b) = branches.get(1) {
@@ -310,8 +315,11 @@ impl Speaker {
                     let (from, to) = (name(self, a.from), name(self, a.to));
                     let mut phrase = format!("; {}", self.t("diagram_arrow", &[&from, &to]));
                     for l in &a.labels {
+                        // a label with nothing to say (xymatrix's \hole) is not read
                         let l = self.spoken(&l.node);
-                        phrase.push_str(&format!(" ({l})"));
+                        if !l.is_empty() {
+                            phrase.push_str(&format!(" ({l})"));
+                        }
                     }
                     self.say(phrase);
                 }
@@ -334,6 +342,7 @@ impl Speaker {
     }
 
     fn scripts(&mut self, base: &Node, sup: Option<&Node>, sub: Option<&Node>) {
+        let base = base.operator_core();
         if let Node::LargeOperator { symbol, .. } = base {
             let name = large_operator(*symbol, self.loc);
             let from = sub.map(|s| self.spoken(s));
@@ -455,6 +464,16 @@ fn pair_bars(children: &[Node]) -> Vec<Node> {
     out
 }
 
+/// The prefix and name of a unit, alone or with its power (`\metre\squared`); None for any other node.
+fn unit_of(n: &Node) -> Option<(Option<&str>, &str)> {
+    let n = if let Node::Scripts { base, .. } = n { base.as_ref() } else { n };
+    if let Node::Unit { prefix, name, .. } = n {
+        Some((prefix.as_deref(), name.as_str()))
+    } else {
+        None
+    }
+}
+
 /// A single token: number, letter, or the same thing with a simple subscript.
 /// L-UNI-3: a quantity's units by their names, in the languages that have them ("9.81 meters per
 /// second squared"): each unit becomes the text of its name, `/` becomes "per", and the grouping of
@@ -465,20 +484,18 @@ fn units_by_name(unit: &Node, value: Option<&str>, loc: Locale) -> Node {
         return unit.clone();
     };
     let plural = value.is_none_or(|v| loc.unit_plural(v));
-    let name = |node: &Node, plural: bool| -> Node {
-        let named = |n: &Node| match n {
-            Node::Unit { prefix, name, .. } => loc.unit_name(prefix.as_deref(), name, plural).map(|t| Node::Text { parts: vec![TextPart::Text(t)] }),
-            _ => None,
+    // a unit (alone or with its power) as the text of its name, keeping its scripts
+    let name = |node: &Node, (prefix, unit): (Option<&str>, &str), plural: bool| -> Node {
+        let Some(t) = loc.unit_name(prefix, unit, plural) else {
+            return node.clone();
         };
+        let text = Node::Text { parts: vec![TextPart::Text(t)] };
         match node {
-            Node::Scripts { base, sup, sub } => match named(base) {
-                Some(b) => Node::Scripts { base: Box::new(b), sup: sup.clone(), sub: sub.clone() },
-                None => node.clone(),
-            },
-            other => named(other).unwrap_or_else(|| other.clone()),
+            Node::Scripts { sup, sub, .. } => Node::Scripts { base: Box::new(text), sup: sup.clone(), sub: sub.clone() },
+            _ => text,
         }
     };
-    let is_unit = |n: &Node| matches!(n, Node::Unit { .. }) || matches!(n, Node::Scripts { base, .. } if matches!(base.as_ref(), Node::Unit { .. }));
+    let is_unit = |n: &Node| unit_of(n).is_some();
     let words = |children: &[Node]| -> Vec<Node> {
         let slash = children.iter().position(|c| matches!(c, Node::Operator { symbol: '/', .. }));
         let numerator = slash.unwrap_or(children.len());
@@ -490,8 +507,10 @@ fn units_by_name(unit: &Node, value: Option<&str>, loc: Locale) -> Node {
                 Node::Number { .. } if slash == Some(1) && i == 0 => {}
                 Node::Operator { symbol: '/', .. } => out.push(Node::Text { parts: vec![TextPart::Text(per.to_string())] }),
                 Node::Operator { symbol: '(' | ')' | '·', .. } if slash.is_some_and(|s| i > s) => {}
-                c if is_unit(c) => out.push(name(c, plural && Some(i) == last)),
-                c => out.push(c.clone()),
+                c => out.push(match unit_of(c) {
+                    Some(u) => name(c, u, plural && Some(i) == last),
+                    None => c.clone(),
+                }),
             }
         }
         out
@@ -502,6 +521,17 @@ fn units_by_name(unit: &Node, value: Option<&str>, loc: Locale) -> Node {
                 .iter()
                 .map(|c| match c {
                     Node::Row { children: inner } if inner.iter().any(is_unit) => Node::row(words(inner)),
+                    // siunitx's per-mode=fraction: the units over the others, read as with the slash
+                    Node::Row { children: inner } if matches!(inner.as_slice(), [Node::Fraction { den, .. }] if den.children().iter().any(is_unit)) => {
+                        let [Node::Fraction { num, den, .. }] = inner.as_slice() else { unreachable!("matched above") };
+                        let mut flat = match num.as_ref() {
+                            Node::Row { children } => children.clone(),
+                            other => vec![other.clone()],
+                        };
+                        flat.push(Node::Operator { symbol: '/', class: Class::Ord });
+                        flat.extend(den.children().iter().cloned());
+                        Node::row(words(&flat))
+                    }
                     other => other.clone(),
                 })
                 .collect(),
@@ -564,13 +594,14 @@ fn large_operator(c: char, loc: Locale) -> String {
     loc.phrase(&key).to_string()
 }
 
-/// L-LET-2: the Latin capital of a double-struck letter, written with `\mathbb` or as the Unicode
-/// character (ℝ, 𝔸).
+/// L-LET-2: the Latin capital of a double-struck letter, or the digit of a double-struck digit (𝟙, the
+/// indicator function), written with `\mathbb` or as the Unicode character (ℝ, 𝔸, 𝟙).
 fn double_struck(name: &str, variant: Variant) -> Option<String> {
     let mut chars = name.chars();
     let (c, None) = (chars.next()?, chars.next()) else { return None };
     let capital = match c {
-        'A'..='Z' if variant == Variant::DoubleStruck => c,
+        'A'..='Z' | '0'..='9' if variant == Variant::DoubleStruck => c,
+        '\u{1D7D8}'..='\u{1D7E1}' => char::from_u32('0' as u32 + (c as u32 - 0x1D7D8))?,
         'ℂ' => 'C',
         'ℍ' => 'H',
         'ℕ' => 'N',
@@ -611,6 +642,14 @@ fn letter(name: &str, loc: Locale) -> String {
 }
 
 fn operator(symbol: char, class: Class, loc: Locale) -> String {
+    // #176: a symbol drawn by composition is read as the character whose meaning it has (a short arrow
+    // as the arrow), or as its closest text
+    if let Some(key) = crate::composite::speech_key(symbol) {
+        return loc.phrase(key).to_string();
+    }
+    if let Some(k) = crate::composite::get(symbol) {
+        return k.meaning.map_or_else(|| k.text.to_string(), |m| operator(m, class, loc));
+    }
     let key = match symbol {
         '−' if class == Class::Ord => "negative".to_string(),
         // L-INT-1: ]a, b[
@@ -621,8 +660,11 @@ fn operator(symbol: char, class: Class, loc: Locale) -> String {
         '⟶' => "op.→".to_string(),
         '⟹' => "op.⇒".to_string(),
         '⟺' => "op.⇔".to_string(),
+        // \Longleftarrow and \impliedby (#250) are read as ⇐
+        '⟸' => return operator('⇐', class, loc),
         '∣' => "op.|".to_string(),
-        '⋯' => "op.…".to_string(),
+        // \vdots and \vdotswithin: the list goes on, down the column
+        '⋯' | '⋮' => "op.…".to_string(),
         '″' => "double_prime".to_string(),
         // physics' bold nabla is read as the nabla
         '𝛁' => "op.∇".to_string(),

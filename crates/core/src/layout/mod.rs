@@ -3,6 +3,8 @@
 
 pub mod alphabet;
 mod arithmetic;
+mod breaking;
+mod composite;
 mod diagram;
 pub mod kerning;
 pub mod math_box;
@@ -11,11 +13,12 @@ mod stretch;
 mod table;
 
 pub use alphabet::math_italic;
+pub use breaking::{break_lines, Formula};
 pub use math_box::{Item, MathBox};
 
 use ttf_parser::math::Constants;
 
-use crate::font::{Font, MathFont};
+use crate::font::{FallbackFont, Font, MathFont};
 use crate::locale::Locale;
 use crate::rules::{self, Registry};
 use crate::tree::*;
@@ -126,6 +129,8 @@ pub struct Context<'a> {
     pub strict: bool,
     /// How text is kerned.
     pub kerning: kerning::TextKerning,
+    /// Where a character the math font lacks is looked up, in order, before it becomes a box.
+    pub fallbacks: &'a [FallbackFont],
 }
 
 /// MATH table constant already at the style's scale.
@@ -195,7 +200,8 @@ fn em(e: Style, amount: f32) -> f32 {
 
 pub(crate) fn glyph(c: char, e: Style) -> R<MathBox> {
     let f = e.font();
-    let id = f.glyph(c).or_else(|| equivalent(c).and_then(|x| f.glyph(x))).ok_or(Error::MissingGlyph { character: c })?;
+    // (a stmaryrd or mathabx symbol Unicode has no character for is drawn by composition, #176)
+    let Some(id) = f.glyph(c).or_else(|| equivalent(c).and_then(|x| f.glyph(x))) else { return composite::symbol(c, e) };
     // in a script, the font's form for that size (`ssty`), as TeX draws cmr7 rather than cmr10
     let mut math_box = glyph_id(f.script_form(id, e.script_level()), e.scale(), f);
     // (with the letter's italic correction when that form has none of its own, as cmmi7's has)
@@ -236,7 +242,7 @@ pub(crate) fn glyph_id(id: ttf_parser::GlyphId, s: f32, f: &Font) -> MathBox {
         width: f.advance(id) * s,
         height: y1.max(0.0) * s,
         depth: (-y0).max(0.0) * s,
-        items: vec![Item::Glyph { id, x: 0.0, y: 0.0, scale: s, color: None, flip: false }],
+        items: vec![Item::Glyph { id, x: 0.0, y: 0.0, scale: s, color: None, flip: false, font: None }],
         italic: f.italic_correction(id) * s,
         accent_point: f.accent_point(id).map(|v| v * s),
         single_glyph: true,
@@ -325,17 +331,16 @@ fn upright_text(t: &str, e: Style, ctx: &mut Context) -> R<MathBox> {
         if c == '\u{200B}' {
             continue;
         }
-        match glyph(c, e) {
-            Ok(g) => {
-                last_italic = if italic > 0 { g.italic } else { 0.0 };
-                math_box.append(&g);
+        // (`glyph` fails only for a character the font lacks)
+        let g = match glyph(c, e) {
+            Err(Error::MissingGlyph { character }) => {
+                math_box.append(&missing(character, e, ctx)?);
+                continue;
             }
-            Err(Error::MissingGlyph { character }) if !ctx.strict => {
-                ctx.registry.warn(rules::E_REC_8, format!("the font has no '{character}' (U+{:04X}): drew a box", character as u32));
-                math_box.append(&glyph('□', e)?);
-            }
-            Err(error) => return Err(error),
-        }
+            other => other?,
+        };
+        last_italic = if italic > 0 { g.italic } else { 0.0 };
+        math_box.append(&g);
     }
     math_box.single_glyph = false;
     Ok(math_box)
@@ -344,17 +349,69 @@ fn upright_text(t: &str, e: Style, ctx: &mut Context) -> R<MathBox> {
 pub fn compose(node: &Node, e: Style, ctx: &mut Context) -> R<MathBox> {
     let leaf = matches!(node, Node::Identifier { .. } | Node::Operator { .. } | Node::Number { .. } | Node::FixedDelimiter { .. } | Node::LargeOperator { .. });
     match compose_node(node, e, ctx) {
-        Err(Error::MissingGlyph { character }) if leaf && !ctx.strict => {
-            ctx.registry.warn(rules::E_REC_8, format!("the font has no '{character}' (U+{:04X}): drew a box", character as u32));
-            glyph('□', e)
-        }
+        Err(Error::MissingGlyph { character }) if leaf => missing_leaf(node, character, e, ctx),
         other => other,
     }
 }
 
+/// A symbol with a character the math font lacks. A name of several letters is set letter by letter,
+/// each from the math font or a fallback; anything else is the one character. Out of line, so the
+/// recursion's frames do not grow.
+#[cold]
+#[inline(never)]
+fn missing_leaf(node: &Node, character: char, e: Style, ctx: &mut Context) -> R<MathBox> {
+    if let Node::Identifier { name, variant } = node {
+        if name.chars().count() > 1 {
+            let mut math_box = MathBox::empty();
+            for c in name.chars() {
+                let g = match glyph(alphabet::character(c, *variant), e).or_else(|_| glyph(c, e)) {
+                    Err(Error::MissingGlyph { character }) => missing(character, e, ctx)?,
+                    other => other?,
+                };
+                math_box.append(&g);
+            }
+            return Ok(math_box);
+        }
+    }
+    missing(character, e, ctx)
+}
+
+/// A character the math font lacks: from the first fallback font that has it, as an ordinary symbol;
+/// else refused (strict) or drawn as a box (E-REC-8).
+#[cold]
+#[inline(never)]
+fn missing(c: char, e: Style, ctx: &mut Context) -> R<MathBox> {
+    if let Some(math_box) = fallback_glyph(c, e, ctx.fallbacks) {
+        return Ok(math_box);
+    }
+    if ctx.strict {
+        return Err(Error::MissingGlyph { character: c });
+    }
+    ctx.registry.warn(rules::E_REC_8, format!("the font has no '{c}' (U+{:04X}): drew a box", c as u32));
+    glyph('□', e)
+}
+
+/// `c` from the first of `fallbacks` that has it: its glyph scaled from that font's em to the math
+/// font's, on the baseline, with no italic correction and its accent over the middle.
+pub fn fallback_glyph(c: char, e: Style, fallbacks: &[FallbackFont]) -> Option<MathBox> {
+    let (font, id) = FallbackFont::find(fallbacks, c)?;
+    let f = font.get();
+    let s = e.scale() * e.font().units_per_em() / f.units_per_em();
+    let (_, y0, _, y1) = f.limits(id);
+    Some(MathBox {
+        width: f.advance(id) * s,
+        height: y1.max(0.0) * s,
+        depth: (-y0).max(0.0) * s,
+        items: vec![Item::Glyph { id, x: 0.0, y: 0.0, scale: s, color: None, flip: false, font: Some(font) }],
+        italic: 0.0,
+        accent_point: None,
+        single_glyph: true,
+    })
+}
+
 fn compose_node(node: &Node, e: Style, ctx: &mut Context) -> R<MathBox> {
     match node {
-        Node::Number { value, group, thousands } => compose_number(value, *group, *thousands, e, ctx),
+        Node::Number { value, group, thousands, variant } => compose_number(value, (*group, *thousands, *variant), e, ctx),
         Node::Identifier { name, variant } => {
             let mut math_box = MathBox::empty();
             for c in name.chars() {
@@ -384,14 +441,15 @@ fn compose_node(node: &Node, e: Style, ctx: &mut Context) -> R<MathBox> {
         Node::LargeOperator { symbol, .. } => large_operator(*symbol, e),
         Node::Row { children } => compose_row(children, e, ctx, false),
         Node::ProofTree { tree } => proof::compose(tree, e, ctx),
-        Node::Fraction { num, den, style, rule, thickness } => compose_fraction(num, den, *style, *rule, *thickness, e, ctx),
+        Node::Fraction { .. } => compose_fraction(node, e, ctx),
         Node::Root { radicand, index } => compose_root(radicand, index.as_deref(), e, ctx),
         Node::Scripts { base, sup, sub } => compose_scripts(base, sup.as_deref(), sub.as_deref(), e, ctx),
         Node::Delimited { open, close, parts, middles } => compose_delimited(*open, *close, parts, middles, e, ctx),
-        Node::Table { shape: kind, rows, columns, verticals, dashed, horizontals, between, intertexts, stretch } => {
-            let lines = table::Lines { verticals, dashed, horizontals, stretch: *stretch };
+        Node::Table { shape: kind, rows, columns, verticals, dashed, horizontals, between, intertexts, stretch, colsep } => {
+            let lines = table::Lines { verticals, dashed, horizontals, stretch: *stretch, colsep: *colsep };
             table::compose(*kind, rows, columns, &lines, between, intertexts, e, ctx)
         }
+        Node::VdotsWithin { symbol, .. } => compose_vdots_within(symbol, e, ctx),
         // a cell, a lap and a phantom are math lists of their own: a slanted letter that ends them
         // keeps its italic correction
         Node::Multicolumn { base, .. } => compose_list(base, e, ctx),
@@ -503,10 +561,17 @@ fn compose_node(node: &Node, e: Style, ctx: &mut Context) -> R<MathBox> {
         }
         Node::Space { em: amount } => Ok(MathBox::space(em(e, *amount))),
         Node::Canceled { base, shape: kind } => compose_canceled(base, *kind, e, ctx),
-        Node::Framed { base, shape, background, border } => compose_frame(base, *shape, background.as_deref(), border.as_deref(), e, ctx),
+        Node::Framed { base, shape, background, border, padding, thickness } => {
+            compose_frame(base, *shape, background.as_deref(), border.as_deref(), (*padding, *thickness), e, ctx)
+        }
         Node::Colored { color, base } => {
             let mut math_box = compose(base, e, ctx)?;
             math_box.colorize(color);
+            Ok(math_box)
+        }
+        Node::Attributed { attributes, base } => {
+            let mut math_box = compose(base, e, ctx)?;
+            math_box.group(attributes.clone());
             Ok(math_box)
         }
         Node::Quantity { unit, .. } => compose(unit, e, ctx),
@@ -545,7 +610,7 @@ fn compose_node(node: &Node, e: Style, ctx: &mut Context) -> R<MathBox> {
     }
 }
 
-fn compose_number(value: &str, group: bool, thousands: Option<char>, e: Style, ctx: &mut Context) -> R<MathBox> {
+fn compose_number(value: &str, (group, thousands, variant): (bool, Option<char>, Variant), e: Style, ctx: &mut Context) -> R<MathBox> {
     let sep = ctx.locale.decimal_separator();
     if value.contains('.') && sep != '.' {
         ctx.registry.note(rules::L_NUM_2, format!("{value} written with '{sep}' as decimal separator ({})", ctx.locale));
@@ -563,16 +628,21 @@ fn compose_number(value: &str, group: bool, thousands: Option<char>, e: Style, c
                 math_box.append(&glyph(m, e)?);
             }
         }
-        math_box.append(&glyph(c, e)?);
+        math_box.append(&digit(c, variant, e)?);
     }
     if let Some(fr) = fraction {
         math_box.append(&glyph(sep, e)?);
         for c in fr.chars() {
-            math_box.append(&glyph(c, e)?);
+            math_box.append(&digit(c, variant, e)?);
         }
     }
     math_box.single_glyph = value.chars().count() == 1;
     Ok(math_box)
+}
+
+/// #203: a digit in its alphabet (𝟏 in `\mathbf`), or the regular one if the font lacks it.
+fn digit(c: char, variant: Variant, e: Style) -> R<MathBox> {
+    glyph(alphabet::character(c, variant), e).or_else(|_| glyph(c, e))
 }
 
 // ---------- row: classes and spacing ----------
@@ -590,7 +660,9 @@ pub fn class_of(node: &Node) -> Option<Class> {
         Node::Choice { branches } => return branches.get(1).and_then(class_of),
         Node::Scripts { base, .. } => return class_of(base),
         Node::Arrow { .. } => Class::Rel,
-        Node::Colored { base, .. } | Node::Style { base, .. } => match base.as_ref() {
+        // #205: a long arrow after \not or \centernot stays a relation, spaced as one
+        Node::Canceled { base, shape: Cancel::Bar | Cancel::CenterNot } if is_long_arrow(base) => Class::Rel,
+        Node::Colored { base, .. } | Node::Attributed { base, .. } | Node::Style { base, .. } => match base.as_ref() {
             Node::Row { children } if children.len() == 1 => return class_of(&children[0]),
             Node::Row { .. } => Class::Ord,
             other => return class_of(other),
@@ -708,7 +780,7 @@ pub(crate) fn compose_row(children: &[Node], e: Style, ctx: &mut Context, initia
         if pending_italic > 0.0 {
             math_box.append(&MathBox::space(pending_italic));
         }
-        pending_italic = if ends_slanted(node) { b.italic } else { 0.0 };
+        pending_italic = if slanted_letter(node) { b.italic } else { 0.0 };
         math_box.append(&b);
         if class.is_some() {
             previous = *class;
@@ -737,7 +809,7 @@ pub fn compose_list(node: &Node, e: Style, ctx: &mut Context) -> R<MathBox> {
 /// A slanted letter or word (`\mathit{diff}`), alone or in a row of one: the row adds no kern of its own.
 fn ends_slanted(node: &Node) -> bool {
     match node {
-        Node::Identifier { variant: Variant::Italic | Variant::BoldItalic, .. } => true,
+        Node::Identifier { variant: Variant::Italic | Variant::BoldItalic | Variant::SansSerifItalic | Variant::SansSerifBoldItalic, .. } => true,
         Node::Row { children } if children.len() == 1 => ends_slanted(&children[0]),
         Node::Style { base, .. }
         | Node::Scaled { base, .. }
@@ -746,6 +818,17 @@ fn ends_slanted(node: &Node) -> bool {
         | Node::Bar { base, .. }
         | Node::Canceled { base, .. }
         | Node::ForcedClass { base, .. } => ends_slanted(base),
+        Node::Attributed { base, .. } => ends_slanted(base),
+        _ => false,
+    }
+}
+
+/// A slanted letter, also inside the group of `\class` and its kin, which changes nothing in the drawing.
+fn slanted_letter(node: &Node) -> bool {
+    match node {
+        Node::Identifier { variant: Variant::Italic | Variant::BoldItalic | Variant::SansSerifItalic | Variant::SansSerifBoldItalic, .. } => true,
+        Node::Attributed { base, .. } | Node::Scaled { base, .. } | Node::Style { base, .. } => slanted_letter(base.single()),
+        Node::Row { children } if children.len() == 1 => slanted_letter(&children[0]),
         _ => false,
     }
 }
@@ -761,7 +844,9 @@ fn compose_cell(node: &Node, e: Style, ctx: &mut Context, initial_ord: bool) -> 
 // ---------- fractions and roots ----------
 
 #[allow(clippy::too_many_arguments)]
-fn compose_fraction(num: &Node, den: &Node, style: FractionStyle, rule: bool, given: Option<f32>, e: Style, ctx: &mut Context) -> R<MathBox> {
+fn compose_fraction(fraction: &Node, e: Style, ctx: &mut Context) -> R<MathBox> {
+    let Node::Fraction { num, den, style, rule, thickness: given, numerator_align } = fraction else { unreachable!("a fraction") };
+    let (style, rule, given) = (*style, *rule, *given);
     let e = match style {
         FractionStyle::Display => Style { level: Level::Display, ..e },
         FractionStyle::Row => e.not_display(),
@@ -805,7 +890,13 @@ fn compose_fraction(num: &Node, den: &Node, style: FractionStyle, rule: bool, gi
     let margin = em(e, 0.12);
     let width = n.width.max(d.width);
     let mut math_box = MathBox::space(width + 2.0 * margin);
-    math_box.place(&n, margin + (width - n.width) / 2.0, u);
+    // \cfrac[l], \cfrac[r]: the numerator at one side
+    let room = match numerator_align {
+        Some('l') => 0.0,
+        Some('r') => width - n.width,
+        _ => (width - n.width) / 2.0,
+    };
+    math_box.place(&n, margin + room, u);
     math_box.place(&d, margin + (width - d.width) / 2.0, -v);
     if rule {
         math_box.place(&MathBox::bar(width, thickness, axis - thickness / 2.0), margin, 0.0);
@@ -987,7 +1078,7 @@ fn limits(b: MathBox, above: Option<&Node>, below: Option<&Node>, e: Style, ctx:
 
 fn large_operator(c: char, e: Style) -> R<MathBox> {
     let f = e.font();
-    let id = f.glyph(c).ok_or(Error::MissingGlyph { character: c })?;
+    let Some(id) = f.glyph(c) else { return composite::large(c, e) };
     let mut chosen = id;
     if e.level == Level::Display {
         let minimum = f.display_operator_min_height();
@@ -1039,9 +1130,20 @@ fn combining(c: char) -> bool {
     matches!(c as u32, 0x0300..=0x036F | 0x20D0..=0x20FF)
 }
 
+/// `\vdotswithin{=}`: the phantom of `{}={}`, and ⋮ drawn without taking width, centered on the
+/// phantom's middle (a phantom box after it, the two centered together on the end of the first).
+fn compose_vdots_within(symbol: &Node, e: Style, ctx: &mut Context) -> R<MathBox> {
+    let within = || Node::Phantom { base: Box::new(Node::row(vec![Node::row(vec![]), symbol.clone(), Node::row(vec![])])), width: true, height: false };
+    let drawn = Node::row(vec![within(), Node::Overlapped { base: Box::new(Node::row(vec![Node::VDOTS, within()])), side: 'c' }]);
+    compose(&drawn, e, ctx)
+}
+
 fn compose_accent(base: &Node, accent: char, stretchy: bool, below: bool, e: Style, ctx: &mut Context) -> R<MathBox> {
+    if stretchy && matches!(accent, LINE_SEGMENT | '\u{0304}') {
+        return compose_drawn_accent(base, accent, below, e, ctx);
+    }
     if below {
-        return compose_under_accent(base, accent, e, ctx);
+        return compose_under_accent(base, accent, stretchy, e, ctx);
     }
     let b = compose(base, e.cramp(), ctx)?;
     let base_point = if b.single_glyph { b.accent_point.unwrap_or(b.width / 2.0) } else { b.width / 2.0 };
@@ -1065,9 +1167,9 @@ fn compose_accent(base: &Node, accent: char, stretchy: bool, below: bool, e: Sty
     if b.width == 0.0 && b.items.is_empty() {
         // accent over nothing (\hat{}): takes the width of its drawing instead of leaking left
         // (combining accents have zero advance)
-        let glyphs = a.items.iter().filter_map(|i| if let Item::Glyph { id, x, scale, .. } = i { Some((*id, *x, *scale)) } else { None });
-        let (x0, x1) = glyphs.fold((0.0f32, a.width), |(x0, x1), (id, x, scale)| {
-            let (g0, _, g1, _) = e.font().limits(id);
+        let glyphs = a.items.iter().filter_map(|i| if let Item::Glyph { id, x, scale, font, .. } = i { Some((*id, *x, *scale, *font)) } else { None });
+        let (x0, x1) = glyphs.fold((0.0f32, a.width), |(x0, x1), (id, x, scale, font)| {
+            let (g0, _, g1, _) = crate::font::glyph_font(font, e.font()).limits(id);
             (x0.min(x + g0 * scale), x1.max(x + g1 * scale))
         });
         math_box.place(&a, -x0, dy);
@@ -1080,9 +1182,48 @@ fn compose_accent(base: &Node, accent: char, stretchy: bool, below: bool, e: Sty
     Ok(math_box)
 }
 
+/// The accent that stands for KaTeX's `\overlinesegment` and `\underlinesegment` (U+20E9, the
+/// combining wide bridge).
+const LINE_SEGMENT: char = '\u{20E9}';
+
+/// The wide accents no glyph of the font draws, drawn with rules:
+/// - KaTeX's `\overlinesegment` and `\underlinesegment` (`LINE_SEGMENT`): a line as wide as the base
+///   with a tick across each end, in KaTeX's proportions (a 0.04 em line, ticks 0.334 em tall), as far
+///   from the base as `\overline`'s bar;
+/// - mathabx's `\widebar` (a stretchy macron): `\bar`'s macron, where `\bar` puts it, as wide as the
+///   base (the fonts' macron does not stretch, and their overline sits higher).
+#[inline(never)]
+fn compose_drawn_accent(base: &Node, accent: char, below: bool, e: Style, ctx: &mut Context) -> R<MathBox> {
+    let b = compose(base, if below { e } else { e.cramp() }, ctx)?;
+    if accent != LINE_SEGMENT {
+        let macron = glyph(accent, e)?;
+        let (bottom, top) = stretch::ink(&macron, e);
+        let lift = if combining(accent) { (b.height - k(e, |c| c.accent_base_height())).max(0.0) } else { b.height };
+        let mut math_box = b.clone();
+        math_box.single_glyph = false;
+        math_box.place(&MathBox::bar(b.width, top - bottom, lift + bottom), 0.0, 0.0);
+        return Ok(math_box);
+    }
+    let (t, half) = (em(e, 0.04), em(e, 0.167));
+    let gap = if below { k(e, |c| c.underbar_vertical_gap()) } else { k(e, |c| c.overbar_vertical_gap()) };
+    // the middle of the line
+    let y = if below { -(b.depth + gap + half) } else { b.height + gap + half };
+    let mut math_box = b.clone();
+    math_box.single_glyph = false;
+    let mut segment = MathBox::bar(b.width, t, y - t / 2.0);
+    for x in [0.0, b.width - t] {
+        segment.place(&MathBox::bar(t, 2.0 * half, y - half), x, 0.0);
+    }
+    math_box.place(&segment, 0.0, 0.0);
+    Ok(math_box)
+}
+
 /// Stretchy accent under the base (`\underrightarrow`, `\underleftarrow`), as far below as `\underline`.
-fn compose_under_accent(base: &Node, accent: char, e: Style, ctx: &mut Context) -> R<MathBox> {
+fn compose_under_accent(base: &Node, accent: char, stretchy: bool, e: Style, ctx: &mut Context) -> R<MathBox> {
     let b = compose(base, e, ctx)?;
+    if !stretchy {
+        return under_mark(b, accent, e);
+    }
     let a = stretch::horizontal(accent, b.width, e)?;
     let width = b.width.max(a.width);
     let gap = k(e, |c| c.underbar_vertical_gap());
@@ -1091,6 +1232,33 @@ fn compose_under_accent(base: &Node, accent: char, e: Style, ctx: &mut Context) 
     math_box.place(&a, (width - a.width) / 2.0, -(b.depth + gap + a.height));
     math_box.depth += k(e, |c| c.underbar_extra_descender());
     math_box.italic = b.italic;
+    Ok(math_box)
+}
+
+/// An accent's mark at its own size under the base (accents' `\underaccent{\tilde}{x}`): its ink
+/// centered on the base and as far below it as `\underline`'s rule. The mark of a combining accent
+/// sits high over its baseline and left of its origin, so it is placed by its ink.
+#[inline(never)]
+fn under_mark(b: MathBox, accent: char, e: Style) -> R<MathBox> {
+    let a = glyph(accent, e)?;
+    let f = e.font();
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
+    for item in &a.items {
+        if let Item::Glyph { id, x, y, scale, font, .. } = item {
+            let (g0, h0, g1, h1) = crate::font::glyph_font(*font, f).limits(*id);
+            (x0, y0, x1, y1) = (x0.min(x + g0 * scale), y0.min(y + h0 * scale), x1.max(x + g1 * scale), y1.max(y + h1 * scale));
+        }
+    }
+    if x0 > x1 {
+        (x0, y0, x1, y1) = (0.0, -a.depth, a.width, a.height);
+    }
+    let gap = k(e, |c| c.underbar_vertical_gap());
+    let dy = -(b.depth + gap) - y1;
+    let mut math_box = b.clone();
+    math_box.single_glyph = false;
+    math_box.place(&a, (b.width - (x0 + x1)) / 2.0, dy);
+    math_box.height = b.height;
+    math_box.depth = b.depth.max(-(dy + y0)) + k(e, |c| c.underbar_extra_descender());
     Ok(math_box)
 }
 
@@ -1120,7 +1288,9 @@ fn compose_brace(base: &Node, above: bool, label: Option<&Node>, bracket: bool, 
         (true, true) => '⎴',
         (false, true) => '⎵',
     };
-    let brace = stretch::horizontal(symbol, b.width, e)?;
+    // never narrower than the font's first stretched variant: centered on a short base, it sticks
+    // out past it and the box widens, as in TeX
+    let brace = stretch::horizontal(symbol, b.width.max(stretch::minimum_width(symbol, e)), e)?;
     let r = label.map(|n| compose(n, e.sup(), ctx)).transpose()?;
     let width = b.width.max(brace.width).max(r.as_ref().map_or(0.0, |r| r.width));
     // the brace keeps the bar's gap from its content and the label keeps a limit's gap from the
@@ -1195,10 +1365,13 @@ fn compose_vertical_arrow(symbol: char, left: Option<&Node>, right: Option<&Node
 // ---------- frames and cancels ----------
 
 fn compose_canceled(base: &Node, kind: Cancel, e: Style, ctx: &mut Context) -> R<MathBox> {
-    if kind == Cancel::Slash {
-        return compose_slashed(base, e, ctx);
-    }
     let b = compose(base, e, ctx)?;
+    if kind == Cancel::Slash {
+        return slashed(b, e);
+    }
+    if kind == Cancel::Bar && is_long_arrow(base) {
+        return not_long_arrow(b, e, ctx);
+    }
     let t = k(e, |c| c.fraction_rule_thickness());
     let slack = em(e, 0.05);
     let (x0, x1, y0, y1) = (-slack, b.width + slack, -b.depth - slack, b.height + slack);
@@ -1213,41 +1386,67 @@ fn compose_canceled(base: &Node, kind: Cancel, e: Style, ctx: &mut Context) -> R
     if matches!(kind, Cancel::Backslash | Cancel::X) {
         rule((x0, y1), (x1, y0));
     }
+    if kind == Cancel::CenterNot {
+        center_not(&mut math_box, e, ctx)?;
+    }
     Ok(math_box)
 }
 
-/// carlisle/slashed: center a slash glyph over the body, with the package's optical shifts.
-fn compose_slashed(base: &Node, e: Style, ctx: &mut Context) -> R<MathBox> {
-    let b = compose(base, e, ctx)?;
-    let token = match base.single() {
-        Node::Identifier { name, .. } => name.as_str(),
-        Node::Operator { symbol: '∂', .. } => "partial",
-        _ => "",
-    };
-    let (slash, dx, dy, zero_advance) = match token {
-        "D" => ('/', 0.08, 0.0, false),
-        "A" | "partial" => ('/', 0.1, 0.0, false),
-        "k" => ('/', 0.0, -0.05, false),
-        "f" => ('\u{0338}', -0.6, 0.0, true),
-        _ => ('/', 0.0, 0.0, false),
-    };
-    let overlay = glyph(slash, e)?;
-    let advance = if zero_advance { 0.0 } else { overlay.width };
-    let width = b.width.max(advance);
-    let y = (b.height - b.depth - overlay.height + overlay.depth) / 2.0 + dy * overlay.total();
-    let mut result = MathBox::space(width);
-    result.place(&b, (width - b.width) / 2.0, 0.0);
-    result.place(&overlay, (width - advance) / 2.0 + dx * b.width, y);
-    result.italic = b.italic;
-    Ok(result)
+/// slashed.sty's `\slashed`: the font's "/" over the base, both centered across the wider of the two
+/// and the slash's middle on the base's middle, in a box as wide as the wider one. Each is a box of
+/// its own in TeX (`\hbox{$X$}`), with its italic correction in its width.
+#[inline(never)]
+fn slashed(b: MathBox, e: Style) -> R<MathBox> {
+    let slash = glyph('/', e)?;
+    let (base_width, slash_width) = (b.width + b.italic, slash.width + slash.italic);
+    let width = base_width.max(slash_width);
+    let mut math_box = MathBox::empty();
+    math_box.place(&b, (width - base_width) / 2.0, 0.0);
+    let lift = ((b.height - b.depth) - (slash.height - slash.depth)) / 2.0;
+    math_box.place(&slash, (width - slash_width) / 2.0, lift);
+    math_box.width = width;
+    Ok(math_box)
 }
 
-fn compose_frame(base: &Node, shape: Frame, background: Option<&str>, border: Option<&str>, e: Style, ctx: &mut Context) -> R<MathBox> {
+/// #205: a long arrow (U+27F5…U+27FF: `\longrightarrow`, `\Longrightarrow`, `\longmapsto`…) as a relation,
+/// which `\not` does not cross out whole. `\cancel{\longrightarrow}` has an ordinary arrow (a group) and
+/// stays crossed out.
+fn is_long_arrow(base: &Node) -> bool {
+    matches!(base, Node::Operator { symbol: '\u{27F5}'..='\u{27FF}', class: Class::Rel })
+}
+
+/// #205: `\not` before a long arrow, as TeX sets it: `\not` is a relation of zero width whose slash
+/// overlaps the left part of the next character (plain.tex, fontmath.ltx), so the slash stands over the
+/// arrow's start, where it would cross an `=`, and the arrow keeps its length. The slash is `\centernot`'s.
+#[inline(never)]
+fn not_long_arrow(mut math_box: MathBox, e: Style, ctx: &mut Context) -> R<MathBox> {
+    let equals = glyph('=', e)?;
+    let slash = compose(&Node::Operator { symbol: '⧸', class: Class::Ord }, e, ctx)?;
+    math_box.single_glyph = false;
+    math_box.place(&slash, (equals.width - slash.width) / 2.0, 0.0);
+    Ok(math_box)
+}
+
+/// centernot's slash: `\not`'s, at its own size, over the middle of the base (centernot.sty kerns half the
+/// base's width, back half the width of `=`, and sets `\not`). MathJax's centernot sets ⧸ (U+29F8) there.
+#[inline(never)]
+fn center_not(math_box: &mut MathBox, e: Style, ctx: &mut Context) -> R<()> {
+    let slash = compose(&Node::Operator { symbol: '⧸', class: Class::Ord }, e, ctx)?;
+    let x = (math_box.width - slash.width) / 2.0;
+    math_box.place(&slash, x, 0.0);
+    Ok(())
+}
+
+/// `sizes`: the padding and the line's thickness the input gave, in em (`\bbox`); LaTeX's otherwise.
+fn compose_frame(base: &Node, shape: Frame, background: Option<&str>, border: Option<&str>, sizes: (Option<f32>, Option<f32>), e: Style, ctx: &mut Context) -> R<MathBox> {
     let b = compose(base, e, ctx)?;
-    let t = if shape == Frame::Background { 0.0 } else { em(e, 0.04) };
+    let (padding, thickness) = sizes;
+    let t = if shape == Frame::Background { 0.0 } else { em(e, thickness.unwrap_or(0.04)) };
     match shape {
         Frame::Rectangle | Frame::Fill | Frame::Background => {
-            let p = if shape == Frame::Background { 0.0 } else { em(e, 0.3) };
+            // a given padding is all the space there is: no room for a line that is not drawn
+            let t = if shape == Frame::Fill && padding.is_some() { 0.0 } else { t };
+            let p = if shape == Frame::Background { 0.0 } else { em(e, padding.unwrap_or(0.3)) };
             let width = b.width + 2.0 * (p + t);
             let top = b.height + p + t;
             let bottom = b.depth + p + t;

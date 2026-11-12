@@ -3,7 +3,8 @@ name = "mathra"
 description = "Equation converter: math LaTeX (chemfig chemistry and commutative diagrams included) to a tree of meaning and accessible SVG, with speech in 16 languages and braille."
 version.workspace = true
 edition.workspace = true
-# the code is MIT OR Apache-2.0; the embedded STIX Two Math font is OFL-1.1, and Latin Modern Math
+# the code is MIT OR Apache-2.0; the embedded STIX Two Math font is OFL-1.1 (as Noto Emoji, built only
+# with the `emoji` feature), and Latin Modern Math
 # (built only with the `latin-modern` feature) is under the GUST Font License, which SPDX does not list:
 # its text is in fonts/
 license = "(MIT OR Apache-2.0) AND OFL-1.1"
@@ -21,6 +22,12 @@ chem = []
 # Latin Modern Math (the OpenType Computer Modern, GUST Font License) as a second font,
 # chosen with `convert_in_font` and `typeset_in_font`: some 430 KB more in the binary
 latin-modern = []
+# PNG output (`Output::png`, `output::png`): the SVG rasterized with resvg, with no text or system
+# fonts (the glyphs are outlines); the CLI and the Python package turn it on, the wasm package does not
+png = ["dep:resvg", "dep:svgtypes"]
+# Noto Emoji (monochrome, OFL) embedded as the default fallback font, for the emoji the math font
+# lacks (Options::fallback_fonts): about 780 KB more in the binary. On in the CLI and Python package.
+emoji = []
 
 [dependencies]
 ttf-parser = "0.25"
@@ -28,6 +35,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # MathML input: a small XML parser with no dependencies of its own
 roxmltree = "0.20"
+resvg = { version = "0.45.1", default-features = false, optional = true }
+# the CSS colors of PngOptions; the version resvg itself uses
+svgtypes = { version = "0.15.3", optional = true }
 
 [dev-dependencies]
 # tests/fonts.rs reads the original fonts in tools/fonts to check the embedded subsets against them
@@ -35,3 +45,5 @@ ttf-parser = "0.25"
 
 # DOCX packaging is used only by the omml_docx example.
 zip = { version = "0.6", default-features = false }
+# tests/png.rs reads the pixels back; the version resvg itself uses
+tiny-skia = "0.11.4"

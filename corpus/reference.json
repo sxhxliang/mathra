@@ -1048,6 +1048,12 @@
     },
     {
      "tex": "\\begin{split} a &= b \\\\ &= c \\end{split}"
+    },
+    {
+     "tex": "\\begin{multline*} a + b + c + d \\\\ \\shoveleft{{} + e + f} \\\\ {} + g = 0 \\end{multline*}"
+    },
+    {
+     "tex": "\\begin{aligned} a &= b \\\\ &\\vdotswithin{=} \\\\ &= c \\\\ \\shortvdotswithin{=} &= d \\end{aligned}"
     }
    ]
   },
@@ -1182,7 +1188,16 @@
      "tex": "\\Gamma \\Delta \\Theta \\Lambda \\Pi \\Sigma \\Phi \\Omega"
     },
     {
+     "tex": "\\Updelta E = 0 \\quad \\upvarepsilon_0 \\quad \\Upomega = \\Upgamma \\upvarphi"
+    },
+    {
      "tex": "\\le \\ge \\ne \\approx \\equiv \\sim \\cong \\propto"
+    },
+    {
+     "tex": "f\\colon \\R \\to \\R \\quad \\alef_0 < \\cnums \\quad A \\sube B \\Rarr x \\isin A \\quad \\hearts \\spades \\clubs \\diamonds"
+    },
+    {
+     "tex": "\\Gamma \\vdash \\lightning \\quad a \\boxast b \\quad \\Lbag x \\Rbag \\quad \\mathbold{x} + \\mathbold{\\alpha}"
     },
     {
      "tex": "\\subset \\subseteq \\in \\notin \\cup \\cap \\emptyset"
@@ -1203,13 +1218,25 @@
      "tex": "\\infty \\partial \\nabla \\hbar \\ell \\aleph"
     },
     {
+     "tex": "3\\perthousand \\quad 25\\,\\textcelsius \\quad R = 50\\,\\textohm \\quad \\textonehalf + \\textonequarter \\quad \\textnumero\\, \\textbullet\\, \\textsection"
+    },
+    {
      "tex": "\\varGamma \\varDelta \\varTheta \\varLambda \\varPi \\varSigma \\varPhi \\varOmega"
     },
     {
      "tex": "a \\coloneqq b \\quad c \\eqqcolon d \\quad e \\Coloneq f \\quad g \\colonapprox h \\quad i \\dblcolon j"
     },
     {
+     "tex": "\\Ketbra{\\psi}{\\phi} \\quad \\Koppa \\koppa \\Stigma \\stigma \\Sampi \\sampi \\quad \\smiley \\quad \\openone \\quad \\lAngle x \\rAngle \\quad a \\wedgeq b \\quad \\text{\\sout{old} \\textcircled{a}}"
+    },
+    {
      "tex": "\\backepsilon \\gtreqqless \\lesseqqgtr \\circledcirc \\circledR \\maltese"
+    },
+    {
+     "tex": "a \\minuso b \\quad \\bigsqcap_{i} A_i \\quad f \\leftsquigarrow g \\quad a \\ndivides b \\quad A \\subsetplus B \\quad x \\leftarrowtriangle y"
+    },
+    {
+     "tex": "\\llceil x \\rrceil + \\llfloor y \\rrfloor \\quad a \\varovee b \\varotimes c \\quad x \\shortrightarrow y \\quad \\bigbox_{i} P_i \\quad a \\inplus B"
     },
     {
      "tex": "A \\xrightleftharpoons[\\text{below}]{\\text{above}} B \\xtwoheadrightarrow{f} C \\xhookleftarrow{g} D"
@@ -1242,6 +1269,9 @@
      "tex": "\\mathtt{x}"
     },
     {
+     "tex": "\\mathbfcal{L} = \\symcal{L} \\quad \\mathsfit{x} + \\mathbfsfit{y} \\quad \\mathbffrak{g} \\quad \\symup{d}x"
+    },
+    {
      "tex": "\\mathrm{d}x"
     },
     {
@@ -1252,6 +1282,9 @@
     },
     {
      "tex": "\\url{https://example.org/a_b}"
+    },
+    {
+     "tex": "\\definecolor{brand}{HTML}{1F6FEB} \\colorlet{soft}{brand!40} \\textcolor{brand}{a} + \\textcolor{soft}{b} = \\textcolor{red!60!blue}{c}"
     }
    ]
   },
@@ -1275,6 +1308,9 @@
      "tex": "\\overbracket{a+b} \\underbracket{c+d}"
     },
     {
+     "tex": "a \\stackrel{\\text{def}}{=} b \\quad a \\stackbin{*}{+} b"
+    },
+    {
      "tex": "\\cancel{x} \\bcancel{y} \\xcancel{z}"
     },
     {
@@ -1284,10 +1320,19 @@
      "tex": "\\colorbox{yellow}{x} \\fcolorbox{red}{yellow}{y}"
     },
     {
+     "tex": "\\bbox[yellow,5px,border:2px solid red]{x^2} \\enclose{circle}{7} \\enclose{updiagonalstrike}{x}"
+    },
+    {
      "tex": "\\overleftharpoon{AB} \\quad \\overrightharpoon{AB} \\quad \\utilde{AB}"
     },
     {
+     "tex": "\\overgroup{AB} \\quad \\undergroup{AB} \\quad \\underparen{AB}"
+    },
+    {
      "tex": "\\cancelto{0}{x} \\quad \\reflectbox{abc}"
+    },
+    {
+     "tex": "\\class{highlight}{x^2} + \\style{color:red}{2x} + \\htmlData{step=3}{1}"
     }
    ]
   }
@@ -1332,6 +1377,18 @@
     },
     {
      "tex": "\\ce{A <-->[k_1][k_{-1}] B}"
+    },
+    {
+     "tex": "\\ce{sodium chloride -> sodium + chlorine}"
+    },
+    {
+     "tex": "\\ce{A ->[{text above}][{text below}] B}"
+    },
+    {
+     "tex": "\\ce{A\\bond{~}B\\bond{~-}C\\bond{~=}D\\bond{-~-}E\\bond{....}F}"
+    },
+    {
+     "tex": "\\begin{aligned} \\ce{RNO2 &<=>[+e] RNO2^{-.} \\\\ RNO2^{-.} &<=>[+e] RNO2^2-} \\end{aligned}"
     }
    ]
   },
@@ -1349,6 +1406,9 @@
      "tex": "\\num{6.022e23}"
     },
     {
+     "tex": "\\begin{array}{c} \\tablenum{1.2} \\\\ \\tablenum{-12.345} \\end{array}"
+    },
+    {
      "tex": "\\ang{12;30;15}"
     },
     {
@@ -1359,6 +1419,12 @@
     },
     {
      "tex": "\\SI{1}{\\angstrom}"
+    },
+    {
+     "tex": "Z = \\complexqty{3+4i}{\\ohm}"
+    },
+    {
+     "tex": "\\DeclareSIUnit{\\parsec}{pc} d = \\qty{1.3}{\\parsec}"
     }
    ]
   },
@@ -1404,6 +1470,18 @@
     },
     {
      "tex": "\\tensor{T}{^\\mu_\\nu}"
+    },
+    {
+     "tex": "\\pmqty{0 & 1 \\\\ 1 & 0} \\quad \\vmqty{a & b \\\\ c & d}"
+    },
+    {
+     "tex": "\\left( i \\slashed{\\partial} - m \\right) \\psi = 0"
+    },
+    {
+     "tex": "\\theta \\approx 0 \\qq{for} \\abs*{\\frac{x}{L}} \\ll 1"
+    },
+    {
+     "tex": "\\sin[2](x) + \\cos[2](x) = 1"
     }
    ]
   },
@@ -1434,6 +1512,12 @@
     },
     {
      "tex": "\\schemestart \\chemfig{**6(------)} \\+ \\ce{Br2} \\arrow{->[\\ce{FeBr3}]} \\chemfig{**6(---(-Br)---)} \\+ \\ce{HBr} \\schemestop"
+    },
+    {
+     "tex": "\\chemfig{H-\\charge{90=\\|,-90=\\|}{O}-H}"
+    },
+    {
+     "tex": "\\schemestart A\\arrow{<=>}[90]B\\merge(c1)(c2)--()C\\schemestop"
     }
    ]
   },
@@ -1464,6 +1548,12 @@
     },
     {
      "tex": "\\xymatrix{ A \\ar@{^{(}->}[r] \\ar@/^/[rr]^{\\phi} & B \\ar@{->>}[r] & C }"
+    },
+    {
+     "tex": "\\xymatrix{ A \\rtwocell^{f}_{g}{\\alpha} & B }"
+    },
+    {
+     "tex": "\\xymatrix{ A \\ar@(ul,ur)[]^{f} \\ar[r] & B }"
     }
    ]
   },
@@ -1537,6 +1627,14 @@
     {
      "mml": "<math><mmultiscripts><mi>C</mi><mprescripts/><mn>6</mn><mn>14</mn></mmultiscripts></math>",
      "tex": "{}^{14}_{6}C"
+    },
+    {
+     "mml": "<math><apply><plus/><apply><power/><ci>x</ci><cn>2</cn></apply><cn>1</cn></apply></math>",
+     "tex": "x^2 + 1"
+    },
+    {
+     "mml": "<math><apply><eq/><apply><sin/><ci>x</ci></apply><cn>0</cn></apply></math>",
+     "tex": "\\sin x = 0"
     }
    ]
   }

@@ -51,6 +51,7 @@
     <nav aria-label="Site">
       <a href="index.html#playground">Playground</a>
       <a href="gallery.html">Gallery</a>
+      <a href="editor.html">Editor <span class="new">New</span></a>
       <a href="changelog.html">Evolution</a>
       <a href="docs.html">Docs</a>
       <a href="reference.html">Reference</a>
@@ -130,8 +131,8 @@ rules
       <div>
         <h2>Forgive, but say so</h2>
         <p>Real LaTeX is copied from OCR, chat apps, HTML editors and JSON that was never unescaped. TeX refuses all of it. mathra draws what it can and records what it fixed, as numbered warnings (<code>E-REC-1</code> to <code>E-REC-10</code>). Recovery never changes the meaning of what was already correct: a valid equation produces the same tree in both modes.</p>
-<pre data-lang="sh">$ mathra '\vertA\vert = C_{16,2}' --text
-mathra: warning E-REC-1: column 1: unsupported command: \vertA; read as \vert A
+<pre data-lang="sh">$ mathra '\vert A\vert = C_{16,2' --text
+mathra: warning E-REC-4: column 18: '{' without a matching '}'; closed at the end
 |A| = C_(16, 2)</pre>
         <p>When you would rather fail, <code>--strict</code> refuses invalid input, like TeX.</p>
       </div>
@@ -172,7 +173,7 @@ mathra: warning E-REC-1: column 1: unsupported command: \vertA; read as \vert A
 
   <footer>
     <span>mathra · MIT or Apache-2.0 · STIX Two Math font under OFL-1.1</span>
-    <span><a href="https://github.com/sponsors/matheusmota-dev-br">Sponsor mathra</a> · <a href="https://github.com/matheusmota-dev-br/mathra">github.com/matheusmota-dev-br/mathra</a></span>
+    <span><a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="https://github.com/sponsors/matheusmota-dev-br">Sponsor mathra</a> · <a href="https://github.com/matheusmota-dev-br/mathra">github.com/matheusmota-dev-br/mathra</a></span>
   </footer>
 </div>
 </body>

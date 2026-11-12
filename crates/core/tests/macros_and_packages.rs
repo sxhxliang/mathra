@@ -214,6 +214,62 @@ fn physics_vector_calculus() {
     assert_eq!(en(r"6 \div 3").text, "6 ÷ 3");
 }
 
+/// \bm and \boldsymbol make ∇ bold, the upright 𝛁 of TeX's bold symbol font and of physics' \grad (#158).
+#[test]
+fn bold_nabla() {
+    assert_eq!(en(r"\bm{\nabla}\times\bm{\sigma}").text, "𝛁 × 𝝈");
+    assert_eq!(en(r"\boldsymbol{\nabla}\cdot\boldsymbol{E}").text, "𝛁 · 𝑬");
+    assert_eq!(en(r"\vb*{\nabla}").text, "𝛁");
+    assert_eq!(en(r"\boldsymbol\nabla f").tree, en(r"\grad f").tree);
+    assert_eq!(en(r"\bm{\nabla} f").speech, "nabla f");
+    // \mathbf changes letters and digits only, as in TeX
+    assert_eq!(en(r"\mathbf{\nabla}").text, "∇");
+    assert_eq!(en(r"\nabla").text, "∇");
+}
+
+/// The double-struck one of the indicator function and the identity (#159): 𝟙 (U+1D7D9) from dsfont's
+/// \mathds, bbm's \mathbbm and \mathbb, which MathJax draws as 𝟙 too (its font data maps a double-struck
+/// digit to U+1D7D8…U+1D7E1).
+#[test]
+fn double_struck_one() {
+    assert_eq!(en(r"\mathds{1}_A(x)").text, "𝟙_A(x)");
+    assert_eq!(en(r"U^\dagger U = \mathbbm{1}").text, "U^†U = 𝟙");
+    assert_eq!(en(r"\mathbb{1}").text, "𝟙");
+    assert_eq!(en(r"\mathbb{10}").text, "𝟙𝟘");
+    // a symbol, not a number: an identifier, spoken with its alphabet
+    assert!(matches!(en(r"\mathbb{1}").tree.children(), [Node::Identifier { name, .. }] if name == "1"), "{:?}", en(r"\mathbb{1}").tree);
+    assert_eq!(en(r"\mathds{1}_A").speech, "double-struck 1 sub A");
+    assert_eq!(pt(r"\mathbb{1}").speech, "1 duplo");
+    // the braille stays the digit it was (its typeform is a question for a transcriber)
+    assert_eq!(en(r"\mathbb{1}").braille, en("1").braille);
+    // other alphabets keep numbers numbers, in their digits (#203), and \mathbb still makes ℝ
+    assert!(matches!(en(r"\mathbf{1}").tree.children(), [Node::Number { .. }]));
+    assert_eq!(en(r"\mathbf{1}").text, "𝟏");
+    assert_eq!(en(r"\mathbb{R}").speech, "the real numbers");
+}
+
+/// mathtools' cases* (and dcases*, rcases*, drcases*): the second column is text, `$…$` for math in it;
+/// smallmatrix*[r] aligns its columns as pmatrix*[r] does (#160).
+#[test]
+fn mathtools_starred_cases_and_smallmatrix() {
+    let starred = en(r"f(x)=\begin{cases*} 1 & if $x>0$ \\ 0 & otherwise \end{cases*}");
+    assert_eq!(starred.text, "f(x) = {1, if x > 0; 0, otherwise");
+    assert_eq!(starred.tree, en(r"f(x)=\begin{cases} 1 & \text{if $x>0$} \\ 0 & \text{otherwise} \end{cases}").tree);
+    assert_eq!(
+        en(r"\begin{dcases*} \frac12 & when $n$ is even \\ 0 & otherwise \end{dcases*}").tree,
+        en(r"\begin{dcases} \frac12 & \text{when $n$ is even} \\ 0 & \text{otherwise} \end{dcases}").tree
+    );
+    assert_eq!(en(r"\begin{rcases*} a & first \\ b & second \end{rcases*}").tree, en(r"\begin{rcases} a & \text{first} \\ b & \text{second} \end{rcases}").tree);
+    assert_eq!(en(r"\begin{drcases*} a & first \end{drcases*}").tree, en(r"\begin{drcases} a & \text{first} \end{drcases}").tree);
+    // nested environments and \& stay where they are: only the row's own & starts the text
+    assert_eq!(en(r"\begin{cases*} \begin{matrix} a & b \end{matrix} & x \& y \\ x^{2} & z \end{cases*}").text, "{[[a, b]], x & y; x^2, z");
+    // smallmatrix*[r]: the alignment, not a cell
+    let tree = format!("{:?}", en(r"\begin{smallmatrix*}[r] -1 & 2 \\ 3 & -40 \end{smallmatrix*}").tree);
+    assert!(tree.contains("shape: SmallMatrix") && tree.contains("columns: ['r', 'r']"), "{tree}");
+    assert_eq!(en(r"\begin{smallmatrix*}[r] -1 & 2 \\ 3 & -40 \end{smallmatrix*}").text, "[[−1, 2], [3, −40]]");
+    assert_eq!(en(r"\begin{smallmatrix*} a & b \end{smallmatrix*}").tree, en(r"\begin{smallmatrix} a & b \end{smallmatrix}").tree);
+}
+
 #[test]
 fn physics_derivatives_differentials_and_evaluation() {
     assert_eq!(en(r"\fdv{F}{\phi}").text, "(δF)/(δϕ)");
@@ -237,6 +293,174 @@ fn physics_operators_and_order() {
     assert!(matches!(en(r"\Tr\rho").tree.children()[0], Node::Function { .. }));
     assert_eq!(en(r"\order{n^2}").text, "𝒪(n^2)");
     assert_eq!(en(r"\order(n)").text, "𝒪(n)");
+}
+
+#[test]
+fn physics_matrices() {
+    let table = |tex: &str| match &en(tex).tree.children()[0] {
+        Node::Table { shape, rows, .. } => (*shape, rows.len(), rows[0].len()),
+        Node::Delimited { open, parts, .. } => match parts[0].children() {
+            [Node::Table { shape, rows, .. }] => (*shape, rows.len() + 10 * open.map_or(0, |_| 1), rows[0].len()),
+            other => panic!("{tex}: {other:?}"),
+        },
+        other => panic!("{tex}: {other:?}"),
+    };
+    // \mqty's forms: (…) [ ] | | as amsmath's environments, {…} with no delimiters
+    assert_eq!(table(r"\mqty(a & b \\ c & d)"), (TableKind::PMatrix, 2, 2));
+    assert_eq!(table(r"\mqty[a & b \\ c & d]"), (TableKind::BMatrix, 2, 2));
+    assert_eq!(table(r"\mqty|a & b \\ c & d|"), (TableKind::VMatrix, 2, 2));
+    assert_eq!(table(r"\mqty{a & b \\ c & d}"), (TableKind::Matrix, 2, 2));
+    assert_eq!(table(r"\pmqty{a} \bmqty{a}"), (TableKind::PMatrix, 1, 1));
+    assert_eq!(table(r"\vmqty{a}"), table(r"\mdet{a}"));
+    // \mqty*( ) and \Pmqty: \lgroup…\rgroup around a matrix; the small forms: a smallmatrix in \left…\right
+    assert_eq!(en(r"\mqty*(a \\ b)").text, en(r"\Pmqty{a \\ b}").text);
+    assert!(en(r"\Pmqty{a \\ b}").text.starts_with('⟮'));
+    assert_eq!(table(r"\smqty(a & b)"), (TableKind::SmallMatrix, 11, 2));
+    assert_eq!(en(r"\spmqty{a}").text, en(r"\smqty(a)").text);
+    assert_eq!(en(r"\svmqty{a}").text, en(r"\smdet{a}").text);
+    assert_eq!(en(r"\sbmqty{a}").text, en(r"\smqty[a]").text);
+    // generated contents
+    assert_eq!(en(r"\sigma_x = \pmqty{\paulimatrix{1}}").text, "σ_x = ([0, 1], [1, 0])");
+    assert_eq!(en(r"\pmqty{\pmat{y}}").text, "([0, −i], [i, 0])");
+    assert_eq!(en(r"\pmqty{\paulizmatrix}").text, "([1, 0], [0, −1])");
+    assert_eq!(en(r"\pmqty{\pmat{0}}").text, en(r"\pmqty{\imat{2}}").text);
+    assert_eq!(en(r"\bmqty{\identitymatrix{3}}").text, "[[1, 0, 0], [0, 1, 0], [0, 0, 1]]");
+    assert_eq!(en(r"\pmqty{\xmat{a}{2}{3}}").text, "([a, a, a], [a, a, a])");
+    assert_eq!(en(r"\pmqty{\xmat*{a}{2}{2}}").text, "([a_11, a_12], [a_21, a_22])");
+    // a single row or column is not indexed by it
+    assert_eq!(en(r"\pmqty{\xmat*{a}{1}{3}}").text, "([a_1, a_2, a_3])");
+    assert_eq!(en(r"\pmqty{\zmat{2}{3}}").text, "([0, 0, 0], [0, 0, 0])");
+    assert_eq!(en(r"\pmqty{\zeromatrix{2}}").text, "([0, 0], [0, 0])");
+    assert_eq!(en(r"\pmqty{\dmat[0]{1,2,3}}").text, "([1, 0, 0], [0, 2, 0], [0, 0, 3])");
+    assert_eq!(en(r"\pmqty{\admat[0]{a,b}}").text, "([0, a], [b, 0])");
+    assert_eq!(en(r"\pmqty{\dmat{1,2}}").text, "([1, ], [, 2])");
+    // a size mathra cannot make, or a Pauli matrix that does not exist
+    assert!(error(r"\imat{0}").contains("size from 1 to 64"));
+    assert!(error(r"\xmat{a}{100}{100}").contains("size from 1 to 64"));
+    assert!(error(r"\pmat{w}").contains("no Pauli matrix"));
+}
+
+#[test]
+fn physics_spaced_text() {
+    let r = en(r"E = mc^2 \qq{for} v \ll c");
+    assert_eq!(r.text, "E = mc^2 for v ≪ c");
+    assert!(r.speech.contains("for"), "{}", r.speech);
+    // \quad on both sides, the first one left out when starred
+    let spaces = |tex: &str| en(tex).tree.children().iter().filter(|n| matches!(n, Node::Space { em } if *em == 1.0)).count();
+    assert_eq!(spaces(r"a \qq{x} b"), 2);
+    assert_eq!(spaces(r"a \qq*{x} b"), 1);
+    assert_eq!(spaces(r"a \qand b"), 2);
+    assert_eq!(spaces(r"a \qif* b"), 1);
+    assert_eq!(en(r"a \qc b").text, en(r"a \qcomma b").text);
+    assert_eq!(en(r"a \qc b").text, "a, b");
+    for word in ["and", "or", "if", "then", "else", "otherwise", "unless", "given", "using", "assume", "since", "let", "for", "all", "even", "odd", "integer", "in", "as"] {
+        assert!(en(&format!(r"a \q{word} b")).text.contains(word), "\\q{word}");
+    }
+    assert!(en(r"\psi \qcc").text.contains("c.c."));
+    assert_eq!(en(r"\qqtext{x}").text, en(r"\qq{x}").text);
+}
+
+#[test]
+fn physics_operators_aliases_and_long_names() {
+    assert_eq!(en(r"\var{F}").text, "δF");
+    assert_eq!(en(r"\variation[2]{F}").text, "δ^2F");
+    assert_eq!(en(r"\pv\int_{-\infty}^{\infty}\frac{f(x)}{x}\dd{x}").text, "𝒫∫_(−∞)^∞ (f(x))/xdx");
+    assert_eq!(en(r"\principalvalue{x}").text, "𝒫x");
+    assert_eq!(en(r"\PV{f}").text, "P.V.f");
+    assert_eq!(en(r"\op{a}{b}").text, en(r"\dyad{a}{b}").text);
+    assert_eq!(en(r"\vev{\phi}").text, "⟨0 | ϕ | 0⟩");
+    assert_eq!(en(r"\flatfrac{a}{b}").text, "a/b");
+    assert_eq!(en(r"\flatfrac{\mathrm{d} f}{\mathrm{d} x}").tree, en(r"\dv*{f}{x}").tree);
+    assert_eq!(en(r"a \cp b").text, "a × b");
+    assert_eq!(en(r"\Trace\rho").text, "Tr ρ");
+    assert_eq!(en(r"\absolutevalue{x}").text, "|x|");
+    assert_eq!(en(r"\acos x + \asin x + \atan x + \acsc x + \asec x + \acot x").text, "acos x + asin x + atan x + acsc x + asec x + acot x");
+    for (long, short) in [
+        (r"\sine", r"\sin"),
+        (r"\cosine", r"\cos"),
+        (r"\tangent", r"\tan"),
+        (r"\cosecant", r"\csc"),
+        (r"\secant", r"\sec"),
+        (r"\cotangent", r"\cot"),
+        (r"\hypsine", r"\sinh"),
+        (r"\hypcosine", r"\cosh"),
+        (r"\hyptangent", r"\tanh"),
+        (r"\hypcosecant", r"\csch"),
+        (r"\hypsecant", r"\sech"),
+        (r"\hypcotangent", r"\coth"),
+        (r"\arcsine", r"\arcsin"),
+        (r"\arccosine", r"\arccos"),
+        (r"\arctangent", r"\arctan"),
+        (r"\arccosecant", r"\arccsc"),
+        (r"\arcsecant", r"\arcsec"),
+        (r"\arccotangent", r"\arccot"),
+        (r"\asine", r"\asin"),
+        (r"\acosine", r"\acos"),
+        (r"\atangent", r"\atan"),
+        (r"\acosecant", r"\acsc"),
+        (r"\asecant", r"\asec"),
+        (r"\acotangent", r"\acot"),
+        (r"\exponential", r"\exp"),
+        (r"\logarithm", r"\log"),
+        (r"\naturallogarithm", r"\ln"),
+        (r"\determinant", r"\det"),
+        (r"\Probability", r"\Pr"),
+        (r"\Residue", r"\Res"),
+        (r"\vnabla", r"\grad"),
+        (r"\gradientnabla", r"\grad"),
+        (r"\diffd", r"\mathrm{d}"),
+    ] {
+        assert_eq!(en(&format!("{long} x")).tree, en(&format!("{short} x")).tree, "{long}");
+    }
+    assert_eq!(en(r"\fderivative{F}{g}").tree, en(r"\fdv{F}{g}").tree);
+    assert_eq!(en(r"\pderivative{f}{x}").tree, en(r"\pdv{f}{x}").tree);
+    // \real and \imaginary are ℜ and ℑ (physics keeps LaTeX's \Re and \Im under these names), and \Re,
+    // \Im and \div stay LaTeX's, not physics' operators
+    assert_eq!(en(r"\real z + \imaginary z").text, "ℜz + ℑz");
+    assert_eq!(en(r"\Re z + \Im z").text, "ℜz + ℑz");
+    assert!(en(r"\real z").warnings.is_empty());
+}
+
+/// physics' starred forms (#157): brackets that keep the text size, the derivative as a flat fraction;
+/// and the optional power of the functions, `\sin[2](x)`. Strict and tolerant read them alike.
+#[test]
+fn physics_starred_and_optional_forms() {
+    // the star is not drawn: \abs* is the same bars, at the text size (a \vphantom keeps the height)
+    for (tex, text) in [
+        (r"\abs*{\frac{a}{b}}", "|a/b|"),
+        (r"\norm*{\frac12}", "‖1/2‖"),
+        (r"\pqty*{x}", "(x)"),
+        (r"\comm*{A}{B}", "[A, B]"),
+        (r"\ket*{\psi}", "|ψ⟩"),
+        (r"\braket*{a}{b}", "⟨a | b⟩"),
+        (r"\expval*{A}{\psi}", "⟨ψ | A | ψ⟩"),
+        (r"\expval**{A}{\psi}", "⟨ψ | A | ψ⟩"),
+        (r"\mel*{n}{H}{m}", "⟨n | H | m⟩"),
+    ] {
+        assert_eq!(en(tex).text, text, "{tex}");
+    }
+    let starred = en(r"\abs*{\frac{a}{b}}");
+    assert!(matches!(starred.tree.children(), [Node::Phantom { width: false, height: true, .. }, Node::Delimited { .. }]), "{:?}", starred.tree);
+    assert!(format!("{:?}", starred.tree.children()[1]).contains("Smashed"), "{:?}", starred.tree);
+    // unstarred, the bars grow with the content; doubly starred \expval** resizes too
+    assert!(matches!(en(r"\abs{\frac{a}{b}}").tree.children(), [Node::Delimited { .. }]));
+    assert!(matches!(en(r"\expval**{A}{\psi}").tree.children(), [Node::Delimited { .. }]));
+    // \dv*, \pdv*, \fdv*: physics' \flatfrac, a slash between the two
+    assert_eq!(en(r"\dv*{f}{x}").text, "df/dx");
+    assert_eq!(en(r"\dv*{x}").text, "d/dx");
+    assert_eq!(en(r"\pdv*{f}{x}").text, "∂f/∂x");
+    assert_eq!(en(r"\pdv*[2]{f}{x}").text, "∂^2f/∂x^2");
+    assert_eq!(en(r"\fdv*{F}{g}").text, "δF/δg");
+    assert_eq!(en(r"\dv*{f}{x}").speech, en(r"\mathrm{d} f / \mathrm{d} x").speech);
+    // the fraction stays a fraction without the star
+    assert_eq!(en(r"\dv{f}{x}").text, "(df)/(dx)");
+    // \sin[2](x): the power on the function; physics leaves the brackets as written without parentheses
+    assert_eq!(en(r"\sin[2](\omega t)").text, en(r"\sin^{2}(\omega t)").text);
+    assert_eq!(en(r"\sin[2](x)").speech, en(r"\sin^2(x)").speech);
+    assert_eq!(en(r"\log[2](x)").text, en(r"\log^{2}(x)").text);
+    assert_eq!(en(r"\sin[2] x").text, "sin [2]x");
+    // the parentheses grow with the argument, as physics' \argopen…\argclose
+    assert!(format!("{:?}", en(r"\cos[2](\frac{a}{b})").tree).contains("Delimited"));
 }
 
 /// physics' \qty sizes brackets; siunitx's \qty{value}{unit} is a quantity. Two braced groups decide.

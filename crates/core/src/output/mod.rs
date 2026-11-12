@@ -1,7 +1,11 @@
+pub mod boxes;
 pub mod braille;
+pub mod mathml;
 pub mod omml;
 mod omml_colors;
 pub mod pen;
+#[cfg(feature = "png")]
+pub mod png;
 pub mod speech;
 pub mod svg;
 pub mod text;

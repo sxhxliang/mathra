@@ -11,7 +11,11 @@ fn mathra(args: &[&str], input: Option<&[u8]>) -> Output {
     {
         let mut stdin = child.stdin.take().unwrap();
         if let Some(e) = input {
-            stdin.write_all(e).unwrap();
+            // a command that refuses its arguments exits without reading stdin: the pipe closes
+            // under the write, and the exit code and stderr are what the test checks
+            if let Err(err) = stdin.write_all(e) {
+                assert_eq!(err.kind(), std::io::ErrorKind::BrokenPipe, "{err}");
+            }
         }
     }
     child.wait_with_output().unwrap()
@@ -73,6 +77,16 @@ fn equation_from_stdin() {
     let o = mathra(&[], Some(b"  x^2  \n"));
     assert!(o.status.success());
     assert!(stdout(&o).starts_with("<svg"));
+}
+
+#[test]
+fn a_control_space_that_ends_the_input_is_kept() {
+    // #254: as an argument and from stdin, `a\ ` is a space at the end, not a lone backslash
+    for o in [mathra(&["a\\ ", "--text"], None), mathra(&["--text"], Some(b"a\\ ")), mathra(&["--text"], Some(b"a\\ \n"))] {
+        assert!(o.status.success());
+        assert_eq!(stdout(&o).trim(), "a");
+        assert!(stderr(&o).is_empty(), "{}", stderr(&o));
+    }
 }
 
 #[test]
@@ -141,10 +155,49 @@ fn batch_one_line_per_equation() {
 }
 
 #[test]
+fn labels_and_citations() {
+    let o = mathra(&[r"\text{by } \eqref{eq:a} \cite{knuth}", "--label", "eq:a=3", "--cite", "knuth=1", "--text", "--strict"], None);
+    assert!(o.status.success(), "{}", stderr(&o));
+    assert_eq!(stdout(&o).trim(), "by (3)[1]");
+    // an unknown label: ?? with a warning, refused in strict mode
+    let o = mathra(&[r"\eqref{eq:a}", "--text"], None);
+    assert_eq!(stdout(&o).trim(), "(??)");
+    assert!(stderr(&o).contains("E-REC-9"), "{}", stderr(&o));
+    assert_eq!(mathra(&[r"\eqref{eq:a}", "--strict"], None).status.code(), Some(1));
+    for bad in ["eq:a", "=3"] {
+        let o = mathra(&["x", "--label", bad], None);
+        assert_eq!(o.status.code(), Some(2), "{bad}");
+        assert!(stderr(&o).contains("key=number"), "{}", stderr(&o));
+    }
+}
+
+#[test]
+fn batch_labels_count_for_the_lines_after_them() {
+    let o = mathra(&["--batch", "--strict"], Some(b"\\eqref{eq:a}\na = b \\label{eq:a} \\tag{3}\n\\text{by } \\eqref{eq:a}\n"));
+    let lines: Vec<String> = stdout(&o).lines().map(str::to_string).collect();
+    assert!(lines[0].starts_with("error\t"), "{lines:?}");
+    assert_eq!(&lines[1..], ["ok", "ok"], "{lines:?}");
+}
+
+#[test]
 fn batch_flags_non_utf8_line_and_continues() {
     let o = mathra(&["--batch"], Some(b"x\n\xff\xfe\ny\n"));
     assert!(o.status.success());
     assert_eq!(stdout(&o), "ok\nerror\tthe line is not UTF-8\nok\n");
+}
+
+#[test]
+fn batch_colors_are_defined_per_line_like_macros() {
+    let p = folder("batch-colors");
+    let input = b"\\definecolor{brand}{HTML}{1F6FEB}\\newcommand{\\b}{b}\\textcolor{brand}{x}\\b\n\\textcolor{brand}{x}\\b\n";
+    let o = mathra(&["--batch", "-o", p.to_str().unwrap()], Some(input));
+    let lines: Vec<String> = stdout(&o).lines().map(str::to_string).collect();
+    assert_eq!(lines[0], "ok");
+    // the second line knows neither the macro nor the color of the first
+    assert!(lines[1].contains(r"\b"), "{lines:?}");
+    assert!(std::fs::read_to_string(p.join("1.svg")).unwrap().contains(r##"fill="#1f6feb""##));
+    let second = std::fs::read_to_string(p.join("2.svg")).unwrap();
+    assert!(!second.contains("#1f6feb") && second.contains(r#"fill="brand""#), "{second}");
 }
 
 // --- problem cases ---
@@ -219,6 +272,26 @@ fn braille_output() {
 }
 
 #[test]
+fn mathml_output() {
+    let o = mathra(&[r"\frac{-b \pm \sqrt{b^2-4ac}}{2a}", "--mathml"], None);
+    assert!(o.status.success(), "{}", stderr(&o));
+    assert!(stdout(&o).starts_with(r#"<math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mfrac>"#), "{}", stdout(&o));
+    let o = mathra(&["x", "--mathml", "--inline"], None);
+    assert!(stdout(&o).contains(r#"display="inline""#), "{}", stdout(&o));
+    let o = mathra(&[r"\sen x", "--mathml", "--locale", "pt-BR"], None);
+    assert!(stdout(&o).contains(r#"<mi intent="sine">sen</mi>"#), "{}", stdout(&o));
+    // what MathML cannot draw: a <semantics> with the source, and the note on stderr
+    let o = mathra(&[r"\divchave{125}{5}", "--mathml"], None);
+    assert!(o.status.success());
+    assert!(stdout(&o).contains(r#"<annotation encoding="application/x-tex">\divchave{125}{5}</annotation>"#), "{}", stdout(&o));
+    assert!(stderr(&o).contains("note S-MML-1"), "{}", stderr(&o));
+    // and the output reads back
+    let mml = stdout(&mathra(&[r"\sqrt{x^2}", "--mathml"], None));
+    let back = mathra(&["--from", "mathml", "--text"], Some(mml.trim().as_bytes()));
+    assert_eq!(stdout(&back).trim(), stdout(&mathra(&[r"\sqrt{x^2}", "--text"], None)).trim());
+}
+
+#[test]
 fn animate_and_steps() {
     let plain = stdout(&mathra(&[r"\frac{a}{b}"], None));
     let steps = stdout(&mathra(&[r"\frac{a}{b}", "--steps"], None));
@@ -227,6 +300,30 @@ fn animate_and_steps() {
     assert!(steps.contains(r#"data-steps="3""#) && !steps.contains("@keyframes"));
     assert!(animated.contains(r#"data-steps="3""#) && animated.contains("@keyframes mr-f") && animated.contains("--mr-step"));
     assert!(stdout(&mathra(&["--help"], None)).contains("--animate"));
+}
+
+#[test]
+fn max_width_breaks_lines() {
+    let tex = "a = b + c + d + e + f + g + h";
+    let plain = stdout(&mathra(&[tex], None));
+    assert!(!plain.contains("data-line"));
+    for width in ["4em", "4", " 4 em "] {
+        let o = mathra(&[tex, "--max-width", width], None);
+        assert!(o.status.success(), "{width}: {}", stderr(&o));
+        assert!(stdout(&o).contains(r#"<g data-line="1">"#), "{width}");
+        // a layout fact, not a warning: nothing on stderr
+        assert!(stderr(&o).is_empty());
+    }
+    let explained = stdout(&mathra(&[tex, "--max-width", "4em", "--explain"], None));
+    assert!(explained.contains("L-BRK-1"), "{explained}");
+    // the speech does not change
+    assert_eq!(stdout(&mathra(&[tex, "--max-width", "4em", "--speech"], None)), stdout(&mathra(&[tex, "--speech"], None)));
+    for bad in ["wide", "0", "-3em", "em"] {
+        let o = mathra(&[tex, "--max-width", bad], None);
+        assert!(!o.status.success() && stderr(&o).contains("--max-width"), "{bad}");
+    }
+    assert!(!mathra(&[tex, "--max-width"], None).status.success());
+    assert!(stdout(&mathra(&["--help"], None)).contains("--max-width"));
 }
 
 #[test]
@@ -240,4 +337,137 @@ fn a_math_font_from_a_file() {
     assert!(!o.status.success() && stderr(&o).contains("not a font"), "{}", stderr(&o));
     let o = mathra(&["x", "--font", "no-such-font.otf"], None);
     assert!(!o.status.success() && stderr(&o).contains("cannot read"), "{}", stderr(&o));
+}
+
+// --- PNG ---
+
+/// Width and height from a PNG's IHDR chunk.
+#[cfg(feature = "png")]
+fn png_size(bytes: &[u8]) -> (u32, u32) {
+    assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"), "not a PNG");
+    let be = |i: usize| u32::from_be_bytes(bytes[i..i + 4].try_into().unwrap());
+    (be(16), be(20))
+}
+
+#[cfg(feature = "png")]
+#[test]
+fn png_by_extension_or_flag() {
+    let p = folder("png");
+    let file = p.join("euler.PNG");
+    let o = mathra(&["e^{i\\pi} + 1 = 0", "-o", file.to_str().unwrap()], None);
+    assert!(o.status.success(), "{}", stderr(&o));
+    let (w, h) = png_size(&std::fs::read(&file).unwrap());
+    // 300 dpi by default: 50 pixels per em; --dpi 600 doubles each side (give or take the rounding up)
+    let o = mathra(&["e^{i\\pi} + 1 = 0", "--png", "--dpi", "600"], None);
+    assert!(o.status.success());
+    let (w2, h2) = png_size(&o.stdout);
+    assert!(w2.abs_diff(2 * w) <= 1 && h2.abs_diff(2 * h) <= 1, "{w}×{h} and {w2}×{h2}");
+    // --png wins over another extension; any other extension is still an SVG
+    let o = mathra(&["x", "--png", "-o", p.join("x.img").to_str().unwrap()], None);
+    assert!(o.status.success());
+    png_size(&std::fs::read(p.join("x.img")).unwrap());
+    let o = mathra(&["x", "-o", p.join("x.jpg").to_str().unwrap()], None);
+    assert!(o.status.success());
+    assert!(std::fs::read_to_string(p.join("x.jpg")).unwrap().starts_with("<svg"));
+    // the other outputs are text, whatever the file is called
+    let o = mathra(&["x", "--speech", "-o", p.join("speech.png").to_str().unwrap()], None);
+    assert!(o.status.success());
+    assert_eq!(std::fs::read_to_string(p.join("speech.png")).unwrap().trim(), "x");
+}
+
+#[cfg(feature = "png")]
+#[test]
+fn png_colors_and_bad_options() {
+    let white = mathra(&["x", "--png", "--background", "white", "--color", "#c00"], None);
+    assert!(white.status.success());
+    let clear = mathra(&["x", "--png"], None);
+    assert_ne!(white.stdout, clear.stdout);
+    assert_eq!(png_size(&white.stdout), png_size(&clear.stdout));
+    for (args, snippet) in [
+        (&["x", "--png", "--color", "nope"][..], "not a color: nope"),
+        (&["x", "--png", "--background", "#12"][..], "not a color"),
+        (&["x", "--png", "--dpi", "0"][..], "--dpi takes a positive number"),
+        (&["x", "--png", "--dpi", "abc"][..], "--dpi takes a positive number"),
+        (&["x", "--png", "--dpi"][..], "missing number after --dpi"),
+        (&["--batch", "--png", "--color", "nope"][..], "not a color"),
+    ] {
+        let o = mathra(args, Some(b"x\n"));
+        assert_eq!(o.status.code(), Some(2), "{args:?}");
+        assert!(stderr(&o).contains(snippet), "{args:?}: {}", stderr(&o));
+    }
+}
+
+#[cfg(feature = "png")]
+#[test]
+fn batch_writes_pngs_with_png() {
+    let p = folder("batch-png");
+    let o = mathra(&["--batch", "--png", "--dpi", "150", "-o", p.to_str().unwrap()], Some(b"x^2\n\\frac{1}{2}\n"));
+    assert_eq!(stdout(&o), "ok\nok\n");
+    for name in ["1.png", "2.png"] {
+        png_size(&std::fs::read(p.join(name)).unwrap());
+    }
+    assert!(!p.join("1.svg").exists());
+}
+
+/// A build without the `png` feature (`cargo test -p mathra-cli --no-default-features`) refuses PNG
+/// output rather than write an SVG into a .png file.
+#[cfg(not(feature = "png"))]
+#[test]
+fn without_the_png_feature_png_is_refused() {
+    let p = folder("no-png");
+    for args in [&["x", "-o", p.join("x.png").to_str().unwrap()][..], &["x", "--png"][..], &["--batch", "--png", "-o", p.to_str().unwrap()][..]] {
+        let o = mathra(args, Some(b"x\n"));
+        assert_eq!(o.status.code(), Some(2), "{args:?}");
+        assert!(stderr(&o).contains("PNG output is not supported in this build; use .svg"), "{args:?}: {}", stderr(&o));
+        assert!(o.stdout.is_empty(), "{args:?}");
+    }
+    assert!(!p.join("x.png").exists() && !p.join("1.png").exists());
+    // any other extension is still an SVG
+    let o = mathra(&["x", "-o", p.join("x.jpg").to_str().unwrap()], None);
+    assert!(o.status.success());
+    assert!(std::fs::read_to_string(p.join("x.jpg")).unwrap().starts_with("<svg"));
+}
+
+#[cfg(feature = "emoji")]
+#[test]
+fn emoji_from_the_embedded_noto_emoji() {
+    // the issue's examples (#125): drawn with no warning, and strict accepts them
+    for tex in ["E = mc^2 😀", r"🍎 + 🍎 = 2 \cdot 🍎", r"\text{nota: 10 ⭐}"] {
+        let o = mathra(&[tex], None);
+        assert!(o.status.success() && stderr(&o).is_empty(), "{tex}: {}", stderr(&o));
+        assert!(mathra(&[tex, "--strict"], None).status.success(), "{tex}");
+    }
+    assert!(mathra(&["😀 + ∑ ∫ α → ℝ", "--strict"], None).status.success());
+}
+
+#[test]
+fn fallback_fonts_from_files() {
+    let a = concat!(env!("CARGO_MANIFEST_DIR"), "/../core/tests/fonts/fallback-a.ttf");
+    // 中 is in neither STIX Two Math nor Noto Emoji: a box, then drawn from the fallback
+    let o = mathra(&[r"\text{中}"], None);
+    assert!(stderr(&o).contains("E-REC-8"), "{}", stderr(&o));
+    let o = mathra(&[r"\text{中}", "--fallback-font", a, "--strict"], None);
+    assert!(o.status.success() && stderr(&o).is_empty(), "{}", stderr(&o));
+    assert!(stdout(&o).contains("M100 -100 L900 -100"));
+    // tried before Noto Emoji: fallback-a's diamond for 😀
+    let o = mathra(&["😀", "--fallback-font", a], None);
+    assert!(stdout(&o).contains("M500 -100 L900 300"));
+    let o = mathra(&["x", "--fallback-font", concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")], None);
+    assert!(!o.status.success() && stderr(&o).contains("not a font"), "{}", stderr(&o));
+}
+
+/// `--png` draws what the SVG draws: the fallback fonts and the line width apply to it too.
+#[cfg(feature = "png")]
+#[test]
+fn png_with_fallback_fonts_and_max_width() {
+    let a = concat!(env!("CARGO_MANIFEST_DIR"), "/../core/tests/fonts/fallback-a.ttf");
+    let o = mathra(&[r"\text{中}", "--png", "--strict"], None);
+    assert!(!o.status.success() && o.stdout.is_empty(), "{}", stderr(&o));
+    let o = mathra(&[r"\text{中}", "--png", "--strict", "--fallback-font", a], None);
+    assert!(o.status.success() && stderr(&o).is_empty(), "{}", stderr(&o));
+    png_size(&o.stdout);
+    let tex = "f(x) = a_0 + a_1 x + a_2 x^2 + a_3 x^3 + a_4 x^4 + a_5 x^5 + a_6 x^6 + 中";
+    let (w, h) = png_size(&mathra(&[tex, "--png", "--fallback-font", a], None).stdout);
+    let (w2, h2) = png_size(&mathra(&[tex, "--png", "--fallback-font", a, "--max-width", "8"], None).stdout);
+    assert!(w2 < w && h2 > h, "{w}×{h} and {w2}×{h2}");
 }

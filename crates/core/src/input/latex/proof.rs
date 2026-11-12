@@ -131,7 +131,9 @@ fn node_depth(node: &Node) -> usize {
         Node::Stacked { base, above, below } => node_depth(base).max(opt(above)).max(opt(below)),
         Node::Quantity { unit, .. } => node_depth(unit),
         Node::ArrowDiagram { cells, arrows } => cells.iter().map(|r| max(r)).chain(arrows.iter().flat_map(|a| a.labels.iter().map(|l| node_depth(&l.node)))).max().unwrap_or(0),
-        Node::Accent { base, .. }
+        Node::Attributed { base, .. }
+        | Node::VdotsWithin { symbol: base, .. }
+        | Node::Accent { base, .. }
         | Node::Bar { base, .. }
         | Node::Canceled { base, .. }
         | Node::Framed { base, .. }

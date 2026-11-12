@@ -50,9 +50,15 @@ pub fn character(c: char, variant: Variant) -> char {
         Calligraphic => (0x1D49C, 0x1D4B6, None, None, None),
         Fraktur => (0x1D504, 0x1D51E, None, None, None),
         DoubleStruck => (0x1D538, 0x1D552, Some(0x1D7D8), None, None),
-        SansSerifItalic => (0x1D608, 0x1D622, Some(0x1D7E2), None, None),
         SansSerif => (0x1D5A0, 0x1D5BA, Some(0x1D7E2), None, None),
         Monospace => (0x1D670, 0x1D68A, Some(0x1D7F6), None, None),
+        // #173 (unicode-math-table.tex: \mbfscrA, \mbffrakA, \mbfsansA, \mitsansA, \mbfitsansA and
+        // their Greek and digits); the italic ones take the digits of their upright alphabet
+        BoldScript => (0x1D4D0, 0x1D4EA, None, None, None),
+        BoldFraktur => (0x1D56C, 0x1D586, None, None, None),
+        BoldSansSerif => (0x1D5D4, 0x1D5EE, Some(0x1D7EC), Some(0x1D756), Some(0x1D770)),
+        SansSerifItalic => (0x1D608, 0x1D622, Some(0x1D7E2), None, None),
+        SansSerifBoldItalic => (0x1D63C, 0x1D656, Some(0x1D7EC), Some(0x1D790), Some(0x1D7AA)),
     };
     let code = match c {
         'A'..='Z' => Some(uppercase + (c as u32 - 'A' as u32)),

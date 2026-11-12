@@ -1,0 +1,901 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mathra editor · Docs</title>
+<meta name="description" content="How the mathra editor works, drawn and live: typing as on a calculator, places and the cursor, matrices, chemistry, diagrams, the outputs, putting it in your page, customizing it, and what happens at every key.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#F4F3EF">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=Karla:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="theme.js"></script>
+<script src="code.js"></script>
+<script type="importmap">{ "imports": { "@mathlabs/mathra": "./pkg/editor/web/index.js" } }</script>
+<style>
+  .docs { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 48px; padding: 32px 0 0; }
+  .docs-toc { position: sticky; top: 16px; align-self: start; font-size: 14px; max-height: calc(100vh - 32px); overflow-y: auto; }
+  .docs-toc p { margin: 0 0 8px; color: var(--muted); font-weight: 600; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .docs-toc p:not(:first-child) { margin-top: 18px; }
+  .docs-toc a { display: block; padding: 4px 0; color: var(--muted); text-decoration: none; }
+  .docs-toc a:hover, .docs-toc a.here { color: var(--ink); }
+  .docs-body { max-width: 780px; }
+  .docs-body h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(34px, 5vw, 44px); line-height: 1.12; margin: 0 0 12px; }
+  .docs-body .intro { font-size: 17px; color: var(--muted); margin: 0 0 16px; }
+  .docs-body section { padding-top: 36px; scroll-margin-top: 12px; }
+  .docs-body h2 { font-size: clamp(23px, 3vw, 28px); margin: 0 0 10px; }
+  .docs-body h3 { font-size: 17px; margin: 22px 0 6px; }
+  .docs-body p, .docs-body li { line-height: 1.6; }
+  .docs-body pre { margin: 6px 0 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: 13px; overflow-x: auto; line-height: 1.6; }
+  .docs-body table { border-collapse: collapse; width: 100%; font-size: 14px; margin: 6px 0 14px; }
+  .docs-body th, .docs-body td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .docs-body th { color: var(--muted); font-weight: 600; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .docs-body td code { white-space: nowrap; }
+  .docs-body .tablewrap { overflow-x: auto; }
+  .docs-body .note { border-left: 3px solid var(--accent); background: var(--surface); padding: 10px 14px; border-radius: 0 10px 10px 0; }
+  .docs-body .cta { justify-content: flex-start; margin: 4px 0 8px; }
+  kbd { font: 500 12px/1 var(--font-mono); padding: 3px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--surface); white-space: nowrap; }
+  @media (max-width: 860px) {
+    .docs { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+    .docs-toc { position: static; display: flex; flex-wrap: wrap; gap: 4px 16px; max-height: none; }
+    .docs-toc p { width: 100%; }
+  }
+
+  /* the editor's components on this page */
+  mathra-field { font-size: 26px; }
+  .live { display: grid; gap: 10px; margin: 10px 0 16px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+  .live mathra-field { min-height: 2.6em; }
+  .live .hint { margin: 0; font-size: 13px; color: var(--muted); }
+  mathra-editor.hero { height: 460px; margin: 18px 0 6px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+
+  /* figures drawn on the page */
+  figure { margin: 14px 0 18px; }
+  figcaption { font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .anatomy svg { width: 100%; height: auto; display: block; }
+  .anatomy .win { fill: var(--surface); stroke: var(--line); }
+  .anatomy .part { fill: var(--bg); stroke: var(--line); }
+  .anatomy .soft { fill: var(--surface-2); }
+  .anatomy .ink { fill: var(--ink); }
+  .anatomy .muted { fill: var(--muted); }
+  .anatomy .btn { fill: var(--surface); stroke: var(--line); }
+  .anatomy .glyph { fill: var(--accent); }
+  .anatomy text { font: 12px var(--font-body); fill: var(--muted); }
+  .anatomy .mono { font: 11px var(--font-mono); fill: var(--ink); }
+  .anatomy .pin circle { fill: var(--accent); }
+  .anatomy .pin text { fill: var(--btn-ink); font: 700 13px var(--font-body); text-anchor: middle; dominant-baseline: central; }
+  .anatomy .formula { color: var(--ink); }
+  .legend { counter-reset: pin; list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px 22px; margin: 10px 0 0; font-size: 14px; }
+  .legend li { counter-increment: pin; display: flex; gap: 10px; align-items: baseline; line-height: 1.45; }
+  .legend li::before { content: counter(pin); flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: var(--btn-ink); font: 700 12px/20px var(--font-body); text-align: center; transform: translateY(3px); }
+
+  /* a demo: the keys, the field typing them, the LaTeX that comes out */
+  .demos { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; margin: 12px 0 16px; }
+  .demo { margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); display: grid; gap: 10px; align-content: start; min-width: 0; }
+  .demo .title { margin: 0; font-weight: 600; font-size: 14px; }
+  .demo .keys { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font: 500 13px/1 var(--font-mono); min-height: 24px; }
+  .demo .typed { display: inline-flex; padding: 3px 5px; border-radius: 6px; background: var(--surface-2); }
+  .demo .typed span { opacity: 0.45; transition: opacity 0.1s, color 0.1s; white-space: pre; }
+  .demo .typed span.done { opacity: 1; }
+  .demo .typed span.now { opacity: 1; color: var(--accent-ink); }
+  .demo kbd { opacity: 0.55; transition: opacity 0.1s, background 0.1s; }
+  .demo kbd.done { opacity: 1; }
+  .demo kbd.now { opacity: 1; background: color-mix(in srgb, var(--accent) 25%, var(--surface)); border-color: var(--accent); }
+  .demo mathra-field { font-size: 24px; min-height: 2.6em; }
+  /* a field's floating bar only while it has the focus: many fields share this page */
+  mathra-field:not(:focus-within)::part(diagram-bar) { display: none; }
+  /* the cursor shows while a demo plays, without taking the page's focus */
+  .demo mathra-field::part(caret) { display: block; }
+  .demo .result { display: flex; gap: 10px; align-items: center; justify-content: space-between; min-width: 0; }
+  .demo .result code { font-size: 12px; color: var(--muted); overflow-x: auto; white-space: nowrap; min-width: 0; padding-bottom: 2px; }
+  .demo .result button { flex: none; }
+  .demo .note-line { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .small-button { font: 600 12px var(--font-body); padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; }
+  .small-button:hover { border-color: var(--accent); }
+
+  /* an x-ray: the formula, every box mathra gives for it outlined */
+  .xray { margin: 12px 0 16px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); display: grid; gap: 10px; }
+  .xray .drawing { font-size: 44px; display: flex; justify-content: center; align-items: center; min-height: 2.2em; color: var(--ink); overflow-x: auto; padding: 10px 0; }
+  .xray .drawing svg { overflow: visible; }
+  .xray rect.box { fill: transparent; stroke-width: 1.4; vector-effect: non-scaling-stroke; cursor: help; }
+  .xray rect.l0 { stroke: #8e8e8e; stroke-dasharray: 4 3; }
+  .xray rect.l1 { stroke: #2f7fbf; }
+  .xray rect.l2 { stroke: #c0612b; }
+  .xray rect.l3 { stroke: #3b9a57; }
+  .xray rect.l4 { stroke: #9b4fc4; }
+  .xray rect.empty { fill: color-mix(in srgb, #c0612b 14%, transparent); }
+  .xray rect.on { stroke-width: 3; fill: color-mix(in srgb, var(--accent) 22%, transparent); }
+  .xray .info { font-size: 13px; color: var(--muted); min-height: 1.4em; text-align: center; }
+  .xray .info b { color: var(--ink); font-weight: 600; }
+
+  /* how it works, live */
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 10px 0 16px; font-size: 13px; }
+  .flow span { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); }
+  .flow span.mathra { background: var(--board); color: var(--chalk); border-color: var(--board); }
+  .flow i { font-style: normal; color: var(--muted); }
+  .stages { display: grid; gap: 12px; margin: 12px 0; }
+  .stage { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 12px 14px; min-width: 0; }
+  .stage h3 { margin: 0 0 8px; font-size: 14px; display: flex; gap: 8px; align-items: center; }
+  .stage h3 b { width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: var(--btn-ink); font-size: 12px; display: inline-grid; place-items: center; }
+  .stage .tree { font: 13px/1.55 var(--font-mono); max-height: 260px; overflow: auto; }
+  .stage .tree ul { list-style: none; margin: 0; padding-left: 16px; border-left: 1px dashed var(--line); }
+  .stage .tree > ul { padding-left: 0; border-left: 0; }
+  .stage .tree li > span { padding: 0 4px; border-radius: 4px; cursor: help; }
+  .stage .tree li > span .id { color: var(--muted); font-size: 11px; }
+  .stage .tree li > span.on { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+  .stage .marked { font: 13px/1.6 var(--font-mono); word-break: break-all; margin: 0; max-height: 200px; overflow: auto; }
+  .stage .marked .m { color: var(--muted); opacity: 0.7; }
+  .stage .xray { margin: 0; border: 0; padding: 0; background: none; }
+  @media (prefers-reduced-motion: reduce) { .demo .typed span, .demo kbd { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="bar">
+    <a class="name" href="index.html">mathra</a>
+    <nav aria-label="Site">
+      <a href="index.html#playground">Playground</a>
+      <a href="gallery.html">Gallery</a>
+      <a href="editor.html" aria-current="page">Editor <span class="new">New</span></a>
+      <a href="changelog.html">Evolution</a>
+      <a href="docs.html">Docs</a>
+      <a href="reference.html">Reference</a>
+      <a href="philosophy.html">Philosophy</a>
+      <a href="https://github.com/matheusmota-dev-br/mathra">GitHub</a>
+      <button class="theme" id="theme" type="button" aria-label="Toggle dark mode">◐</button>
+    </nav>
+  </div>
+
+  <div class="docs">
+    <nav class="docs-toc" aria-label="On this page">
+      <p>Using it</p>
+      <a href="#tour">A tour</a>
+      <a href="#first">Your first formula</a>
+      <a href="#typing">Typing as on a calculator</a>
+      <a href="#places">Places and the cursor</a>
+      <a href="#structures">Palettes and commands</a>
+      <a href="#matrices">Matrices</a>
+      <a href="#chemistry">Chemistry</a>
+      <a href="#diagrams">Diagrams</a>
+      <a href="#blocks">LaTeX blocks</a>
+      <a href="#outputs">Outputs</a>
+      <p>Building with it</p>
+      <a href="#install">Install</a>
+      <a href="#page">In your page</a>
+      <a href="#frameworks">React, Vue, Svelte</a>
+      <a href="#components">The components</a>
+      <a href="#customizing">Customizing</a>
+      <a href="#core">Without a screen</a>
+      <a href="#how">How it works</a>
+      <p>Reference</p>
+      <a href="#keys">Keys</a>
+      <a href="#attributes">Attributes</a>
+      <a href="#events">Events</a>
+      <a href="#actions">Actions</a>
+      <a href="#styling">Colors and parts</a>
+    </nav>
+
+    <main class="docs-body">
+      <h1>The mathra editor</h1>
+      <p class="intro">Build a formula inside a box: type it as on a calculator, or pick it from palettes, and get it back as LaTeX, MathML, SVG, PNG, speech or braille. mathra draws the box itself at every key, so what you edit is exactly what mathra will draw. Every example on this page is the editor itself, running in your browser.</p>
+      <div class="cta">
+        <a class="button solid" href="editor.html">Open the editor</a>
+        <a class="button" href="#install">Put it in your page</a>
+        <a class="button" href="https://www.npmjs.com/package/@mathlabs/mathra-editor">On npm</a>
+      </div>
+
+      <section id="tour">
+        <h2>A tour</h2>
+        <p>The whole editor, <code>&lt;mathra-editor&gt;</code>, is a few pieces put together. Each one is also a component of its own, to use alone.</p>
+        <figure class="anatomy">
+          <svg viewBox="0 0 760 440" role="img" aria-labelledby="anatomy-title">
+            <title id="anatomy-title">The parts of the editor: the bar on top, the palettes and their search, the field with the formula, an empty place and the cursor, and the outputs on the right.</title>
+            <rect class="win" x="0.5" y="0.5" width="759" height="439" rx="14"/>
+            <!-- 1 the bar -->
+            <rect class="soft" x="1" y="1" width="758" height="44" rx="13"/>
+            <rect class="soft" x="1" y="30" width="758" height="15"/>
+            <rect class="glyph" x="16" y="12" width="20" height="20" rx="5"/>
+            <text class="ink" x="44" y="27" style="font: 600 15px var(--font-display); fill: var(--ink)">mathra</text>
+            <g class="muted"><rect x="120" y="15" width="14" height="14" rx="3"/><rect x="142" y="15" width="14" height="14" rx="3" opacity="0.5"/><rect x="164" y="15" width="14" height="14" rx="3"/><rect x="196" y="15" width="14" height="14" rx="7"/><rect x="236" y="15" width="14" height="14" rx="7"/></g>
+            <text x="214" y="27" class="mono">100%</text>
+            <rect class="btn" x="470" y="11" width="74" height="22" rx="11"/><text x="484" y="27">English ▾</text>
+            <rect class="btn" x="552" y="11" width="78" height="22" rx="11"/><circle class="muted" cx="566" cy="22" r="5"/><circle class="muted" cx="591" cy="22" r="5" opacity="0.6"/><circle class="muted" cx="616" cy="22" r="5" opacity="0.6"/>
+            <rect class="muted" x="650" y="15" width="18" height="14" rx="3"/>
+            <rect class="muted" x="680" y="15" width="18" height="14" rx="3" opacity="0.6"/>
+            <circle class="muted" cx="730" cy="22" r="9"/>
+            <!-- 2 the palettes, 3 the search -->
+            <rect class="part" x="16" y="58" width="504" height="114" rx="10"/>
+            <text x="30" y="80" style="fill: var(--ink); font-weight: 600">Structures</text><rect class="glyph" x="28" y="85" width="62" height="2"/>
+            <text x="104" y="80">Calculus</text><text x="166" y="80">Matrices</text><text x="228" y="80">Greek</text><text x="276" y="80">Chemistry</text>
+            <rect class="btn" x="372" y="64" width="138" height="24" rx="12"/><circle cx="388" cy="76" r="5" fill="none" stroke="var(--muted)" stroke-width="1.5"/><text x="400" y="80">Search…</text>
+            <g id="buttons"></g>
+            <!-- 4 the field -->
+            <rect class="part" x="16" y="184" width="504" height="240" rx="10" style="stroke: var(--accent); stroke-width: 1.5"/>
+            <g class="formula" id="anatomy-formula"></g>
+            <!-- 7 the outputs -->
+            <rect class="part" x="532" y="58" width="212" height="366" rx="10"/>
+            <text x="546" y="80" style="fill: var(--ink); font-weight: 600">LaTeX</text><rect class="glyph" x="544" y="85" width="40" height="2"/>
+            <text x="594" y="80">MathML</text><text x="644" y="80">SVG</text><text x="680" y="80">Speech</text>
+            <text class="mono" x="546" y="114">\int_{0}^{1}x^{2}\,dx</text>
+            <text class="mono" x="546" y="132">=\frac{1}{}</text>
+            <rect class="btn" x="672" y="388" width="60" height="24" rx="12"/><text x="686" y="404">Copy</text>
+            <!-- the pins -->
+            <g class="pin"><circle cx="300" cy="22" r="11"/><text x="300" y="22">1</text></g>
+            <g class="pin"><circle cx="352" cy="74" r="11"/><text x="352" y="74">2</text></g>
+            <g class="pin"><circle cx="500" cy="52" r="11"/><text x="500" y="52">3</text></g>
+            <g class="pin"><circle cx="40" cy="206" r="11"/><text x="40" y="206">4</text></g>
+            <g class="pin" id="pin-place"><circle cx="0" cy="0" r="11"/><text x="0" y="0">5</text></g>
+            <g class="pin" id="pin-caret"><circle cx="0" cy="0" r="11"/><text x="0" y="0">6</text></g>
+            <g class="pin"><circle cx="724" cy="114" r="11"/><text x="724" y="114">7</text></g>
+          </svg>
+          <ol class="legend">
+            <li><span><b>The bar.</b> Undo and redo, clear, zoom, the gallery of examples, mathra's options, the language, the theme, the keyboard and the outputs.</span></li>
+            <li><span><b>Palettes.</b> About 400 buttons in 15 tabs; each draws itself with mathra.</span></li>
+            <li><span><b>Search.</b> Any button by its name or its command; Enter inserts the first.</span></li>
+            <li><span><b>The field.</b> The formula, drawn by mathra at every key, about a millisecond each.</span></li>
+            <li><span><b>An empty place.</b> Something left to fill; <kbd>Tab</kbd> goes to the next one.</span></li>
+            <li><span><b>The cursor.</b> Where the next key goes.</span></li>
+            <li><span><b>Outputs.</b> LaTeX, MathML, SVG, PNG, speech, braille, plain text and the rules mathra used.</span></li>
+          </ol>
+          <figcaption>On a phone the outputs go under the field and a keyboard on the screen opens, with numbers, letters, functions and symbols.</figcaption>
+        </figure>
+        <p>Here it is, smaller than on its own page. Type, click the palettes, change the language.</p>
+        <mathra-editor class="hero" locale="en" controls="history language keyboard outputs" value="\int_0^1 x^2\,dx = \frac{1}{3}"></mathra-editor>
+      </section>
+
+      <section id="first">
+        <h2>Your first formula</h2>
+        <p>Click the box and type. There is no need to know LaTeX: the editor reads what you type the way a calculator does. Watch the quadratic formula typed in one line, key by key:</p>
+        <div class="demos" style="grid-template-columns: minmax(0, 1fr)"><figure class="demo" data-demo="quadratic"></figure></div>
+        <p>Four things happened on the way. <code>+-</code> became <b>±</b>; <code>sqrt(</code> opened a root and its <code>)</code> left it; <code>^2</code> made an exponent that ended by itself at the <code>-</code>; and <code>/</code> made a fraction of the parentheses before it, dropping them, since the bar already groups. Each rule is below, with its own example.</p>
+      </section>
+
+      <section id="typing">
+        <h2>Typing as on a calculator</h2>
+        <p>Every key you would press on a calculator does what you expect. Press <b>▶</b> on any example to watch it again.</p>
+
+        <h3>Words become what they name</h3>
+        <p>Greek letters, functions, roots and large operators are typed by name: <code>pi</code>, <code>theta</code>, <code>Delta</code>, <code>sin</code>, <code>log</code>, <code>sqrt</code>, <code>cbrt</code>, <code>sum</code>, <code>int</code>, <code>lim</code>, <code>infinity</code>. Only the whole word counts, so <code>point</code> stays letters, and a word typed on becomes the longer one: <code>sin</code> then <code>h</code> is <code>sinh</code>.</p>
+        <div class="demos"><figure class="demo" data-demo="words"></figure><figure class="demo" data-demo="functions"></figure></div>
+
+        <h3>Two keys make a symbol</h3>
+        <p><code>&lt;=</code> is ≤, <code>&gt;=</code> is ≥, <code>!=</code> is ≠, <code>-&gt;</code> is →, <code>=&gt;</code> is ⇒, <code>+-</code> is ±, <code>-+</code> is ∓, <code>...</code> is …. A space between them keeps them apart.</p>
+        <div class="demos"><figure class="demo" data-demo="relations"></figure><figure class="demo" data-demo="arrow"></figure></div>
+
+        <h3>Fractions take what is before them</h3>
+        <p><code>/</code> makes the last term the numerator: back to an operator, or a whole group in parentheses (dropped, the bar groups), or a function with its argument. The denominator ends by itself at an operator when it is a number or a name.</p>
+        <div class="demos"><figure class="demo" data-demo="halves"></figure><figure class="demo" data-demo="sinc"></figure></div>
+
+        <h3>Exponents and indices end by themselves</h3>
+        <p><code>^</code> and <code>_</code> open an exponent or an index. One that is a number or a name ends at the next operator, so <code>x^2+1</code> needs no braces. For more, put it in parentheses (<code>e^(i pi)</code>) or braces (<code>x^{n+1}</code>); <kbd>→</kbd> also leaves it.</p>
+        <div class="demos"><figure class="demo" data-demo="scripts"></figure><figure class="demo" data-demo="euler"></figure></div>
+
+        <h3>Sums, integrals and limits</h3>
+        <p>After <code>sum</code>, <code>int</code> or <code>lim</code>, <code>_</code> and <code>^</code> go to the lower and upper limits, and a space ends them.</p>
+        <div class="demos"><figure class="demo" data-demo="integral"></figure><figure class="demo" data-demo="limit"></figure></div>
+
+        <p class="note">Prefer every key to be itself? <code>field.editor.smartTyping = false</code> turns all of this off; then a word is typed with <code>\</code>, as in LaTeX (<code>\sqrt</code>, <code>\pi</code>).</p>
+      </section>
+
+      <section id="places">
+        <h2>Places and the cursor</h2>
+        <p>A formula is a set of nested <b>places</b>: a fraction has two (its numerator and its denominator), a root one or two, an exponent one, a matrix one per cell. The cursor is always in exactly one place. Here every place of a formula is outlined, each level of nesting in its own color; point at one to see what it is.</p>
+        <div class="xray" data-xray="x^2+\frac{1}{\sqrt{y}}+\frac{}{2}"></div>
+        <p>An <b>empty place</b> (shaded) is what a fraction, a root or a palette button leaves to fill. <kbd>Tab</kbd> goes to the next empty place, <kbd>Shift</kbd>+<kbd>Tab</kbd> to the one before.</p>
+        <h3>Moving</h3>
+        <p><kbd>←</kbd> <kbd>→</kbd> go through every place in order, into and out of each structure; <kbd>↑</kbd> <kbd>↓</kbd> go between a numerator and its denominator, an exponent and its index, the lines of a matrix. Watch the cursor, then a letter typed where it stops:</p>
+        <div class="demos"><figure class="demo" data-demo="moving"></figure><figure class="demo" data-demo="tab"></figure></div>
+        <h3>Selecting, deleting, undoing</h3>
+        <ul>
+          <li><b>Select</b> with <kbd>Shift</kbd> and the arrows, by dragging, or with a double click; <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>A</kbd> selects all. A palette button applied to a selection puts it inside: select <code>a+b</code>, press √, and it is <code>√(a+b)</code>.</li>
+          <li><b>Backspace</b> on a structure with something inside enters it first, so nothing is lost by accident. At the start of parentheses or a root, they go and what they held stays; in an empty denominator, the fraction goes and its numerator stays.</li>
+          <li><b>Copy and paste</b> are LaTeX: paste <code>$\frac{a}{b}$</code> from anywhere and it becomes boxes (the <code>$</code> are dropped).</li>
+          <li><b>Undo</b> (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Z</kbd>) takes back a word at a time while you type, and each palette button in one step.</li>
+        </ul>
+      </section>
+
+      <section id="structures">
+        <h2>Palettes and commands</h2>
+        <p>Everything typed has a button, and everything with a button can be typed. Palettes come in tabs: structures, calculus, matrices, Greek, operators, relations, arrows, sets and logic, functions, accents and styles, geometry, physics, chemistry, diagrams, statistics, and ready formulas. Each button inserts its structure with empty places to fill, and is drawn by mathra from the same LaTeX it inserts.</p>
+        <div class="live">
+          <mathra-toolbar for="pal" palettes="structures calculus greek physics"></mathra-toolbar>
+          <mathra-field id="pal" locale="en" placeholder="Click a button, or type \ and a command"></mathra-field>
+          <mathra-command-menu for="pal"></mathra-command-menu>
+          <p class="hint">Try the search: “integral”, “matrix”, “vector”. Or type <code>\</code> and a few letters: the command menu lists what starts with them.</p>
+        </div>
+        <h3>Commands with <code>\</code></h3>
+        <p>If you know LaTeX, type it: <code>\</code>, a name, then a space or <kbd>Enter</kbd>. <code>\frac</code> makes a fraction with two places, <code>\alpha</code> the letter, <code>\pmatrix</code> a matrix, <code>\ce</code> a reaction. While you type the name, a menu beside the cursor shows the commands that start with it.</p>
+        <div class="demos"><figure class="demo" data-demo="command"></figure><figure class="demo" data-demo="physics"></figure></div>
+      </section>
+
+      <section id="matrices">
+        <h2>Matrices</h2>
+        <p>The first button of the <b>Matrices</b> tab opens a grid, as a table is picked in a word processor: move over it (or use the arrows) to choose the lines and columns, click or press <kbd>Enter</kbd>, and pick the brackets in the row under it. With the cursor in a matrix, the same grid starts at its size and changes it, marking the cells that would lose something.</p>
+        <div class="live">
+          <mathra-toolbar for="mat" palettes="matrices"></mathra-toolbar>
+          <mathra-field id="mat" locale="en" value="A = \begin{pmatrix} 1 & 2 \\ 3 & 4 \end{pmatrix}"></mathra-field>
+          <p class="hint">Click in the matrix, then on the first button: the grid shows 2 × 2. Choose 3 × 3.</p>
+        </div>
+        <p>From the keyboard: <code>&amp;</code> goes to the next cell, <kbd>Enter</kbd> to the line below (a new one at the end), <kbd>Shift</kbd>+<kbd>Enter</kbd> adds a column, <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Enter</kbd> a line.</p>
+        <div class="demos"><figure class="demo" data-demo="matrix"></figure><figure class="demo" data-demo="cases"></figure></div>
+      </section>
+
+      <section id="chemistry">
+        <h2>Chemistry</h2>
+        <h3>Reactions</h3>
+        <p>Type <code>\ce</code> and a space (or use the Chemistry tab), then the reaction as you would write it on paper. A number after an element is its index, a number before a species its coefficient, <code>^</code> a charge, <code>(aq)</code> a state. <code>-&gt;</code>, <code>&lt;=&gt;</code> and <code>&lt;-&gt;</code> are arrows, and <code>[</code> right after one writes over it (a second <code>[</code>, under it).</p>
+        <div class="demos"><figure class="demo" data-demo="water"></figure><figure class="demo" data-demo="ions"></figure><figure class="demo" data-demo="heat"></figure><figure class="demo" data-demo="haber"></figure></div>
+        <p>A reaction is pieces, each in its own box: the species, the signs, and each arrow with a place over and under it. With the cursor in a reaction, a bar switches the arrow (→ ⇌ ↔ ←), adds a <code>+</code>, ↑ or ↓, or removes a piece; beside an arrow, its two places show as boxes to click into.</p>
+        <div class="xray" data-xray="\ce{CaCO3 ->[heat] CaO + CO2 ^}"></div>
+        <h3>Structures</h3>
+        <p>Type <code>\chemfig</code> and a space: the first atom is picked, ready for its label. <kbd>Alt</kbd>+arrow draws a bond to a new atom that way (the bar has eight directions, and a drag from an atom draws one too, snapped to 30°). Click an atom or a bond to pick it; the bar changes a bond (single, double, triple, wedge, hashed), hangs a ring, or takes any label in its box (<code>OH</code>, <code>CH3</code>, <code>NH4^+</code>).</p>
+        <div class="demos"><figure class="demo" data-demo="structure"></figure></div>
+        <div class="live">
+          <mathra-toolbar for="chem" palettes="chemistry"></mathra-toolbar>
+          <mathra-field id="chem" locale="en" value="\chemfig{*6(-=-=(-OH)-=)}"></mathra-field>
+          <p class="hint">Click the OH, then the bar's buttons; or pick a skeleton from the palette: its <code>R</code> comes picked, to type over.</p>
+        </div>
+        <h3>Schemes</h3>
+        <p>In a <code>\schemestart</code>, type a structure, a space, <code>-&gt;</code>, its conditions in <code>[…]</code>, then the next structure. The bar picks chemfig's arrow and adds a structure or a <code>+</code>.</p>
+      </section>
+
+      <section id="diagrams">
+        <h2>Diagrams</h2>
+        <p>Commutative diagrams (<code>tikzcd</code>, <code>CD</code>, <code>\xymatrix</code>) are grids of cells with arrows between them. Type <code>\tikzcd</code> and a space, then in a cell. <kbd>Alt</kbd>+arrow draws an arrow from the cell that way and makes the cell it points to; its label is typed in place, and <kbd>→</kbd> goes on to that cell.</p>
+        <div class="demos"><figure class="demo" data-demo="diagram"></figure></div>
+        <p>With the mouse: drag from one cell to another to draw an arrow, or past the cells, in any of eight directions, to make a new cell there. Click an arrow to change its style (dashed, dotted, hook, two heads, double, maps to, squiggly), bend it, move its label to the other side, or remove it.</p>
+        <div class="live">
+          <mathra-toolbar for="dia" palettes="diagrams"></mathra-toolbar>
+          <mathra-field id="dia" locale="en" value="\begin{tikzcd} A \arrow[r, &quot;f&quot;] \arrow[d, &quot;g&quot;'] &amp; B \arrow[d, &quot;h&quot;] \\ C \arrow[r, &quot;k&quot;'] &amp; D \end{tikzcd}"></mathra-field>
+          <p class="hint">Click an arrow to see its bar. Click in D and press <kbd>Alt</kbd>+<kbd>→</kbd>.</p>
+        </div>
+      </section>
+
+      <section id="blocks">
+        <h2>LaTeX blocks</h2>
+        <p>Paste any formula: what the editor knows is taken apart into boxes, and what it does not (an unknown command, a units package's <code>\qty</code>, a structure built from submolecules) stays a <b>block</b>, drawn as mathra draws it and kept exactly as written. With the cursor beside a block, a bar offers <b>Edit as LaTeX</b>: a panel opens under it, the formula follows as you type, mathra says whether it reads it without a warning, and <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Enter</kbd> finishes (<kbd>Esc</kbd> takes the edit back). The same panel is in every reaction, structure and diagram bar, as an escape hatch.</p>
+        <div class="live">
+          <mathra-field id="blk" locale="en" value="g = \qty{9.81}{\meter\per\second\squared}"></mathra-field>
+          <p class="hint">Click right after the quantity: its bar appears. Double click it to open the panel.</p>
+        </div>
+      </section>
+
+      <section id="outputs">
+        <h2>Outputs</h2>
+        <p>The same formula, in every form mathra gives: LaTeX, MathML, SVG, PNG, the phrase a screen reader says (in 16 languages), braille (Nemeth, UEB, CMU and more), plain text, and the rules mathra applied with any warning. Each has copy and download.</p>
+        <div class="live">
+          <mathra-field id="out" locale="en" value="E = mc^2"></mathra-field>
+          <mathra-output for="out" formats="latex mathml speech braille svg"></mathra-output>
+        </div>
+      </section>
+
+      <section id="install">
+        <h2>Install</h2>
+<pre data-lang="sh">npm install @mathlabs/mathra-editor @mathlabs/mathra</pre>
+        <p><code>@mathlabs/mathra</code> (1.12 or later) does the drawing; the editor loads its WebAssembly by itself. With a bundler (Vite, webpack, esbuild…), nothing else is needed.</p>
+        <p>Without a bundler, map <code>@mathlabs/mathra</code> in an import map, as this page does:</p>
+<pre data-lang="html">&lt;script type="importmap"&gt;
+  { "imports": { "@mathlabs/mathra": "https://cdn.jsdelivr.net/npm/@mathlabs/mathra@1.12.0/web/index.js" } }
+&lt;/script&gt;
+&lt;script type="module" src="https://cdn.jsdelivr.net/npm/@mathlabs/mathra-editor/dist/index.js"&gt;&lt;/script&gt;</pre>
+      </section>
+
+      <section id="page">
+        <h2>In your page</h2>
+        <p>Importing the package defines every element. The whole editor:</p>
+<pre data-lang="html">&lt;script type="module"&gt;
+  import "@mathlabs/mathra-editor";
+&lt;/script&gt;
+
+&lt;mathra-editor layout="page" locale="en" value="x = \frac{-b \pm \sqrt{b^2-4ac}}{2a}"&gt;&lt;/mathra-editor&gt;</pre>
+        <p>Just a box for an answer, inside a sentence, with a few palettes:</p>
+<pre data-lang="html">&lt;p&gt;The area is &lt;mathra-field id="answer" inline aria-label="Area"&gt;&lt;/mathra-field&gt;&lt;/p&gt;
+&lt;mathra-toolbar for="answer" palettes="structures greek" nosearch&gt;&lt;/mathra-toolbar&gt;</pre>
+        <p>Read and set the formula as LaTeX:</p>
+<pre data-lang="js">const field = document.getElementById("answer");
+field.value = "\\frac{1}{2}bh";                 // set it
+field.addEventListener("input", (e) =&gt; {
+  console.log(e.detail.latex);                 // at every change
+});
+field.addEventListener("change", (e) =&gt; save(e.detail.latex)); // when it loses the focus</pre>
+        <div class="live">
+          <div style="font: 20px var(--font-display)">The area of a triangle is <mathra-field id="answer" inline locale="en" aria-label="Area" style="font-size: 24px"></mathra-field> <span id="answer-check" aria-live="polite"></span></div>
+          <mathra-toolbar for="answer" palettes="structures greek" nosearch></mathra-toolbar>
+          <p class="hint">Type <code>bh/2</code> (or <code>1/2 bh</code>). The check reads <code>e.detail.latex</code>.</p>
+        </div>
+      </section>
+
+      <section id="frameworks">
+        <h2>React, Vue, Svelte</h2>
+        <p>They are Web Components, so they work wherever HTML does. Listen to <code>input</code> for the formula.</p>
+        <h3>React</h3>
+<pre data-lang="js">import { useEffect, useRef } from "react";
+import "@mathlabs/mathra-editor";
+
+export function MathInput({ value, onChange }) {
+  const ref = useRef(null);
+  useEffect(() =&gt; {
+    const field = ref.current;
+    const listen = (e) =&gt; onChange(e.detail.latex);
+    field.addEventListener("input", listen);
+    return () =&gt; field.removeEventListener("input", listen);
+  }, [onChange]);
+  return &lt;mathra-field ref={ref} value={value} /&gt;;
+}</pre>
+        <h3>Vue</h3>
+<pre data-lang="html">&lt;!-- vite.config: vue({ template: { compilerOptions: { isCustomElement: (t) =&gt; t.startsWith("mathra-") } } }) --&gt;
+&lt;mathra-field :value="latex" @input="latex = $event.detail.latex" /&gt;</pre>
+        <h3>Svelte</h3>
+<pre data-lang="html">&lt;mathra-field value={latex} on:input={(e) =&gt; (latex = e.detail.latex)} /&gt;</pre>
+      </section>
+
+      <section id="components">
+        <h2>The components</h2>
+        <p>Use the whole editor, or the pieces you need. A piece finds its field with <code>for="id"</code>, or in JavaScript with <code>piece.field = fieldElement</code> (which also works across shadow roots).</p>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Element</th><th>What it is</th></tr></thead>
+          <tbody>
+            <tr><td><code>&lt;mathra-editor&gt;</code></td><td>Everything together: the bar, palettes with their search, the field, the keyboard, the command menu and the outputs. <code>layout="page"</code> fills the page.</td></tr>
+            <tr><td><code>&lt;mathra-field&gt;</code></td><td>The box: typing, clicking, dragging, selecting, copy and paste of LaTeX, undo. <code>inline</code> sizes it for a sentence.</td></tr>
+            <tr><td><code>&lt;mathra-toolbar&gt;</code></td><td>Palettes in tabs, and a search over every button. <code>palettes="structures greek"</code> picks and orders them; <code>nosearch</code> hides the search; <code>wrap</code> shows every tab.</td></tr>
+            <tr><td><code>&lt;mathra-palette&gt;</code></td><td>One grid of buttons: <code>set="greek"</code>.</td></tr>
+            <tr><td><code>&lt;mathra-command-menu&gt;</code></td><td>While <code>\name</code> is typed, the commands that start with it, beside the cursor.</td></tr>
+            <tr><td><code>&lt;mathra-keyboard&gt;</code></td><td>A keyboard on the screen: numbers, letters, functions and symbols.</td></tr>
+            <tr><td><code>&lt;mathra-output&gt;</code></td><td>LaTeX, MathML, SVG, PNG, speech, braille, text and rules, with copy and download. <code>formats="latex mathml"</code> picks them.</td></tr>
+            <tr><td><code>&lt;mathra-settings&gt;</code></td><td>mathra's options: the font (30 to choose from), display or inline, line breaking, the braille code, strict mode, the PNG's size.</td></tr>
+            <tr><td><code>&lt;mathra-gallery&gt;</code></td><td>mathra's 110 examples, drawn, with a search; choosing one opens it in the field.</td></tr>
+          </tbody>
+        </table></div>
+        <p>The palettes are <code>structures</code>, <code>calculus</code>, <code>matrices</code>, <code>greek</code>, <code>operators</code>, <code>relations</code>, <code>arrows</code>, <code>sets</code>, <code>functions</code>, <code>accents</code>, <code>geometry</code>, <code>physics</code>, <code>chemistry</code>, <code>diagrams</code>, <code>statistics</code> and <code>formulas</code>.</p>
+      </section>
+
+      <section id="customizing">
+        <h2>Customizing</h2>
+        <h3>Colors and sizes</h3>
+        <p>CSS variables on a component or any ancestor; they reach inside <code>&lt;mathra-editor&gt;</code> too. The defaults follow the page's <code>color-scheme</code>, light or dark. The formula's size follows <code>font-size</code>.</p>
+<pre data-lang="html">&lt;style&gt;
+  mathra-field.answer {
+    font-size: 28px;
+    --mathra-caret: #c0392b;
+    --mathra-slot: #e67e22;       /* the empty places */
+    --mathra-focus: #2f7fbf;
+    --mathra-radius: 4px;
+  }
+&lt;/style&gt;</pre>
+        <div class="live" style="--mathra-caret: #c0392b; --mathra-slot: #2f7fbf; --mathra-focus: #3b9a57; --mathra-radius: 2px">
+          <mathra-field id="styled" locale="en" value="\frac{}{} + \sqrt{}"></mathra-field>
+          <p class="hint">This field has a red cursor, blue empty places and a green focus ring.</p>
+        </div>
+        <h3>Your own palettes</h3>
+        <p>A button inserts a snippet of LaTeX, where <code>#?</code> is an empty place and <code>#0</code> where the selection goes, or runs an action. mathra draws the button from the same snippet.</p>
+<pre data-lang="js">import { STRUCTURES } from "@mathlabs/mathra-editor";
+
+toolbar.palettes = [
+  STRUCTURES,
+  {
+    id: "physics",
+    title: { en: "Physics", "pt-BR": "Física" },
+    items: [
+      { insert: "\\vec{F} = m\\vec{a}", title: "Newton" },
+      { insert: "\\frac{d#0}{dt}", preview: "\\frac{d#?}{dt}", title: "d/dt", command: "ddt" },
+      { action: "addRow", icon: "rowAdd", title: "Add a line" },
+    ],
+  },
+];</pre>
+        <h3>Your own keys</h3>
+<pre data-lang="js">field.keymap = {
+  "Mod+B": "insert:mathbf",        // Mod is Ctrl, or ⌘ on a Mac
+  "Mod+R": "latex:\\sqrt{#0}",
+  "Mod+Enter": "",                 // turned off
+};</pre>
+        <h3>mathra's options</h3>
+<pre data-lang="js">import { loadFontFromCatalog } from "@mathlabs/mathra";
+field.mathraOptions = { font: await loadFontFromCatalog("fira-math") };</pre>
+      </section>
+
+      <section id="core">
+        <h2>Without a screen</h2>
+        <p><code>@mathlabs/mathra-editor/core</code> is the editor alone, with no DOM: for an interface of your own, a test, or a server.</p>
+<pre data-lang="js">import { Editor } from "@mathlabs/mathra-editor/core";
+
+const e = new Editor();
+e.typeText("x=(-b+-sqrt(b^2-4ac))/(2a)");
+e.toLatex();      // "x=\\frac{-b\\pm\\sqrt{b^{2}-4ac}}{2a}"
+
+e.undo();
+e.insert("frac"); // a structure, with its places
+e.moveDown();     // to the denominator</pre>
+      </section>
+
+      <section id="how">
+        <h2>How it works</h2>
+        <p>The editor never draws the formula itself. At every key, it writes the formula as LaTeX with a <b>mark</b> around each piece, mathra draws that LaTeX and says where each mark landed, and the editor puts the cursor at the edge of the right box. The marks move nothing: the drawing is exactly the one without them.</p>
+        <div class="flow" aria-label="The loop at every key"><span>A key</span><i>→</i><span>the tree changes</span><i>→</i><span>LaTeX with marks</span><i>→</i><span class="mathra">mathra draws</span><i>→</i><span>SVG and a box per mark</span><i>→</i><span>cursor, clicks</span><i>↺</i></div>
+        <p>Type in this field and watch each stage follow, as the editor sees it:</p>
+        <div class="live"><mathra-field id="how-field" locale="en" value="x^2+\frac{1}{y}"></mathra-field></div>
+        <div class="stages">
+          <div class="stage"><h3><b>1</b> The tree</h3><p class="hint" style="margin: 0 0 8px; font-size: 13px; color: var(--muted)">Rows hold atoms; a structure holds rows, its places. Each has an id.</p><div class="tree" id="how-tree"></div></div>
+          <div class="stage"><h3><b>2</b> LaTeX with marks</h3><p class="hint" style="margin: 0 0 8px; font-size: 13px; color: var(--muted)">Each atom and place wrapped in <code>\htmlData{m=id}{…}</code> (dimmed here); an operator keeps its spacing through <code>\mathbin</code> or <code>\mathrel</code>.</p><pre class="marked" id="how-marked"></pre></div>
+          <div class="stage"><h3><b>3</b> mathra's boxes</h3><p class="hint" style="margin: 0 0 8px; font-size: 13px; color: var(--muted)">The SVG, and the box of every mark in its coordinates. Point at a box or a line of the tree.</p><div class="xray" id="how-xray"></div></div>
+        </div>
+        <p>A click goes to the innermost place whose box holds it; the cursor sits at the edge of the atom beside it. In a number the locale rewrites (3.14 is 3,14 in Portuguese), the number is one mark and the cursor between its digits is placed by their widths. Reactions, structures and diagrams are marked the same way, piece by piece: mathra reads through the marks inside <code>\ce</code> and <code>\chemfig</code>, and draws the chemistry as if they were not there.</p>
+        <p>The tests hold it to that: every one of mathra's 110 gallery examples opens in the editor and draws as it did, read, written back and marked; every palette button draws the same marked as plain.</p>
+      </section>
+
+      <section id="keys">
+        <h2>Keys</h2>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Key</th><th>Does</th></tr></thead>
+          <tbody>
+            <tr><td>letters, digits, <code>+ - * = &lt; &gt; , ;</code></td><td>a symbol, with TeX's spacing for its kind</td></tr>
+            <tr><td><code>/</code></td><td>a fraction of what is before the cursor</td></tr>
+            <tr><td><code>^</code> <code>_</code></td><td>an exponent, an index; in a large operator, its limits</td></tr>
+            <tr><td><code>(</code> <code>[</code> <code>{</code> <code>|</code></td><td>delimiters that grow with what they hold; the closing one leaves them</td></tr>
+            <tr><td><code>\</code>, a name, <kbd>Space</kbd></td><td>a command or a structure</td></tr>
+            <tr><td><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> <kbd>Home</kbd> <kbd>End</kbd></td><td>move</td></tr>
+            <tr><td><kbd>Shift</kbd> + those; drag; double click</td><td>select</td></tr>
+            <tr><td><kbd>Tab</kbd> <kbd>Shift</kbd>+<kbd>Tab</kbd></td><td>the next (previous) empty place or cell</td></tr>
+            <tr><td><code>&amp;</code> <kbd>Enter</kbd></td><td>in a matrix: the next cell, the line below</td></tr>
+            <tr><td><kbd>Shift</kbd>+<kbd>Enter</kbd> · <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Enter</kbd></td><td>a column · a line, in a matrix</td></tr>
+            <tr><td><kbd>Backspace</kbd> <kbd>Delete</kbd></td><td>delete; a structure with something inside is entered first</td></tr>
+            <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>A</kbd> <kbd>C</kbd> <kbd>X</kbd> <kbd>V</kbd></td><td>select all, copy, cut, paste (LaTeX)</td></tr>
+            <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Z</kbd>, <kbd>Shift</kbd>+<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Z</kbd></td><td>undo, redo</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>leaves a command being typed, a structure, the selection, an arrow's label</td></tr>
+            <tr><td><kbd>Alt</kbd>+arrow</td><td>in a diagram, an arrow (with <kbd>Shift</kbd>: dashed); on an atom, a bond</td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section id="attributes">
+        <h2>Attributes</h2>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Attribute</th><th>On</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><code>value</code></td><td>field, editor</td><td>The formula, as LaTeX.</td></tr>
+            <tr><td><code>locale</code></td><td>field, editor</td><td>mathra's language (speech, decimal comma, <code>\sen</code>) and the components' own words.</td></tr>
+            <tr><td><code>placeholder</code></td><td>field, editor</td><td>Text shown while the field is empty.</td></tr>
+            <tr><td><code>readonly</code></td><td>field, editor</td><td>Shown, not edited.</td></tr>
+            <tr><td><code>inline</code></td><td>field</td><td>Text style, sized for a sentence.</td></tr>
+            <tr><td><code>aria-label</code></td><td>field, editor</td><td>The field's name for screen readers; the formula itself is read through mathra's speech.</td></tr>
+            <tr><td><code>layout</code></td><td>editor</td><td><code>page</code> fills the page: the outputs beside the formula (below it on narrow screens).</td></tr>
+            <tr><td><code>controls</code></td><td>editor</td><td>The bar's controls: <code>history zoom gallery settings language theme keyboard outputs</code>.</td></tr>
+            <tr><td><code>palettes</code>, <code>outputs</code></td><td>editor</td><td>Which palettes; which outputs (<code>none</code> hides them).</td></tr>
+            <tr><td><code>keyboard</code></td><td>editor</td><td><code>on</code>, <code>off</code>, or automatic (open on touch screens).</td></tr>
+            <tr><td><code>theme</code></td><td>editor</td><td><code>auto</code>, <code>light</code> or <code>dark</code>.</td></tr>
+            <tr><td><code>languages</code></td><td>editor</td><td>The languages the menu offers (<code>en pt-BR es</code>…), all 16 by default.</td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section id="events">
+        <h2>Events</h2>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Event</th><th>When</th><th><code>detail</code></th></tr></thead>
+          <tbody>
+            <tr><td><code>input</code></td><td>The formula changed.</td><td><code>{ latex }</code></td></tr>
+            <tr><td><code>change</code></td><td>The field lost the focus with a different formula.</td><td><code>{ latex }</code></td></tr>
+            <tr><td><code>mathra-command</code></td><td>A command is being typed after <code>\</code>.</td><td><code>{ name, active, rect }</code></td></tr>
+            <tr><td><code>mathra-render</code></td><td>The field drew the formula.</td><td></td></tr>
+            <tr><td><code>mathra-options</code></td><td>An option changed in the settings.</td><td>the options</td></tr>
+            <tr><td><code>mathra-gallery</code></td><td>An example of the gallery was opened.</td><td><code>{ example }</code></td></tr>
+            <tr><td><code>mathra-locale</code>, <code>mathra-theme</code></td><td>The language or theme was chosen in the bar.</td><td><code>{ locale }</code>, <code>{ theme }</code></td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section id="actions">
+        <h2>Actions</h2>
+        <p><code>field.run(action)</code> does what a key or a button does, for buttons of your own:</p>
+        <p><code>moveLeft</code> <code>moveRight</code> <code>moveUp</code> <code>moveDown</code> <code>selectLeft</code> <code>selectRight</code> <code>home</code> <code>end</code> <code>selectAll</code> <code>backspace</code> <code>deleteForward</code> <code>enter</code> <code>tab</code> <code>tabBack</code> <code>undo</code> <code>redo</code> <code>clear</code> <code>addRow</code> <code>addRowAbove</code> <code>addColumn</code> <code>addColumnLeft</code> <code>removeRow</code> <code>removeColumn</code> <code>sup</code> <code>sub</code>, and with an argument: <code>insert:frac</code>, <code>latex:\sqrt{#0}</code>, <code>type:x^2</code>, <code>symbol:\alpha</code>, <code>block:\pu{‸}</code>.</p>
+<pre data-lang="js">document.getElementById("half").onclick = () =&gt; field.run("latex:\\frac{#0}{2}");</pre>
+      </section>
+
+      <section id="styling">
+        <h2>Colors and parts</h2>
+        <h3>Variables</h3>
+        <p><code>--mathra-ink</code> <code>--mathra-muted</code> <code>--mathra-background</code> <code>--mathra-surface</code> <code>--mathra-page</code> <code>--mathra-border</code> <code>--mathra-focus</code> <code>--mathra-caret</code> <code>--mathra-selection</code> <code>--mathra-slot</code> <code>--mathra-key</code> <code>--mathra-key-active</code> <code>--mathra-accent</code> <code>--mathra-radius</code> <code>--mathra-font</code> <code>--mathra-mono</code> <code>--mathra-padding</code> <code>--mathra-align</code> <code>--mathra-button-size</code> <code>--mathra-key-height</code> <code>--mathra-gap</code> <code>--mathra-output-height</code> <code>--mathra-palette-height</code> <code>--mathra-menu-z</code></p>
+        <h3>Parts</h3>
+        <p>Style the inside with <code>::part()</code>: <code>box</code>, <code>caret</code>, <code>selection</code>, <code>slot</code>, <code>placeholder</code>, <code>input</code> of the field; <code>tab</code>, <code>button</code>, <code>grid</code>, <code>search</code> of the palettes; <code>key</code> of the keyboard; <code>item</code> of the command menu; <code>tab</code>, <code>action</code>, <code>body</code> of the outputs; <code>bar</code>, <code>action</code>, <code>language</code>, <code>theme</code> of the editor's bar. <code>&lt;mathra-editor&gt;</code> has slots too: <code>title</code> and <code>actions</code> in its bar, <code>start</code> and <code>end</code> around it.</p>
+<pre data-lang="html">&lt;style&gt;
+  mathra-field::part(box) { border-radius: 0; border-width: 2px; }
+&lt;/style&gt;</pre>
+        <p class="note">The source, the tests and the full list of what the editor reads are in <a href="https://github.com/matheusmota-dev-br/mathra/tree/main/editor">editor/ on GitHub</a>.</p>
+      </section>
+    </main>
+  </div>
+
+  <footer>
+    <span>mathra · MIT or Apache-2.0 · STIX Two Math font under OFL-1.1</span>
+    <span><a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="https://github.com/sponsors/matheusmota-dev-br">Sponsor mathra</a> · <a href="https://github.com/matheusmota-dev-br/mathra">github.com/matheusmota-dev-br/mathra</a></span>
+  </footer>
+</div>
+
+<script type="module">
+  import { init, render } from "@mathlabs/mathra";
+  import { Editor, childRows } from "./pkg/editor/dist/index.js";
+
+  await init();
+  const B = "\\";
+  const NS = "http://www.w3.org/2000/svg";
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const escape = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+  // ---------- the demos: keys typed into a real field, one by one ----------
+  // a step is text typed key by key, or [what the key shows, the field's action]
+  const DEMOS = {
+    quadratic: { title: "The quadratic formula", steps: ["x=(-b+-sqrt(b^2-4ac))/(2a)"] },
+    words: { title: "Greek letters by name", steps: ["2pir+theta+Delta x"] },
+    functions: { title: "Functions, upright", steps: ["sin^2 x+cos^2 x=1"] },
+    relations: { title: "≤ and ≠", steps: ["0<=x<=1, x!=1/2"] },
+    arrow: { title: "An arrow and ∞", steps: ["x->infinity"] },
+    halves: { title: "Fractions in a row", steps: ["1/2+3/4=(2+3)/4"] },
+    sinc: { title: "A function as the numerator", steps: ["sin(x)/x"] },
+    scripts: { title: "Ends by itself", steps: ["x^2+y_1+z^n-1"] },
+    euler: { title: "Parentheses group, and go", steps: ["e^(i pi)+1=0"] },
+    integral: { title: "An integral", steps: ["int_0^1 x^2 dx=1/3"] },
+    limit: { title: "A limit and a sum", steps: ["lim x->0 sin x/x+sum_(k=1)^n k"] },
+    moving: { title: "↑ and ↓ in a fraction", start: B + "frac{a}{b}+c", steps: [["Home", "home"], ["→", "moveRight"], ["→", "moveRight"], "1", ["↓", "moveDown"], "2"] },
+    tab: { title: "Tab fills the places", start: "", steps: [B + "frac ", "1", ["Tab", "tab"], "2", ["→", "moveRight"], "+" + B + "sqrt ", "x"] },
+    command: { title: "A command, typed", steps: [B + "binom ", "n", ["Tab", "tab"], "k", ["→", "moveRight"], "=" + B + "frac ", "n!", ["↓", "moveDown"], "k!(n-k)!"] },
+    physics: { title: "Physics' commands have places", steps: [B + "pdv ", "f", ["Tab", "tab"], "x", ["→", "moveRight"], "+" + B + "ket ", "psi"] },
+    matrix: { title: "A matrix from the keyboard", steps: [B + "pmatrix ", "a&b", ["Enter", "enter"], "c&d"] },
+    cases: { title: "Cases", steps: ["|x|=" + B + "cases ", "x&x>=0", ["Enter", "enter"], "-x&x<0"] },
+    water: { title: "Water", steps: [B + "ce ", "2H2 + O2 -> 2H2O"] },
+    ions: { title: "Charges", steps: [B + "ce ", "Ba^2+ + SO4^2- -> BaSO4 v"] },
+    heat: { title: "Over the arrow", steps: [B + "ce ", "CaCO3 ->[heat] CaO + CO2 ^"] },
+    haber: { title: "Equilibrium", steps: [B + "ce ", "N2 + 3H2 <=> 2NH3"] },
+    structure: { title: "Ethanal, atom by atom", steps: [B + "chemfig ", "H3C", ["Alt+→", "chemBond:0"], "C", ["Alt+↘", "chemBond:-60"], "H", ["↑", "moveUp"], ["bar: double", "chemKind:double"], ["Alt+↗", "chemBond:60"], "O"] },
+    diagram: { title: "An arrow between two objects", steps: [B + "tikzcd ", "A", ["Alt+→", "arrowRight"], "f", ["→", "moveRight"], "B"] },
+  };
+
+  function keyStrip(steps) {
+    const units = [];
+    const strip = document.createElement("div");
+    strip.className = "keys";
+    for (const s of steps) {
+      if (typeof s === "string") {
+        const typed = document.createElement("span");
+        typed.className = "typed";
+        for (const ch of s) {
+          const span = document.createElement("span");
+          span.textContent = ch === " " ? "␣" : ch;
+          typed.append(span);
+          units.push({ el: span, action: `type:${ch}`, delay: ch === " " ? 160 : 95 });
+        }
+        strip.append(typed);
+      } else {
+        const kbd = document.createElement("kbd");
+        kbd.textContent = s[0];
+        strip.append(kbd);
+        units.push({ el: kbd, action: s[1], delay: 520 });
+      }
+    }
+    return { strip, units };
+  }
+
+  function makeDemo(fig) {
+    const d = DEMOS[fig.dataset.demo];
+    const { strip, units } = keyStrip(d.steps);
+    const title = document.createElement("p");
+    title.className = "title";
+    title.textContent = d.title;
+    const field = document.createElement("mathra-field");
+    field.setAttribute("locale", "en");
+    field.setAttribute("aria-label", d.title);
+    const out = document.createElement("div");
+    out.className = "result";
+    const code = document.createElement("code");
+    const again = document.createElement("button");
+    again.type = "button";
+    again.className = "small-button";
+    again.textContent = "▶ Play";
+    again.setAttribute("aria-label", `Play “${d.title}” again`);
+    out.append(code, again);
+    fig.append(title, strip, field, out);
+    let run = 0;
+    const show = () => (code.textContent = field.value);
+    field.addEventListener("input", show);
+    async function play(animated) {
+      const id = ++run;
+      field.value = d.start ?? "";
+      if (d.start) field.run("end");
+      for (const u of units) u.el.className = "";
+      show();
+      for (const u of units) {
+        if (id !== run) return;
+        if (animated) {
+          u.el.className = "now";
+          await sleep(u.delay);
+          if (id !== run) return;
+        }
+        field.run(u.action);
+        u.el.className = "done";
+      }
+      show();
+    }
+    again.onclick = () => play(!reduce);
+    return play;
+  }
+
+  const plays = new Map();
+  for (const fig of document.querySelectorAll(".demo[data-demo]")) plays.set(fig, makeDemo(fig));
+  // each plays once when it comes into view, after the field has drawn
+  const seen = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      seen.unobserve(e.target);
+      plays.get(e.target)(!reduce);
+    }
+  }, { threshold: 0.6 });
+  for (const fig of plays.keys()) seen.observe(fig);
+
+  // ---------- the x-ray: every box mathra gives, outlined ----------
+  // a command's name, written with one backslash whether the tree keeps it or not
+  const cmd = (name) => B + String(name).replace(/^\\/, "");
+  const KINDS = {
+    char: (a) => `“${a.ch}”`, symbol: (a) => a.latex, frac: (a) => (cmd(a.cmd) === B + "frac" ? "fraction" : cmd(a.cmd)), sqrt: () => "root",
+    scripts: () => "scripts", delim: (a) => `${a.left} … ${a.right}`, bigop: (a) => cmd(a.op), accent: (a) => cmd(a.cmd), style: (a) => cmd(a.cmd),
+    text: (a) => cmd(a.cmd), matrix: (a) => `matrix (${a.env})`, call: (a) => cmd(a.name), raw: () => "LaTeX block", command: (a) => cmd(a.name),
+    diagram: (a) => `diagram (${a.env})`, reaction: () => "reaction", species: () => "species", rxarrow: (a) => `arrow ${a.arrow}`, rxtoken: (a) => `“${a.text}”`,
+  };
+  const describe = (n) => (n.kind === "row" ? (n.children.length ? "row" : "empty place") : (KINDS[n.kind] ?? (() => n.kind))(n));
+
+  function index(row, into = new Map()) {
+    into.set(row.id, row);
+    for (const a of row.children) {
+      into.set(a.id, a);
+      for (const r of childRows(a)) index(r, into);
+    }
+    return into;
+  }
+
+  function drawXray(target, editor, info) {
+    const nodes = index(editor.root);
+    const out = render(editor.toLatex({ marked: true }));
+    const svg = new DOMParser().parseFromString(out.svg, "image/svg+xml").documentElement;
+    const g = document.createElementNS(NS, "g");
+    for (const b of [...out.boxes].sort((p, q) => p.level - q.level)) {
+      const id = b.attributes["data-m"];
+      const node = nodes.get(id);
+      const r = document.createElementNS(NS, "rect");
+      for (const [k, v] of Object.entries({ x: b.x, y: b.y, width: Math.max(b.width, 1), height: Math.max(b.height, 1) })) r.setAttribute(k, v);
+      r.setAttribute("class", `box l${Math.min(b.level, 4)}${node?.kind === "row" && !node.children.length ? " empty" : ""}`);
+      r.dataset.id = id;
+      const t = document.createElementNS(NS, "title");
+      t.textContent = node ? `${describe(node)} (${id})` : id;
+      r.append(t);
+      g.append(r);
+    }
+    svg.append(g);
+    target.replaceChildren(svg);
+    svg.addEventListener("pointerover", (e) => {
+      const id = e.target.dataset?.id;
+      if (!id) return;
+      highlight(target, id);
+      info?.(id, nodes.get(id));
+    });
+    svg.addEventListener("pointerleave", () => { highlight(target, null); info?.(null); });
+    return nodes;
+  }
+  function highlight(scope, id) {
+    for (const el of scope.querySelectorAll(".on")) el.classList.remove("on");
+    if (id) for (const el of scope.querySelectorAll(`[data-id="${id}"]`)) el.classList.add("on");
+  }
+
+  for (const box of document.querySelectorAll(".xray[data-xray]")) {
+    const e = new Editor();
+    e.parseChem = (l) => render(l).tree;
+    e.setLatex(box.dataset.xray);
+    const drawing = document.createElement("div");
+    drawing.className = "drawing";
+    const info = document.createElement("div");
+    info.className = "info";
+    const idle = "Point at a box: each place and each piece is one.";
+    info.textContent = idle;
+    box.append(drawing, info);
+    drawXray(drawing, e, (id, node) => (info.innerHTML = id ? `<b>${escape(describe(node ?? { kind: "?" }))}</b> · mark ${escape(id)}` : idle));
+  }
+
+  // ---------- how it works, live from a field ----------
+  const how = document.getElementById("how-field");
+  const tree = document.getElementById("how-tree");
+  const marked = document.getElementById("how-marked");
+  const howXray = document.getElementById("how-xray");
+  const stages = document.querySelector(".stages");
+  function treeList(row) {
+    const li = (node, children) => `<li><span data-id="${node.id}">${escape(describe(node))} <span class="id">${node.id}</span></span>${children}</li>`;
+    const rows = (r) => `<ul>${r.children.map((a) => li(a, childRows(a).map((c) => `<ul>${li(c, rows(c))}</ul>`).join(""))).join("")}</ul>`;
+    return `<ul>${li(row, rows(row))}</ul>`;
+  }
+  function follow() {
+    const e = how.editor;
+    tree.innerHTML = treeList(e.root);
+    const latex = e.toLatex({ marked: true });
+    marked.innerHTML = escape(latex).replace(/\\htmlData\{m=[^}]*\}/g, (m) => `<span class="m">${m}</span>`);
+    const drawing = document.createElement("div");
+    drawing.className = "drawing";
+    const info = document.createElement("div");
+    info.className = "info";
+    howXray.replaceChildren(drawing, info);
+    drawXray(drawing, e, (id, node) => {
+      info.innerHTML = id ? `<b>${escape(describe(node ?? { kind: "?" }))}</b> · mark ${escape(id)}` : "";
+      highlight(tree, id);
+    });
+  }
+  tree.addEventListener("pointerover", (ev) => {
+    const id = ev.target.closest("[data-id]")?.dataset.id;
+    highlight(stages, id ?? null);
+  });
+  tree.addEventListener("pointerleave", () => highlight(stages, null));
+  how.addEventListener("input", follow);
+  customElements.whenDefined("mathra-field").then(() => requestAnimationFrame(follow));
+
+  // ---------- the tour's figure: the palettes' buttons and a formula, drawn by mathra ----------
+  const fig = document.querySelector(".anatomy svg");
+  function place(tex, x, base, em, into) {
+    const out = render(tex);
+    const svg = new DOMParser().parseFromString(out.svg, "image/svg+xml").documentElement;
+    const [vx, vy, vw, vh] = svg.getAttribute("viewBox").split(" ").map(Number);
+    const k = em / 1000;
+    svg.setAttribute("x", x + vx * k);
+    svg.setAttribute("y", base + vy * k);
+    svg.setAttribute("width", vw * k);
+    svg.setAttribute("height", vh * k);
+    into.append(svg);
+    return { width: vw * k, above: -vy * k, below: (vh + vy) * k, boxes: out.boxes, k };
+  }
+  const SLOT = String.raw`\color{#C0612B}{\square}`;
+  const buttons = fig.querySelector("#buttons");
+  const icons = [String.raw`\frac{${SLOT}}{${SLOT}}`, String.raw`\sqrt{${SLOT}}`, `${SLOT}^{${SLOT}}`, `${SLOT}_{${SLOT}}`, String.raw`\sum`, String.raw`\int`, String.raw`\lim`, String.raw`(${SLOT})`, String.raw`\vec{${SLOT}}`, String.raw`\alpha`, String.raw`\le`, String.raw`\to`, String.raw`\infty`, String.raw`\pm`, String.raw`\binom{${SLOT}}{${SLOT}}`, String.raw`|${SLOT}|`, String.raw`\overline{${SLOT}}`, String.raw`\partial`, String.raw`\nabla`, String.raw`\in`];
+  icons.forEach((tex, i) => {
+    const col = i % 10, line = Math.floor(i / 10);
+    const x = 28 + col * 48, y = 96 + line * 36;
+    const r = document.createElementNS(NS, "rect");
+    for (const [a, v] of Object.entries({ x, y, width: 42, height: 30, rx: 6, class: "btn" })) r.setAttribute(a, v);
+    buttons.append(r);
+    const g = document.createElementNS(NS, "g");
+    g.setAttribute("style", "color: var(--ink)");
+    buttons.append(g);
+    const m = place(tex, 0, 0, 15, g);
+    const k = Math.min(1, 34 / m.width);
+    g.setAttribute("transform", `translate(${x + 21 - (m.width * k) / 2} ${y + 15 + ((m.above - m.below) * k) / 2}) scale(${k})`);
+  });
+  const formula = String.raw`\int_0^1 x^2\,dx=\frac{1}{\htmlData{m=c}{${SLOT}}}`;
+  const holder = fig.querySelector("#anatomy-formula");
+  const probe = place(formula, 0, 0, 34, document.createElementNS(NS, "g"));
+  const fx = 268 - probe.width / 2, fbase = 304 + (probe.above - probe.below) / 2;
+  const m = place(formula, fx, fbase, 34, holder);
+  const c = m.boxes.find((b) => b.attributes["data-m"] === "c");
+  if (c) {
+    const caret = document.createElementNS(NS, "rect");
+    const cx = fx + (c.x + c.width) * m.k + 4;
+    for (const [a, v] of Object.entries({ x: cx, y: fbase + c.y * m.k - 2, width: 2, height: c.height * m.k + 4, fill: "var(--accent)" })) caret.setAttribute(a, v);
+    holder.append(caret);
+    fig.querySelector("#pin-place").setAttribute("transform", `translate(${fx + (c.x + c.width / 2) * m.k} ${fbase + (c.y + c.height) * m.k + 22})`);
+    fig.querySelector("#pin-caret").setAttribute("transform", `translate(${cx + 22} ${fbase + c.y * m.k - 10})`);
+  }
+
+  // ---------- the answer in a sentence ----------
+  const answer = document.getElementById("answer");
+  answer.addEventListener("input", (e) => {
+    const t = e.detail.latex.replace(/\s|\\cdot/g, "");
+    const right = ["\\frac{bh}{2}", "\\frac{1}{2}bh", "\\frac{hb}{2}", "\\frac{1}{2}hb", "\\frac{b}{2}h"].includes(t);
+    document.getElementById("answer-check").textContent = right ? "✓ right" : "";
+  });
+
+  // ---------- the contents follow the reading ----------
+  const links = new Map([...document.querySelectorAll(".docs-toc a")].map((a) => [a.getAttribute("href").slice(1), a]));
+  const spy = new IntersectionObserver((entries) => {
+    for (const e of entries) if (e.isIntersecting) { for (const a of links.values()) a.classList.remove("here"); links.get(e.target.id)?.classList.add("here"); }
+  }, { rootMargin: "0px 0px -70% 0px" });
+  for (const id of links.keys()) { const s = document.getElementById(id); if (s) spy.observe(s); }
+</script>
+<script type="module">
+  import "./pkg/editor/dist/index.js";
+</script>
+</body>
+</html>

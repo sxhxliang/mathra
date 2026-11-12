@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { init, texToSvg, render, locales, loadFont, catalogFonts, loadFontFromCatalog, version } from "@mathlabs/mathra";
+import { init, texToSvg, render, locales, loadFont, loadFallbackFont, catalogFonts, loadFontFromCatalog, version } from "@mathlabs/mathra";
 
 test("works right away in Node, init is optional", async () => {
   assert.match(texToSvg("x^2"), /^<svg/);
@@ -18,10 +18,10 @@ test("options and the old locale string", () => {
 });
 
 test("render returns every output as an object", () => {
-  const r = render(String.raw`\vertA\vert`, { locale: "fr" });
+  const r = render(String.raw`\vert A\vert}`, { locale: "fr" });
   assert.match(r.svg, /^<svg/);
   assert.equal(r.speech, "valeur absolue de A");
-  assert.equal(r.warnings[0].rule, "E-REC-1");
+  assert.equal(r.warnings[0].rule, "E-REC-4");
   assert.equal(typeof r.tree, "object");
 });
 
@@ -53,6 +53,25 @@ test("braille", () => {
   assert.throws(() => render("x", { braille: "ueb" }), /unknown braille code/);
 });
 
+test("mathml", () => {
+  const r = render(String.raw`\frac{1}{2}`);
+  assert.equal(r.mathml, '<math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mfrac><mn>1</mn><mn>2</mn></mfrac></math>');
+  assert.match(render("x", { display: false }).mathml, /display="inline"/);
+  assert.match(render(String.raw`\sen x`, { locale: "pt-BR" }).mathml, /<mi intent="sine">sen<\/mi>/);
+  assert.deepEqual(render(r.mathml, { input: "mathml" }).tree, r.tree);
+});
+
+test("labels and citations", () => {
+  const options = { labels: { "eq:a": 3, "eq:b": "4a" }, citations: { knuth: 1 } };
+  assert.equal(render(String.raw`\eqref{eq:a} \ref{eq:b} \cite{knuth}`, options).text, "(3)4a[1]");
+  assert.match(texToSvg(String.raw`\eqref{eq:a}`, options), /\(3\)/);
+  const unknown = render(String.raw`\eqref{eq:z}`);
+  assert.equal(unknown.text, "(??)");
+  assert.equal(unknown.warnings[0].rule, "E-REC-9");
+  assert.throws(() => texToSvg(String.raw`\cite{knuth}`, { strict: true }), /no number/);
+  assert.equal(render(String.raw`\cite{knuth}`, { strict: true, citations: { knuth: 1 } }).text, "[1]");
+});
+
 test("the writing animation and the steps", () => {
   assert.doesNotMatch(texToSvg("x+1"), /data-step/);
   assert.match(texToSvg("x+1", { animate: true }), /@keyframes mr-f/);
@@ -60,6 +79,15 @@ test("the writing animation and the steps", () => {
   assert.match(steps, /data-steps="3"/);
   assert.doesNotMatch(steps, /@keyframes/);
   assert.match(render("x", { animate: true }).svg, /mr-f/);
+});
+
+test("maxWidth breaks the lines", () => {
+  const tex = "a = b + c + d + e + f + g + h";
+  assert.doesNotMatch(texToSvg(tex), /data-line/);
+  assert.match(texToSvg(tex, { maxWidth: 4 }), /<g data-line="1">/);
+  const r = render(tex, { maxWidth: 4 });
+  assert.equal(r.speech, render(tex).speech);
+  assert.ok(r.applied.some((a) => a.rule === "L-BRK-1"));
 });
 
 test("a math font from outside", async () => {
@@ -74,6 +102,23 @@ test("a math font from outside", async () => {
   assert.match(render("x", { font }).svg, /Latin Modern Math/);
   assert.throws(() => loadFont(new Uint8Array([1, 2, 3])), /not a font/);
   assert.throws(() => texToSvg("x", { font: 99 }), /no font loaded/);
+});
+
+test("fallback fonts for what the math font lacks", async () => {
+  const { readFile } = await import("node:fs/promises");
+  // the npm package embeds no emoji font: a box and a warning, or refused in strict mode
+  assert.equal(render("😀").warnings[0].rule, "E-REC-8");
+  assert.throws(() => texToSvg("😀", { strict: true }), /has no '😀'/);
+  const fallback = loadFallbackFont(await readFile(process.env.MATHRA_TEST_FALLBACK));
+  assert.deepEqual(fallback, { id: fallback.id, name: "fallback-a", fallback: true });
+  const r = render(String.raw`😀 + 	ext{中}`, { strict: true, fallbackFonts: [fallback] });
+  assert.deepEqual(r.warnings, []);
+  assert.match(r.svg, /M500 -100 L900 300/);
+  // a math font can stand in too, in its place in the list (Latin Modern Math has no 😀)
+  const lm = loadFont(await readFile(process.env.MATHRA_TEST_FONT));
+  assert.equal(render("😀", { fallbackFonts: [lm, fallback] }).warnings.length, 0);
+  assert.equal(render("😀", { fallbackFonts: [lm] }).warnings[0].rule, "E-REC-8");
+  assert.throws(() => loadFallbackFont(new Uint8Array([1, 2, 3])), /not a font/);
 });
 
 test("a font from a catalog, checked by its hash", async () => {

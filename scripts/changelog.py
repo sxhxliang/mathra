@@ -28,7 +28,7 @@ def sections():
 
 
 def gallery():
-    """The named rows of the gallery: name -> {tex, locale, input, caption}."""
+    """The named rows of the gallery: name -> {tex, locale, input, caption, options}."""
     groups = json.loads((ROOT / "corpus/gallery.json").read_text(encoding="utf-8"))
     return {r["name"]: r for g in groups for r in g["rows"] if r.get("name")}
 
@@ -41,9 +41,9 @@ def release(h, body, named):
     for item in re.findall(r"`([^`]+)`", listed.group(1)) if listed else []:
         row = named.get(item)
         if row:
-            equations.append({"tex": row["tex"], "locale": row.get("locale", "en"), "input": row.get("input", "latex"), "caption": row["caption"]})
+            equations.append({"tex": row["tex"], "locale": row.get("locale", "en"), "input": row.get("input", "latex"), "caption": row["caption"], "maxWidth": row.get("options", {}).get("maxWidth")})
         else:
-            equations.append({"tex": item, "locale": "en", "input": "latex", "caption": ""})
+            equations.append({"tex": item, "locale": "en", "input": "latex", "caption": "", "maxWidth": None})
     return {
         "version": h.group(2) or "Unreleased",
         "date": h.group(3) or "",

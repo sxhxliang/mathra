@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>mathra · Gallery</title>
-<meta name="description" content="Equations mathra draws, by group: famous and big equations, structures, science packages, structural chemistry, commutative diagrams, languages and notations. Drawn live in your browser.">
+<meta name="description" content="Equations mathra draws, by group: famous and big equations, structures, matrices and determinants, science packages, physics, calculations step by step, chemical reactions, structural chemistry, commutative diagrams, languages and notations. Drawn live in your browser.">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -22,6 +22,7 @@
     <nav aria-label="Site">
       <a href="index.html#playground">Playground</a>
       <a href="gallery.html" aria-current="page">Gallery</a>
+      <a href="editor.html">Editor <span class="new">New</span></a>
       <a href="changelog.html">Evolution</a>
       <a href="docs.html">Docs</a>
       <a href="reference.html">Reference</a>
@@ -40,7 +41,7 @@
 
   <footer>
     <span>mathra · MIT or Apache-2.0 · STIX Two Math font under OFL-1.1</span>
-    <span><a href="https://github.com/sponsors/matheusmota-dev-br">Sponsor mathra</a> · <a href="https://github.com/matheusmota-dev-br/mathra">github.com/matheusmota-dev-br/mathra</a></span>
+    <span><a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="https://github.com/sponsors/matheusmota-dev-br">Sponsor mathra</a> · <a href="https://github.com/matheusmota-dev-br/mathra">github.com/matheusmota-dev-br/mathra</a></span>
   </footer>
 </div>
 
@@ -58,14 +59,18 @@
   const WIDE_EM = 15;
   let render = null;
 
-  function convert(src, loc, input, animate = false) {
-    return JSON.parse(render(src, loc, true, false, input, null, animate, false));
+  // the options a row may carry (corpus/gallery.json): maxWidth, in em, breaks lines wider than that
+  const maxWidth = (row) => row.options?.maxWidth ?? null;
+
+  function convert(row, animate = false) {
+    return JSON.parse(render(row.tex, row.locale, true, false, row.input || "latex", null, animate, false, null, maxWidth(row)));
   }
 
   function tryLink(row) {
     const p = new URLSearchParams({ tex: row.tex });
     if (row.locale !== "en") p.set("locale", row.locale);
     if (row.input && row.input !== "latex") p.set("input", row.input);
+    if (maxWidth(row)) p.set("width", String(maxWidth(row)));
     return `index.html#${p}`;
   }
 
@@ -75,7 +80,7 @@
       const input = row.input || "latex";
       let svg;
       try {
-        svg = convert(row.tex, row.locale, input).svg;
+        svg = convert(row).svg;
       } catch (e) {
         svg = `<span class="empty">${escape(String(e.message ?? e))}</span>`;
       }
@@ -106,7 +111,7 @@
       const still = eq.innerHTML;
       const name = row.name || group.id;
       let animated = null, stop = null;
-      const svg = () => (animated ??= convert(row.tex, row.locale, row.input || "latex", true).svg);
+      const svg = () => (animated ??= convert(row, true).svg);
       const play = card.querySelector('[data-act="play"]');
       play.onclick = () => {
         if (stop) { stop(); stop = null; play.textContent = "▶ Animate"; return; }

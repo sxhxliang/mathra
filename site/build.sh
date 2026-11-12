@@ -15,3 +15,9 @@ printf 'var MATHRA_REFERENCE = %s;\n' "$(cat corpus/reference.json)" > site/pkg/
 printf 'var MATHRA_GALLERY = %s;\n' "$(cat corpus/gallery.json)" > site/pkg/gallery_data.js
 # the releases of CHANGELOG.md, for the evolution page
 python3 -I scripts/changelog.py js > site/pkg/changelog.js
+# Noto Emoji, which the npm package leaves out: the playground downloads it only for an equation with a
+# character the math font lacks, from the site itself, with its license next to it (and, for file://
+# pages, as a script, like the wasm)
+mkdir -p site/pkg/fonts
+cp crates/core/fonts/NotoEmoji-Regular-subset.ttf crates/core/fonts/OFL-NotoEmoji.txt site/pkg/fonts/
+printf 'var MATHRA_EMOJI_BASE64 = "%s";\n' "$(base64 < site/pkg/fonts/NotoEmoji-Regular-subset.ttf | tr -d '\n')" > site/pkg/fonts/noto_emoji_bytes.js

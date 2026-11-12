@@ -48,7 +48,9 @@ In **pt-BR, fr, de and it**, where `]a, b[` is the usual notation, a `]` without
 
 ### L-UNI-1 · siunitx quantities
 
-`\SI{9,8}{\meter\per\second\squared}` and `\qty{…}{…}` write the number, a thin space and the unit in upright letters. Negative exponents (`\per`) become a slash: `m/s²`, and more than one unit in the denominator gets parentheses: `J/(mol·K)`. `\num{…}` groups with thin spaces from five digits on; `\ang{30}` writes `30°`.
+`\SI{9,8}{\meter\per\second\squared}` and `\qty{…}{…}` write the number, a thin space and the unit in upright letters. Negative exponents (`\per`) become a slash: `m/s²`, and more than one unit in the denominator gets parentheses: `J/(mol·K)`. `\num{…}` groups with thin spaces from five digits on; `\ang{30}` writes `30°`. `\tothe{4}` raises the unit before it and `\raiseto{4}` the unit after it: `\unit{\raiseto{4}\metre}` is m⁴. A value with an uncertainty is a number and is drawn as written, with no warning: `\qty{1.23(4)}{\kilo\gram}` is `1.23(4) kg` (the compact form, siunitx's default `uncertainty-mode`), and `\qty{1.23 \pm 0.04}{\kilo\gram}` (or `+-`) is `(1.23 ± 0.04) kg`, in parentheses before a unit as siunitx's `separate-uncertainty-units = bracket` sets them (`\num{1.23 \pm 0.04}` has none).
+
+The slash is mathra's choice (siunitx's own default is `power`, `m s⁻²`); only `\sisetup{per-mode=…}` changes it, for the rest of the input: `fraction` (`\frac{m}{s²}`), `power` (`m s⁻²`), `repeated-symbol` (`J/mol/K`), `symbol` and `single-symbol` (the slash). `\sisetup` also honors `inter-unit-product`, `quantity-product`, `output-complex-root`, `complex-root-position` and `retain-explicit-plus`; any other option is ignored with a warning (E-REC-9). `\DeclareSIUnit{\rpm}{rpm}` adds a unit for the rest of the input, as `\definecolor` adds a color; a unit declared as other units (`{\kilo\watt\hour}`) is read as those. `\complexnum{1+2i}` and `\complexqty{3+4i}{\ohm}` write each part as `\num` does, with the language's decimal marker, the upright i after the number, and parentheses around a quantity's value with both parts: `(3 + 4i) Ω`.
 
 ### L-UNI-2 · Ranges, lists and products
 
@@ -70,7 +72,7 @@ With the `chem` feature (on by default), `\chemfig{…}`, `\schemestart … \sch
 
 ### L-CHE-1 · mhchem
 
-`\ce{…}` reads chemical formulas: element symbols upright, digits after them as subscripts, charges as superscripts (`Ag+`, `SO4^2-`, `[H+]`), radicals (`^{.}` → •), oxidation states (`^{II}`), states (`(aq)`, `(s)`, `(l)`, `(g)`), isotopes on an empty base (`^{14}_{6}C`) and bonds (`-`, `=`, `#`, `\bond{…}`), which are drawn as lines and are not read as minus, equals or congruence. Coefficients may be integers, decimals (`0.5`), fractions (`1/2`, drawn small) or math (`$x$`, or a lone lowercase letter); after the dot of a hydrate (`CuSO4.5H2O`, also `*`) a number is a coefficient again, not a subscript. The arrows are `->`, `<-`, `<->` (resonance), `<-->`, `<=>`, `<=>>` and `<<=>`; `[above][below]` right after an arrow are labels, read as `\ce` themselves, and the arrow stretches over them. `\frac{…}{…}` inside `\ce` keeps formulas in numerator and denominator, and any other command (`\Delta`) is read as math. `\pu{123 kJ mol^-1}` writes a quantity with mhchem's unit syntax. Both work inside `\text{…}` (and every text argument) as in math, as mhchem typesets them in text too (`\text{water, \ce{H2O}}`).
+`\ce{…}` reads chemical formulas: element symbols upright, digits after them as subscripts, charges as superscripts (`Ag+`, `SO4^2-`, `[H+]`), radicals (`^{.}` → •), oxidation states (`^{II}`), states (`(aq)`, `(s)`, `(l)`, `(g)`), isotopes on an empty base (`^{14}_{6}C`) and bonds (`-`, `=`, `#`, `\bond{…}`), which are drawn as lines and are not read as minus, equals or congruence. Coefficients may be integers, decimals (`0.5`), fractions (`1/2`, drawn small) or math (`$x$`, or a lone lowercase letter); after the dot of a hydrate (`CuSO4.5H2O`, also `*`) a number is a coefficient again, not a subscript. The arrows are `->`, `<-`, `<->` (resonance), `<-->`, `<=>`, `<=>>` and `<<=>`; `[above][below]` right after an arrow are labels, read as `\ce` themselves (between braces, `[{text above}]`, as text), and the arrow stretches over them. `&` and `\\` inside `\ce` belong to the alignment around it. `\frac{…}{…}` inside `\ce` keeps formulas in numerator and denominator, and any other command (`\Delta`) is read as math. `\pu{123 kJ mol^-1}` writes a quantity with mhchem's unit syntax; `//` is a fraction bar, as in mhchem.js' `pu` state (a text-style `\frac`): `\pu{75.3 J // mol K}` is 75.3 J over mol K. Words are text (`\ce{Hydrogen + Oxygen -> Water}`), two formulas or words written apart get a word space (`sodium chloride`), and a state may hold more after a comma (`(aq,$\infty$)`), by the rules in `chemistry.md`. Both work inside `\text{…}` (and every text argument) as in math, as mhchem typesets them in text too (`\text{water, \ce{H2O}}`).
 
 ## Input coming from other systems
 
@@ -90,12 +92,21 @@ An input that starts with a `<math>` element (after an optional XML prolog or co
 
 Package imports are ignored and noted:
 
-- `\tiny`, `\scriptsize`, `\small`, `\large` and the rest of the size commands: the size comes from whoever uses the SVG. In text, `\fontsize{size}{skip}\selectfont` too.
+- `\tiny`, `\scriptsize`, `\small`, `\large` and the rest of the size commands: the size comes from whoever uses the SVG. In text, `\fontsize{size}{skip}\selectfont` too. Written as an environment in math (`\begin{tiny} x \end{tiny}`), each one is the command over its body, `{\tiny x}`, and is ignored the same way.
+- Plain TeX's fonts of its smaller sizes are not document sizes: they set the math one or two steps smaller, for the rest of the group, as plain.tex loads them beside 10-point text. `\sevenrm` (cmr7) is `\scriptstyle\rm`, `\fiverm` (cmr5) `\scriptscriptstyle\rm`, and `\sevenbf`, `\fivebf` the same in bold.
 - `\usepackage{…}`, `\RequirePackage{…}` and MathJax's `\require{…}`, with their optional argument: the supported packages are already loaded.
 
-### L-TXT-1 · Quotes in text
+### L-ENT-5 · Cross-references: labels, tags and citations
 
-Inside `\text{…}` (and every text argument), TeX's quote ligatures become typographic quotes: ``` `` ``` → “, `''` → ”, `` ` `` → ‘, `'` → ’. In math mode `'` is still a prime.
+An equation is converted alone, so the numbers of the document around it come from the caller: `Options::labels` and `Options::citations` (`labels` and `citations` in JavaScript and Python, `--label key=n` and `--cite key=n` in the CLI) map a key to its number.
+
+- `\ref{key}` shows the label's number and `\eqref{key}` the number in parentheses: `(3)`. `\cite{a,b}` shows `[1, 2]`, and `\cite[p.~5]{a}` adds the note, `[1, p. 5]`. They work inside `\text{…}` too. Speech, text and braille say the number, never the key.
+- `\tag{3}` numbers the line it is on (in `equation`, `align`, `gather`, `multline`, `flalign`, `alignat`, `eqnarray` or a loose `\\` line), and a `\label` on the same line takes that number: `\ref` shows the tag as written, `\eqref` in parentheses. The labels an equation numbers this way come back in `Output::labels`, and in `--batch` they count for the lines after it. A `\label` with no `\tag` would take the automatic number of `equation` or `align`, which mathra does not give: equations are not numbered on their own.
+- A key with no number is `??` (`(??)` for `\eqref`) or `?` inside the citation's brackets, as on LaTeX's first run, with an E-REC-9 warning; strict mode refuses it.
+
+### L-TXT-1 · Quotes and dashes in text
+
+Inside `\text{…}` (and every text argument), TeX's quote ligatures become typographic quotes: ``` `` ``` → “, `''` → ”, `` ` `` → ‘, `'` → ’. In math mode `'` is still a prime. The dash ligatures too, as LaTeX and KaTeX set them: `--` → – (en dash), `---` → — (em dash); not in typewriter type (`\texttt`, `\ttfamily`), whose font has no ligatures.
 
 ### L-TXT-2 · Math inside text
 
@@ -115,6 +126,10 @@ Inside `\text{…}` (and every text argument), `\hspace{…}` and `\hspace*{…}
 
 A text is a box of its natural width, as `\text{…}` is in TeX: `\hfill`, `\hfil` and `\hss` take no room in it (`1 \hfill IA` is `1 IA`), and a line break, `\newline` or `\linebreak` (with its optional `[n]`), is a space, as `\\` is.
 
+A line break or a tab inside text is a space, as in TeX; with the spaces around it (the indentation of the next line, a blank line) it is a single space: `\text{can be`, a line break, `  used}` is `can be used`.
+
+A backslash before a line break or a tab of the source is a control space, `\ `, as in plain TeX, in text and in math (`a\` and a line break, then `b`, is `a\ b`); `\\` before a line break is still a line break. A control space that ends the input (`a\ `) is a space too: trimming the input does not cut it (#254).
+
 ### L-TXT-4 · Color inside text
 
 Inside `\text{…}` (and every text argument), `\textcolor{color}{…}` sets its argument in that color, and `\color{color}` the rest of the group it is in (`{\color{red}warm} and cold`), with the color models of math (`\color[rgb]{0.2,0.4,0.6}`). The colored text keeps the bold, small capitals or monospace around it, and the math in it is colored too.
@@ -125,6 +140,12 @@ Inside `\text{…}` (and every text argument), `\textit{…}` and `\emph{…}` s
 
 `\mathit{…}`'s font is a text font too: its letters make one word, with no italic correction between them (TeXbook, Appendix G, rule 17), where the math italic of `$ff$` has one after each letter.
 
+### L-TXT-6 · Accents inside text
+
+Inside `\text{…}` (and every text argument), LaTeX's text accents put their mark on the letter after them, with or without braces: `\'e`, `` \`a ``, `\^o`, `\~n`, `\"u`, `\=a`, `\.z`, and `\c{c}`, `\u{a}`, `\v{s}`, `\H{o}`, `\r{a}`, `\k{e}`, `\b{b}`, `\d{d}`, `\t{oo}` with their argument. The accented letter is one character where Unicode has it (é, ñ, ç, š), and an `i` takes the accent without its dot (`\'i` is í, as on ı); elsewhere it is the letter followed by the combining accent.
+
+An accent with an empty argument, `\^{}`, is the accent alone, as LaTeX sets it: the usual way to write a caret or a tilde in text (`x\^{}2`, `\~{}user`). It is the accent's spacing character: ´ ` ˆ ˜ ¨ ¯ ˙ ¸ ˘ ˇ ˝ ˚ ˛ for `\'` `` \` `` `\^` `\~` `\"` `\=` `\.` `\c` `\u` `\v` `\H` `\r` `\k`, and the combining accent on a no-break space for `\b`, `\d` and `\t`, which have none (#306).
+
 ## Macros
 
 ### L-MAC-1 · Substitution macros
@@ -133,7 +154,7 @@ Inside `\text{…}` (and every text argument), `\textit{…}` and `\emph{…}` s
 
 `\ifx`, `\expandafter`, `\catcode` and `\def` with delimited parameters are deliberately not supported (see `boundary.md`).
 
-Package commands defined through other commands go through the same mechanism: from physics, `\dv`, `\pdv`, `\fdv`, `\dd`, `\eval`, `\expval`, `\mel`, `\braket{a}{b}`, `\ketbra`, `\comm`, `\acomm`, `\pb`, `\grad`, `\divergence`, `\curl`, `\laplacian`, `\vb`, `\vu`, `\va`, `\cross`, `\vdot`, `\order`, `\Tr`, `\tr`, `\rank`, `\erf`, `\Res`, `\qty`, `\pqty`, `\bqty`, `\vqty`, `\Bqty`; `\ket`, `\bra`, `\braket`, `\Set` (braket); `\tensor`, `\indices` (tensor); `\prescript` (mathtools); `\abs`, `\norm`, `\sfrac`, `\nicefrac`, `\unitfrac`. `\qty` is physics' brackets unless two braced groups follow (`\qty{3}{m}`, siunitx's quantity). `\div` stays ÷: physics' divergence is `\divergence`.
+Package commands defined through other commands go through the same mechanism: from physics, `\dv`, `\pdv`, `\fdv`, `\dd`, `\eval`, `\expval`, `\mel`, `\braket{a}{b}`, `\ketbra`, `\comm`, `\acomm`, `\pb`, `\grad`, `\divergence`, `\curl`, `\laplacian`, `\vb`, `\vu`, `\va`, `\cross`, `\vdot`, `\order`, `\Tr`, `\tr`, `\rank`, `\erf`, `\Res`, `\qty`, `\pqty`, `\bqty`, `\vqty`, `\Bqty`, the matrices (`\mqty` with its `(…)`, `*(…)` (`\lgroup…\rgroup`), `[…]`, `|…|` and `{…}` (no delimiters) forms, `\pmqty`, `\Pmqty`, `\bmqty`, `\vmqty`, `\mdet`, the small `\smqty`, `\spmqty`, `\sPmqty`, `\sbmqty`, `\svmqty`, `\smdet`, and the contents `\imat`, `\xmat`, `\xmat*`, `\zmat`, `\dmat`, `\admat`, `\paulimatrix`, `\paulixmatrix`…, up to 64 rows and columns), the spaced text (`\qq{…}`, `\qc`, `\qcc`, `\qand`, `\qor`, `\qif`…, `\qin`, `\qas`, starred without the first `\quad`), `\var`, `\pv`, `\PV`, `\op`, `\vev`, `\flatfrac`, `\cp`, `\Trace`, `\absolutevalue`, `\acos`…`\acot`, the long names (`\sine`, `\hypsine`, `\arcsine`, `\asine`, `\exponential`, `\logarithm`, `\naturallogarithm`, `\determinant`, `\Residue`, `\Probability`…), `\vnabla`, `\gradientnabla`, `\diffd`, `\fderivative`, `\pderivative`, `\real` and `\imaginary` (ℜ and ℑ, the package's names for LaTeX's `\Re` and `\Im`); `\ket`, `\bra`, `\braket`, `\Set` (braket); `\tensor`, `\indices` (tensor); `\prescript` (mathtools); `\abs`, `\norm`, `\sfrac`, `\nicefrac`, `\unitfrac`. `\qty` is physics' brackets unless two braced groups follow (`\qty{3}{m}`, siunitx's quantity). `\div` stays ÷: physics' divergence is `\divergence`. `\Re` and `\Im` stay LaTeX's ℜ and ℑ too, where physics makes them the operators Re and Im (an equation written for physics can say `\operatorname{Re}`): mathra reads LaTeX without knowing which packages the document loads. physics' starred forms follow the package: `\abs*`, `\norm*`, `\pqty*` (and the other brackets), `\comm*`, `\ket*`, `\bra*`, `\braket*`, `\ketbra*`, `\expval*` and `\mel*` keep their brackets at the text size (`\expval**` and `\mel**` resize them); `\dv*`, `\pdv*` and `\fdv*` are the flat fraction df/dx. `\sin[2](x)` puts the power on the function, sin²(x), for the functions physics redefines (`\sin` to `\coth`, `\log`, `\ln`); without the parentheses, physics leaves `[2]` as written, and so does mathra.
 
 ## Column arithmetic (mathra extensions)
 
@@ -159,13 +180,41 @@ Latin letters and lowercase Greek letters are drawn with Unicode's math italic c
 
 ### L-LET-2 · Double-struck letters spoken
 
-A double-struck capital, written `\mathbb{R}`, `RR` (AsciiMath), `mathvariant="double-struck"` or as the character (ℝ, 𝔸), is read as the number set it names: ℕ, ℤ, ℚ, ℝ and ℂ are "the natural numbers", "the integers", "the rational numbers", "the real numbers" and "the complex numbers" ("os naturais", "os inteiros", "os racionais", "os reais", "os complexos"). Any other is read as a letter: "double-struck P", "P duplo". Where the language contracts a preposition with the article of the name, the speech does: `x \in \mathbb{R}` is "x pertence aos reais", `A \subset \mathbb{Z}` is "A está contido nos inteiros". The names are in the `double_struck` section of the language's file (`locales.md`); a language without it reads the letter alone, as before.
+A double-struck capital, written `\mathbb{R}`, `RR` (AsciiMath), `mathvariant="double-struck"` or as the character (ℝ, 𝔸), is read as the number set it names: ℕ, ℤ, ℚ, ℝ and ℂ are "the natural numbers", "the integers", "the rational numbers", "the real numbers" and "the complex numbers" ("os naturais", "os inteiros", "os racionais", "os reais", "os complexos"). Any other is read as a letter: "double-struck P", "P duplo". A double-struck digit, the 𝟙 of the indicator function and of the identity (`\mathbb{1}`, dsfont's `\mathds{1}`, bbm's `\mathbbm{1}`, U+1D7D8–U+1D7E1), is a symbol, not a number: it is drawn as the character (MathJax does the same) and read as "double-struck 1", "1 duplo". Where the language contracts a preposition with the article of the name, the speech does: `x \in \mathbb{R}` is "x pertence aos reais", `A \subset \mathbb{Z}` is "A está contido nos inteiros". The names are in the `double_struck` section of the language's file (`locales.md`); a language without it reads the letter alone, as before.
 
 ## Operators
 
 ### L-OPR-1 · The dot between vectors
 
 `\cdot` (and physics' `\vdot`) between two vectors is the dot product and is spoken "dot" ("escalar" in pt-BR): `\vec{v} \cdot \vec{w}` is "vector v dot vector w". A vector is a letter with an arrow over it (`\vec`, `\overrightarrow`) or a bold letter (`\mathbf`, `\boldsymbol`, `\vb`), also with an index. Anywhere else the dot is "times" (`2 \cdot 3`, `a \cdot b`, `2 \cdot \vec{v}`). The word is in the `optional` section of the language's file (`locales.md`); a language without it keeps "times". The drawing is the same dot.
+
+### Symbols drawn by composition
+
+stmaryrd and mathabx have symbols that Unicode has no character for (neither unicode-math-table.tex nor unimathsymbols.txt lists one). mathra draws each one from the math font's own glyphs, as the package's METAFONT source builds it (stmaryjg.mf and stmaryaj.mf, with cmsy10's parameters; for mathabx, the drawings of its mathtest.pdf), and leaves out what it cannot draw that way rather than draw a look-alike:
+
+| Command | Drawn as |
+|---|---|
+| `\llceil`, `\rrceil`, `\llfloor`, `\rrfloor` | two ⌈ (⌉, ⌊, ⌋) 0.45 x-height apart, stmaryrd's `spread`; after `\left`, `\right` and `\big`, the single one grown, twice (stmaryrd declares them as symbols only, as it does `\Lbag`, which mathra also grows) |
+| `\varocircle`, `\varolessthan`, `\varogreaterthan`, `\varovee`, `\varowedge` | ○ with the strokes stmaryrd draws inside it (a circle at half the radius; <, >, ∨, ∧ from the circle's points), at the font's rule thickness |
+| `\varotimes`, `\varoplus`, `\varominus`, `\varodot`, `\varoslash`, `\varobslash`, `\varobar`, `\varoast`, `\varbigcirc` | ⊗ ⊕ ⊖ ⊙ ⊘ ⦸ ⦶ ⊛ ◯ themselves: the var forms are the circle operators drawn circular and with the rule's pen where Computer Modern's are hairline, and STIX Two Math and Latin Modern Math already draw them so |
+| `\Ydown`, `\Yleft`, `\Yright` | ⅄ (`\Yup`) turned; `\Yleft` and `\Yright` centered on the axis |
+| `\shortrightarrow`, `\shortleftarrow`, `\shortuparrow`, `\shortdownarrow` | the head of → (the part the font assembles long arrows with) on a shaft three quarters as long (12u for 16u); the vertical ones are it turned, centered on the axis |
+| `\nnearrow` | → turned to 7u across and 16u up, centered on the axis |
+| `\arrownot` | no width: a slash 4u across, as tall as the arrow's head, over the middle of the arrow that follows (`\arrownot\rightarrow`) |
+| `\mapsfromchar` | no width: the stem of ↤ at the tail of the arrow before it (`\leftarrow\mapsfromchar`) |
+| `\trianglelefteqslant` | ⊲ with its lower side drawn again 0.45 x-height below, centered on the axis |
+| `\inplus` | ∈ with a bar across its middle |
+| `\bigbox`, `\bigboxplus` | ⨅ and ⨆ over each other, and a plus across |
+| `\bigparallel` | the legs of ⨅, 6u apart where those are 13u (8u and 18u in display) |
+| `\bignplus` | ⨄ upside down |
+| `\bigcurlyvee`, `\bigcurlywedge` | two curved arms in the box of ⋁ (⋏ upside down), as thick as its strokes |
+| `\bigominus`, `\bigoslash` | the circle of ⨁ with a bar across or a slash |
+
+`\curvearrowbotright` is Unicode's ⤻ (BOTTOM ARC ANTICLOCKWISE ARROW), the arc and head mathabx draws.
+
+The large operators take limits under and over in display style and grow there, as `\bigsqcup` does. In the tree each symbol is an ordinary symbol node whose character is a marker from the Supplementary Private Use Area-A (U+F0B00 on, `crate::composite`); the tree's JSON (`--tree`, `Node::to_json`, the SVG's metadata, S-SVG-3) names it by its command instead of the marker: `"symbol":"\\llceil"`. The linear text writes the closest Unicode text (`⌈⌈`, `∨⃝`, `-<`); speech reads a symbol that is another one drawn another way as that one (a short arrow as the arrow) and the others as that text; braille writes the short arrows as the arrows and the rest as the full cell ⠿ (S-BRL-1, naming the command); the MathML is the S-MML-1 fallback.
+
+Left out: stmaryrd's `\curlyveedownarrow`, whose arms stop at the base of an arrow head the font has no glyph for (drawing them over the head would not be its drawing); and `\sqcupplus`, which mathabx does not define (its square union with a plus is `\squplus`).
 
 ## Spacing
 
@@ -214,8 +263,9 @@ The rules for fractions, roots, scripts, limits, accents, bars, braces and arrow
 | Large operator | variant with height ≥ `DisplayOperatorMinHeight` in display style, centered on the axis |
 | Delimiters (`\left`, matrices) | size variants and assembly from parts; height ≥ max(0.901 × 2δ, 2δ − 0.5 em), like `\delimiterfactor` and `\delimitershortfall` |
 | Accents | `AccentBaseHeight`, the glyph's accent attachment; `\widehat` and extended arrows through horizontal assembly |
+| Braces and brackets (`\underbrace`, `\overbrace`, `\underbracket`, `\overbracket`) | `OverbarVerticalGap`/`UnderbarVerticalGap` from the content, `UpperLimitGapMin`/`LowerLimitGapMin` to the label, measured on the ink; the horizontal variant or assembly as wide as the content, but never narrower than the font's first variant wider than the base glyph (1 em in STIX Two Math), as TeX gives a brace a minimum width: over a short base the brace is centered and sticks out, and the box widens to hold it |
 | Matrices and `array` | strut of 0.84 em / 0.36 em per row, columns 1 em apart, `\jot` of 0.3 em in alignments |
-| Arrow diagrams (`tikz-cd`, `xymatrix`) | `AxisHeight` (arrows leave and reach each cell at the axis, and the diagram is centered on it), `FractionRuleThickness` (the strokes); tikz-cd's separations: 2.4 em between columns and 2.1 em between rows, widened to fit a label; labels in script style; a bend as tikz's `bend left`, a cubic Bézier with its control points 0.39 of the way along the leaving and arriving directions |
+| Arrow diagrams (`tikz-cd`, `xymatrix`) | `AxisHeight` (arrows leave and reach each cell at the axis, and the diagram is centered on it), `FractionRuleThickness` (the strokes); tikz-cd's separations: 2.4 em between columns and 2.1 em between rows, widened to fit a label; labels in script style; from the tikz-cd manual: an `\arrow` starts and ends at its own cell, and a direction (`r`, `du`), `to=` and `from=` move one end each, `row-column` naming a cell and a direction counting from the arrow's own cell, so `\arrow[from=1-1]` goes from 1-1 to the cell it is written in; a bend as tikz's `bend left`, a cubic Bézier with its control points 0.39 of the way along the leaving and arriving directions. From the xy-pic reference manual: `\ar'[d][dd]` goes through the entry `[d]` (relative to its own) in straight segments, each between the borders of the entries it joins, so an entry with something in it interrupts the path and an empty one does not (note 24d); a label belongs to the segment it follows; `\hole` as a break (`|\hole`) is a gap 0.6 em wide, an empty object with its 3 pt margins, and as an entry it is an empty cell (note 24j). 2-cells (`\rtwocell`, `\rrtwocell<5>^f_g{\alpha}`, `\..uppertwocell`, `\..lowertwocell`, section 25): two quadratic curves whose control point is the middle moved 3.5 dashes of 5 pt (or the nudge's number of dashes) to each side, cut at the entries' borders, the upper one labelled by `^` outside it and the lower one by `_`; a nudge of 0 is one straight arrow; the Arrow across the middle is a double arrow 0.6 em long, clockwise (`_`, the default), anticlockwise (`^`), without a head (`=`) or left out (`\omit`), moved by its own nudge, with its label 0.4 em beside it; the tokens `'`, `` ` ``, `"`, `!` leave the Arrow out and turn the curves' heads. Label nudges, module maps (`!`) and `~` objects are left out with a warning (E-REC-9) |
 
 The prime of `f'` uses the ′ glyph at normal size, attached to the base, because it is already drawn as a superscript.
 
@@ -229,6 +279,25 @@ graphicx's box commands set their argument in text mode, and work in math and in
 - `\raisebox{lift}[height][depth]{…}` raises it, then gives it that height and depth, if asked: `\raisebox{0pt}[\height][0pt]{…}` (the manual's `\killdepth`) removes its depth, so labels with and without descenders share a baseline.
 
 The lengths take any TeX unit and the box's own `\width`, `\height`, `\depth` and `\totalheight`, with a factor (`2\height`); in `\raisebox`, those of the raised box. A length that cannot be read is an error in `\raisebox{lift}` and `\resizebox`; in `\raisebox`'s optional arguments it is ignored in tolerant mode (E-REC-9). Turned and unevenly scaled boxes are drawn through an SVG `matrix()` (S-SVG-5).
+
+## Line breaking
+
+### L-BRK-1 · Automatic line breaking
+
+Off by default. With a maximum width in em (`Options::max_width`, `--max-width 30em`, `{ maxWidth: 30 }`, `max_width=30`), a formula wider than it is broken into lines, in display and inline style alike:
+
+- **Where.** Only between the atoms of the formula's top-level row, so never inside a fraction, a root, `\left…\right`, scripts, a group (`{…}`) or a table. After a relation (`=`, `≤`, `→`, an extensible arrow) first: if breaking only after relations makes every line fit, no other break is taken. Otherwise after a relation or a binary `+`, `−`, `±` or `∓` (a unary minus is not binary, L-ESP-2; `·`, `×` and punctuation are never break points), each line taking as much as fits (first fit, as TeX's and MathJax's breaks without a penalty search). Never after a relation that another relation follows, as TeX's `\relpenalty` goes only after the last.
+- **The operator.** It ends its line and is not repeated at the start of the next, as TeX and MathJax do, in every locale. Spaces at the start of a line are dropped, as TeX discards glue after a break.
+- **Indent.** Continuation lines start under the right-hand side of the first top-level relation (where the atom after it starts), so they read as more of that side. With no relation, or one whose right-hand side starts more than half the maximum width in, they start 2 em in.
+- **Lines.** Each line's baseline sits below the previous one's as table rows do: a strut of 0.84 em above and 0.36 em below, plus `\jot` (0.3 em) in display style (S-SVG-12). The first line's baseline is the formula's (S-SVG-1).
+- **Not broken.** An equation the author already set in lines (`align`, `gather`, `aligned`… at its top level) is never broken again. Tables (`array`, matrices, `cases`) are atoms: a line breaks around them, never inside.
+- **Hints.** KaTeX's break hints `\nobreak` and `\allowbreak` (and LaTeX's `\nolinebreak`) are read with no warning and ignored (#255): the tree has no node for a break hint, so the breaking does not see them.
+
+Speech, linear text, braille and the tree are the same with and without it. `applied` gets one note: how many lines, and after which operators.
+
+### L-BRK-2 · What cannot be broken
+
+A formula, a line or a table that cannot be made narrower than the maximum width (a single wide fraction, a long alignment, a run without break points) is drawn as it is, overflowing, and `applied` notes by how much (`the table cannot be broken within 3em: drawn 4.2em wider`). It is a fact about the layout, not a problem of the input: it goes in `applied`, as the full braille cell of S-BRL-1 does, not in `warnings`, which hold what tolerant mode fixed and stay empty in strict mode (`tolerance.md`); so it does not show on the terminal's stderr or as `warning` in `--batch`, only in `--explain`.
 
 ## Measured coverage
 

@@ -1,0 +1,5 @@
+{
+  "name": { "message": "mathra" },
+  "description": { "message": "Build equations with mathra's editor, and see any LaTeX you select drawn and spoken: accessible math, in 16 languages." },
+  "openSelection": { "message": "Open “%s” in mathra" }
+}

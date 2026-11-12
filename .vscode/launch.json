@@ -1,0 +1,15 @@
+{
+  // F5: a second VS Code window with the extension of vscode/ loaded from source, opened on vscode/demo.
+  // After a change, Cmd+R (Developer: Reload Window) in that window; the watch task rebuilds on save.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "mathra: run the VS Code extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}/vscode", "${workspaceFolder}/vscode/demo"],
+      "outFiles": ["${workspaceFolder}/vscode/dist/**/*.cjs"],
+      "preLaunchTask": "mathra: watch the VS Code extension"
+    }
+  ]
+}

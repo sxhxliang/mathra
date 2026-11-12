@@ -1,0 +1,61 @@
+{
+  "name": "@mathlabs/mathra-editor",
+  "version": "0.1.1",
+  "description": "Math editor components drawn by mathra: build a formula inside a box, with a cursor, empty places, palettes, a command menu, a keyboard on the screen and every output.",
+  "keywords": [
+    "math",
+    "equation-editor",
+    "latex",
+    "web-components",
+    "mathra"
+  ],
+  "license": "MIT OR Apache-2.0",
+  "homepage": "https://matheusmota-dev-br.github.io/mathra/editor.html",
+  "bugs": "https://github.com/matheusmota-dev-br/mathra/issues",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/matheusmota-dev-br/mathra.git",
+    "directory": "editor"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "default": "./dist/core.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": [
+    "./dist/field.js",
+    "./dist/palette.js",
+    "./dist/command-menu.js",
+    "./dist/keyboard.js",
+    "./dist/output.js",
+    "./dist/settings.js",
+    "./dist/gallery-view.js",
+    "./dist/editor.js",
+    "./dist/index.js"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "tsc -p tsconfig.json",
+    "test": "node --test \"test/*.test.ts\"",
+    "test:browser": "node test/browser.mjs",
+    "coverage": "node --no-warnings scripts/coverage.mjs",
+    "demo": "node demo/serve.mjs"
+  },
+  "peerDependencies": {
+    "@mathlabs/mathra": ">=1.12.0"
+  },
+  "devDependencies": {
+    "@mathlabs/mathra": "file:../npm/pkg",
+    "playwright-core": "1.64.1",
+    "typescript": "5.9.3"
+  }
+}

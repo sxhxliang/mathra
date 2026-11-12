@@ -1,5 +1,6 @@
 //! One test per rule in spec/rules.md and spec/svg.md. The test name starts with the rule id.
 
+use mathra::tree::Variant;
 use mathra::{convert, Class, Locale, Node, Options};
 
 fn pt(tex: &str) -> mathra::Output {
@@ -11,7 +12,7 @@ fn en(tex: &str) -> mathra::Output {
 }
 
 fn number(value: &str) -> Node {
-    Node::Number { value: value.into(), group: false, thousands: None }
+    Node::Number { value: value.into(), group: false, thousands: None, variant: Variant::Upright }
 }
 
 fn rules(r: &mathra::Output) -> Vec<&'static str> {
@@ -187,6 +188,46 @@ fn l_txt_1_tex_quotes_become_typographic_in_text() {
     let r = en("f'");
     assert!(!rules(&r).contains(&"L-TXT-1"));
     assert!(r.speech.contains("prime"), "{}", r.speech);
+}
+
+#[test]
+fn l_txt_6_text_accents_on_a_letter() {
+    // one character where Unicode has it, braces or not; i without its dot
+    assert_eq!(en(r"\text{caf\'e, \~n, \c{c}, \v s, \'i}").text, "café, ñ, ç, š, í");
+    // the letter and the combining accent where it has none
+    assert_eq!(en(r"\text{\k{x}}").text, "x\u{0328}");
+}
+
+#[test]
+fn l_txt_6_an_empty_argument_is_the_accent_alone() {
+    // #306: the accent's spacing character, never an accent on the `}` that closes its argument
+    for (mark, alone) in [
+        (r"\'", "\u{00B4}"),
+        (r"\`", "`"),
+        (r"\^", "\u{02C6}"),
+        (r"\~", "\u{02DC}"),
+        ("\\\"", "\u{00A8}"),
+        (r"\=", "\u{00AF}"),
+        (r"\.", "\u{02D9}"),
+        (r"\c", "\u{00B8}"),
+        (r"\u", "\u{02D8}"),
+        (r"\v", "\u{02C7}"),
+        (r"\H", "\u{02DD}"),
+        (r"\r", "\u{02DA}"),
+        (r"\k", "\u{02DB}"),
+        // no spacing character: the combining accent on a no-break space (a space in the linear text)
+        (r"\b", " \u{0331}"),
+        (r"\d", " \u{0323}"),
+        (r"\t", " \u{0361}"),
+    ] {
+        let r = en(&format!(r"\text{{a{mark}{{}}b}}"));
+        assert_eq!(r.text, format!("a{alone}b"), "{mark}{{}}");
+        assert!(r.warnings.is_empty(), "{mark}{{}}: {:?}", r.warnings);
+    }
+    // a caret and a tilde as text is written with them; the group around keeps its brace
+    assert_eq!(en(r"\text{x\^{}2 and \~{}user}").text, "x\u{02C6}2 and \u{02DC}user");
+    assert_eq!(en(r"\text{{a\^{}}b}").text, "a\u{02C6}b");
+    assert_eq!(en(r"\text{a\^ {} b}").text, "a\u{02C6} b");
 }
 
 #[test]
@@ -387,4 +428,206 @@ fn l_siz_1_size_declarations_are_recorded_and_keep_text() {
     assert_eq!(r.text, "x");
     assert!(rules(&r).contains(&"L-SIZ-1"));
     assert!(!rules(&r).contains(&"L-ENT-3"));
+}
+
+#[test]
+fn s_svg_11_html_attributes_on_the_content_group_and_nowhere_else() {
+    for (tex, plain, attributes) in [
+        (r"\class{highlight}{x^2} + 1", r"x^2 + 1", r#"<g class="highlight">"#),
+        (r"\cssId{step-2}{a + b}", r"a + b", r#"<g id="step-2">"#),
+        (r"\htmlData{step=3,kind=sum}{c}", r"c", r#"<g data-step="3" data-kind="sum">"#),
+        (r"\htmlClass{term}{x} + y", r"x + y", r#"<g class="term">"#),
+        (r"\style{opacity:0.5}{\frac{a}{b}}", r"\frac{a}{b}", r#"<g style="opacity:0.5">"#),
+    ] {
+        let with = convert(tex, &Options { strict: true, locale: Locale::En, ..Default::default() }).unwrap_or_else(|e| panic!("{tex}: {e}"));
+        let without = en(plain);
+        assert!(with.svg.contains(attributes), "{tex}: {}", with.svg);
+        assert_eq!(with.speech, without.speech, "{tex}");
+        assert_eq!(with.text, without.text, "{tex}");
+        assert_eq!(with.braille, without.braille, "{tex}");
+        // the group closes around the content's glyphs and nothing moves
+        let body = |svg: &str| svg.split("<defs>").nth(1).unwrap().split("</defs>").nth(1).unwrap().replace(attributes, "").replace("<g>", "").replace("</g>", "").to_string();
+        let ids = |svg: &str| svg.split("aria-labelledby=\"").nth(1).unwrap().split("-speech").next().unwrap().to_string();
+        assert_eq!(body(&with.svg).replace(&ids(&with.svg), ""), body(&without.svg).replace(&ids(&without.svg), ""), "{tex}");
+    }
+    // a style's color colors the glyphs too, as \color does, so outputs without CSS have it
+    let red = en(r"\style{color:red}{x}");
+    assert!(red.svg.contains(r#"<g style="color:red"><use"#) && red.svg.contains(r#"fill="red""#), "{}", red.svg);
+    assert_eq!(red.speech, "x");
+}
+
+// ---------- L-BRK-1, L-BRK-2 and S-SVG-12: automatic line breaking ----------
+
+const POLYNOMIAL: &str = r"f(x) = a_0 + a_1 x + a_2 x^2 + a_3 x^3 + a_4 x^4 + a_5 x^5 + a_6 x^6 + a_7 x^7 + a_8 x^8 + a_9 x^9 + a_{10} x^{10}";
+
+fn at(tex: &str, max_width: f32, display: bool) -> mathra::Output {
+    convert(tex, &Options { max_width: Some(max_width), display, ..Default::default() }).unwrap()
+}
+
+/// The drawing of each line of a broken SVG (S-SVG-12), in order.
+fn lines(svg: &str) -> Vec<String> {
+    svg.split(r#"<g data-line=""#).skip(1).map(|l| l.split("</g>").next().unwrap().to_string()).collect()
+}
+
+/// (x, y) of the glyphs a line draws without scaling, in order.
+fn glyph_positions(line: &str) -> Vec<(f32, f32)> {
+    line.split("<use ")
+        .skip(1)
+        .filter_map(|u| {
+            let attr = |name: &str| u.split(&format!(r#" {name}=""#)).nth(1).map(|v| v.split('"').next().unwrap().parse::<f32>().unwrap());
+            Some((attr("x")?, attr("y")?))
+        })
+        .collect()
+}
+
+fn notes(r: &mathra::Output, rule: &str) -> Vec<String> {
+    r.applied.iter().filter(|a| a.rule == rule).map(|a| a.description.clone()).collect()
+}
+
+#[test]
+fn l_brk_1_without_the_option_or_when_it_fits_nothing_changes() {
+    for tex in [POLYNOMIAL, WRITTEN, "x"] {
+        let plain = en(tex);
+        assert!(!plain.svg.contains("data-line"));
+        let wide = at(tex, 1000.0, true);
+        assert_eq!(wide.svg, plain.svg, "{tex}");
+        assert_eq!(wide.applied, plain.applied);
+    }
+}
+
+#[test]
+fn l_brk_1_speech_text_braille_and_tree_do_not_change() {
+    for (tex, width) in [(POLYNOMIAL, 12.0), (WRITTEN, 6.0)] {
+        let (plain, broken) = (en(tex), at(tex, width, true));
+        assert!(broken.svg.contains("data-line=\"1\""), "{tex}");
+        assert_eq!((&plain.speech, &plain.text, &plain.braille, &plain.tree), (&broken.speech, &broken.text, &broken.braille, &broken.tree));
+        // and inside the SVG too: the same title and metadata
+        let head = |svg: &str| svg[svg.find("<title").unwrap()..svg.find("<defs>").unwrap()].to_string();
+        assert_eq!(head(&plain.svg), head(&broken.svg));
+        assert!(broken.warnings.is_empty());
+    }
+}
+
+#[test]
+fn l_brk_1_after_a_relation_first() {
+    // the relations alone make it fit: no break after a +
+    let r = at(r"a + b + c + d = e + f + g + h = i + j + k + l", 9.0, true);
+    assert_eq!(notes(&r, "L-BRK-1"), ["broken into 3 lines within 9em, after '=', '='"]);
+    // an arrow is a relation too
+    let r = at(r"a + b + c + d \to e + f + g + h", 8.0, true);
+    assert_eq!(notes(&r, "L-BRK-1"), ["broken into 2 lines within 8em, after '→'"]);
+}
+
+#[test]
+fn l_brk_1_then_after_plus_and_minus_and_the_operator_is_not_repeated() {
+    let r = at(POLYNOMIAL, 12.0, true);
+    assert_eq!(notes(&r, "L-BRK-1"), ["broken into 5 lines within 12em, after '+', '+', '+', '+'"]);
+    let r = at(r"x = a - b - c - d - e - f - g - h", 5.0, true);
+    let note = &notes(&r, "L-BRK-1")[0];
+    assert!(note.contains("'−'") && !note.contains("'+'"), "{note}");
+    // as many glyphs as without breaking: no operator repeated, in pt-BR either
+    for locale in [Locale::En, Locale::PtBr] {
+        let broken = convert(POLYNOMIAL, &Options { max_width: Some(12.0), locale, ..Default::default() }).unwrap().svg;
+        let plain = convert(POLYNOMIAL, &Options { locale, ..Default::default() }).unwrap().svg;
+        assert!(broken.contains("data-line=\"1\""));
+        assert_eq!(broken.matches("<use ").count(), plain.matches("<use ").count());
+    }
+    // a unary minus, ·, × and a comma are never break points
+    let r = at(r"x = -a \cdot b \times c , d", 1.0, true);
+    assert_eq!(notes(&r, "L-BRK-1"), ["broken into 2 lines within 1em, after '='"]);
+}
+
+#[test]
+fn l_brk_1_never_inside_a_fraction_root_delimiters_scripts_or_a_group() {
+    // every top-level break point taken (1 em): 5 points, 6 lines, and no more
+    let tex = r"a = \frac{b+c}{d+e} + \sqrt{f+g} + \left(h+i\right) + x^{j+k} + {l+m}";
+    let r = at(tex, 1.0, true);
+    assert_eq!(notes(&r, "L-BRK-1"), ["broken into 6 lines within 1em, after '=', '+', '+', '+', '+'"]);
+    assert_eq!(lines(&r.svg).len(), 6);
+    // what does not fit in its line is drawn as it is, and said so
+    assert!(notes(&r, "L-BRK-2").iter().any(|n| n.starts_with("line 2 cannot be broken within 1em")), "{:?}", r.applied);
+    // a single piece
+    let r = at(r"\frac{a+b+c+d+e+f+g+h}{2}", 2.0, true);
+    assert!(!r.svg.contains("data-line"));
+    let note = &notes(&r, "L-BRK-2")[0];
+    assert!(note.starts_with("the formula cannot be broken within 2em: drawn ") && note.ends_with("em wider"), "{note}");
+}
+
+#[test]
+fn l_brk_1_continuation_under_the_right_hand_side() {
+    let r = at(POLYNOMIAL, 12.0, true);
+    let lines = lines(&r.svg);
+    // f ( x ) = a: the sixth glyph of the first line starts the right-hand side
+    let rhs = glyph_positions(&lines[0])[5].0;
+    for line in &lines[1..] {
+        assert!((glyph_positions(line)[0].0 - rhs).abs() < 0.01);
+    }
+}
+
+#[test]
+fn l_brk_1_fixed_indent_without_a_relation_or_with_one_far_in() {
+    for tex in [r"a + b + c + d + e + f + g + h", r"aaaaaaaaaaaa = b + c + d + e + f + g"] {
+        let r = at(tex, 8.0, true);
+        let lines = lines(&r.svg);
+        assert!(lines.len() >= 2, "{tex}");
+        for line in &lines[1..] {
+            assert_eq!(glyph_positions(line)[0].0, 2000.0, "{tex}");
+        }
+    }
+}
+
+#[test]
+fn l_brk_1_line_gap_and_size() {
+    // simple lines sit a strut apart (0.84 + 0.36 em, \baselineskip), plus \jot (0.3 em) in display
+    for (display, gap) in [(true, -1500.0), (false, -1200.0)] {
+        let r = at(r"a + b + c + d + e + f", 3.5, display);
+        let lines = lines(&r.svg);
+        assert_eq!(glyph_positions(&lines[0])[0].1, 0.0);
+        assert_eq!(glyph_positions(&lines[1])[0].1, gap);
+    }
+    // S-SVG-1: the baseline is the first line's; the depth covers the lines below
+    let svg = at(r"a + b + c + d + e + f", 3.5, true).svg;
+    let lowered: f32 = svg.split("vertical-align: ").nth(1).unwrap().split("em").next().unwrap().parse().unwrap();
+    assert!(lowered < -2.9, "{lowered}");
+}
+
+#[test]
+fn l_brk_2_tables_are_never_broken() {
+    for tex in [
+        r"\begin{pmatrix} a + b + c + d + e + f & g + h + i + j \end{pmatrix}",
+        r"\begin{aligned} a &= b + c + d + e + f + g + h \\ i &= j + k + l + m + n \end{aligned}",
+        r"x + \begin{align} a &= b + c + d + e + f + g + h \\ i &= j \end{align} + y + z",
+    ] {
+        let r = at(tex, 3.0, true);
+        assert!(!r.svg.contains("data-line"), "{tex}");
+        assert!(notes(&r, "L-BRK-2")[0].starts_with("the table cannot be broken within 3em"), "{tex}: {:?}", r.applied);
+        assert!(r.warnings.is_empty(), "a layout fact, not an input problem");
+    }
+    // a matrix among other atoms is one of them: the line breaks around it
+    let r = at(r"A = \begin{pmatrix} 1 & 2 \\ 3 & 4 \end{pmatrix} + \begin{pmatrix} 5 & 6 \\ 7 & 8 \end{pmatrix}", 6.0, true);
+    assert_eq!(notes(&r, "L-BRK-1"), ["broken into 2 lines within 6em, after '+'"]);
+}
+
+#[test]
+fn s_svg_12_one_group_per_line() {
+    for display in [true, false] {
+        let r = at(POLYNOMIAL, 20.0, display);
+        let n = lines(&r.svg).len();
+        assert_eq!(n, 3);
+        assert!(r.svg.contains(r#" data-lines="3""#));
+        for k in 0..n {
+            assert_eq!(r.svg.matches(&format!(r#"<g data-line="{k}">"#)).count(), 1);
+        }
+        roxmltree::Document::parse(&r.svg).unwrap();
+    }
+    // steps still count the whole equation, in order, across the lines
+    let svg = convert(POLYNOMIAL, &Options { max_width: Some(12.0), steps: true, ..Default::default() }).unwrap().svg;
+    let numbers: Vec<usize> = svg.split(r#" data-step=""#).skip(1).map(|s| s.split('"').next().unwrap().parse().unwrap()).collect();
+    assert_eq!(numbers, (0..numbers.len()).collect::<Vec<_>>());
+}
+
+#[test]
+fn l_brk_1_asciimath_breaks_too() {
+    let r = convert("a+b+c+d+e+f+g+h", &Options { input: mathra::Input::AsciiMath, max_width: Some(3.0), ..Default::default() }).unwrap();
+    assert!(lines(&r.svg).len() >= 2);
 }

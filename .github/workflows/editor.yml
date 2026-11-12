@@ -1,0 +1,50 @@
+# Publishes the editor package when an editor version tag (editor-v0.1.2) is pushed, with npm trusted
+# publishing: no token, and npm attaches the provenance of this workflow run. The editor has its own
+# version line, apart from mathra's. Set it up once on npmjs.com, in the settings of
+# @mathlabs/mathra-editor: Trusted Publisher → GitHub Actions, repository matheusmota-dev-br/mathra,
+# workflow editor.yml.
+name: editor
+
+on:
+  push:
+    tags: ["editor-v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # the editor is built and tested against the mathra package of this commit (file:../npm/pkg)
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@0.2.129
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: npm/build.sh
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - name: the tag matches the version in editor/package.json
+        run: test "editor-v$(node -p "require('./editor/package.json').version")" = "$GITHUB_REF_NAME"
+      - working-directory: editor
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+          pnpm exec playwright-core install --with-deps chromium
+          node --no-warnings scripts/coverage.mjs --fail-under 100
+      # a version already out is skipped, so rerunning the workflow never fails on it
+      - name: publish unless already published
+        working-directory: editor
+        run: |
+          spec="$(node -p "require('./package.json').name")@$(node -p "require('./package.json').version")"
+          if npm view "$spec" version >/dev/null 2>&1; then echo "$spec is already on npm"; else npm publish --access public; fi

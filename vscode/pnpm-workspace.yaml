@@ -1,0 +1,5 @@
+# esbuild finds its binary through its optional dependencies, and vsce only packages (no signing):
+# neither needs its install script
+allowBuilds:
+  '@vscode/vsce-sign': false
+  esbuild: false

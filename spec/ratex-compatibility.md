@@ -6,13 +6,13 @@ Reference: the parser and layout sources of RaTeX 0.1.15. This adds useful user-
 
 | Commands | Meaning and implementation |
 | --- | --- |
-| `\slashed{D}` | Feynman slash: center a slash glyph over the body, with the `D`, `A`, `k`, `f`, `\partial` optical corrections used by RaTeX/carlisle's slashed package. The slash keeps the math font when the body's alphabet changes. This is separate from `\cancel`'s diagonal. |
-| `\htmlStyle{properties}{body}` | Convert the supported drawing properties to math nodes; no HTML is generated. See below. |
+| `\slashed{D}` | Feynman slash: center a slash glyph over the body, including both boxes' italic correction as in slashed.sty. The slash keeps the math font when the body's alphabet changes. This is separate from `\cancel`'s diagonal. |
+| `\htmlStyle{properties}{body}` | Convert the supported drawing properties to math nodes; safe SVG group attributes are retained. See below. |
 | `\mathsfit{…}` | Sans-serif italic Latin letters, using Unicode's mathematical alphabet. Digits remain sans-serif upright. |
 | `\frak{…}` | Alias of `\mathfrak`. |
 | `\ctg`, `\arcctg` | Function aliases for `\cot` and `\arccot`, using mathra's existing locale rules. |
 | `\Overrightarrow{…}` | Stretchable double right arrow above the base. |
-| `\overgroup{…}`, `\undergroup{…}` | Top/bottom tortoise-shell group marks, built as outline segments so both fonts work. |
+| `\overgroup{…}`, `\undergroup{…}` | Top/bottom tortoise-shell group marks, stretched using the font's assembly or outline. |
 | `\overlinesegment{…}`, `\underlinesegment{…}` | A line above/below the base. |
 | `\r{…}` | Ring accent (already accepted in text arguments; now accepted in math too). |
 | `\xrightleftarrows[below]{above}` | Alias of the existing `\xtofrom`: opposed arrows that stretch under their labels. |
@@ -34,11 +34,11 @@ Supported properties follow RaTeX's drawing subset:
 - `font-style`: `italic`, `oblique`.
 - `text-decoration`, `text-decoration-line`: an `underline` token.
 
-Later declarations replace earlier values for the same property. Unknown CSS properties are ignored, as in RaTeX. Values are not copied into a browser stylesheet. URLs and executable CSS are not rendering features. This does not implement arbitrary HTML/CSS or RaTeX's internal `\html@mathml` command.
+Later declarations replace earlier values for the same property. Unknown CSS properties are ignored, as in RaTeX. Safe color, background and opacity declarations are also retained on the SVG content group (S-SVG-11). URLs and executable CSS are not rendering features. This does not implement arbitrary HTML/CSS or RaTeX's internal `\html@mathml` command.
 
 ## Accessible outputs and boundaries
 
-Feynman slash has its own localized speech, `slashed(…)` linear text, and `Canceled { shape: Slash }` in the semantic tree. Neither supported braille code currently implements a Feynman-slash modifier; it keeps the base and reports `╱` in `missing`, rather than silently treating it as algebraic cancellation.
+Feynman slash has its own localized speech, linear text with the combining long solidus U+0338, and `Canceled { shape: Slash }` in the semantic tree. Neither supported braille code currently implements a Feynman-slash modifier; it keeps the base and reports U+0338 in `missing`, rather than silently treating it as algebraic cancellation.
 
 Text, speech, native SVG and the tree preserve the body of style wrappers. Alphabet and decorative geometry still depend on the selected font. `\xrightequilibrium` and `\xleftequilibrium` (unequal-length harpoon pairs), advanced TeX primitives and other untested commands remain outside this batch. Multi-row equation-number alignment is a separate layout gap.
 

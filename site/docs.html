@@ -49,6 +49,7 @@
     <nav aria-label="Site">
       <a href="index.html#playground">Playground</a>
       <a href="gallery.html">Gallery</a>
+      <a href="editor.html">Editor <span class="new">New</span></a>
       <a href="changelog.html">Evolution</a>
       <a href="docs.html" aria-current="page">Docs</a>
       <a href="reference.html">Reference</a>
@@ -76,6 +77,7 @@
 
     <main class="docs-body">
       <h1>Docs</h1>
+      <p class="note">Looking for the editor, to build formulas with a cursor and palettes? It has <a href="editor-docs.html">docs of its own</a>.</p>
       <p class="intro">mathra turns an equation (LaTeX, MathML or AsciiMath) into an SVG that carries its own speech and braille. The JavaScript, Python, Rust and terminal packages run the same core, so an equation gives the same SVG, byte for byte, on all four. New here? <a href="https://youtu.be/Bbz_nwre2BQ">Watch the 60-second demo</a>.</p>
 
       <section id="install">
@@ -126,7 +128,7 @@ println!("{}", r.speech);</pre>
 
       <section id="options">
         <h2>Options</h2>
-        <p>The same five options everywhere, under each platform's spelling.</p>
+        <p>The same options everywhere, under each platform's spelling.</p>
         <div class="tablewrap"><table>
           <tr><th>Option</th><th>JavaScript</th><th>Python</th><th>Terminal</th><th>Rust (<code>Options</code>)</th></tr>
           <tr><td>Language</td><td><code>locale: "pt-BR"</code></td><td><code>locale="pt-BR"</code></td><td><code>-l, --locale pt-BR</code></td><td><code>locale: Locale::PtBr</code></td></tr>
@@ -136,13 +138,22 @@ println!("{}", r.speech);</pre>
           <tr><td>Braille code</td><td><code>braille: "cmu"</code></td><td><code>braille="cmu"</code></td><td><code>--braille-code cmu</code></td><td><code>braille: Some(BrailleCode::Cmu)</code></td></tr>
           <tr><td>The SVG writes itself</td><td><code>animate: true</code></td><td><code>animate=True</code></td><td><code>--animate</code></td><td><code>animate: true</code></td></tr>
           <tr><td>Each element numbered by its step</td><td><code>steps: true</code></td><td><code>steps=True</code></td><td><code>--steps</code></td><td><code>steps: true</code></td></tr>
+          <tr><td>Lines no wider than</td><td><code>maxWidth: 30</code></td><td><code>max_width=30</code></td><td><code>--max-width 30em</code></td><td><code>max_width: Some(30.0)</code></td></tr>
+          <tr><td>Fonts for what the math font lacks</td><td><code>fallbackFonts: [loadFallbackFont(bytes)]</code></td><td><code>fallback_fonts=[mathra.load_fallback_font(path)]</code></td><td><code>--fallback-font file.ttf</code> (repeatable)</td><td><code>fallback_fonts: vec![FallbackFont::load(bytes)?]</code></td></tr>
+          <tr><td>Numbers of labels</td><td><code>labels: { "eq:a": 3 }</code></td><td><code>labels={"eq:a": 3}</code></td><td><code>--label eq:a=3</code></td><td><code>labels: Labels</code> (key → number)</td></tr>
+          <tr><td>Numbers of citations</td><td><code>citations: { knuth: 1 }</code></td><td><code>citations={"knuth": 1}</code></td><td><code>--cite knuth=1</code></td><td><code>citations: Labels</code></td></tr>
+          <tr><td>Text kerned as TeX kerns it</td><td>—</td><td>—</td><td>—</td><td><code>text_kerning: TextKerning::Ot1</code></td></tr>
         </table></div>
         <ul>
           <li><strong>Language</strong>: <code>en</code> by default. The 16 codes are under <a href="#languages">Languages</a>. A region is accepted (<code>es-MX</code>, <code>zh-CN</code>). In JavaScript, a plain string as the second argument is read as the locale: <code>texToSvg(tex, "fr")</code>.</li>
           <li><strong>Inline style</strong>: display style (as in <code>$$…$$</code>) is the default; inline is the style of <code>$…$</code>, with smaller limits and fractions.</li>
           <li><strong>Strict</strong>: off by default, so broken input is drawn and reported as <a href="#broken">warnings</a>. On, it is refused like TeX does: an exception in JavaScript, <code>ValueError</code> in Python, an <code>Err</code> in Rust, exit code 1 in the terminal.</li>
-          <li><strong>Input</strong>: <code>latex</code> by default, <code>mathml</code> or <code>asciimath</code>. MathML passed as LaTeX (starting with <code>&lt;math</code>) is recognized on its own.</li>
+          <li><strong>Input</strong>: <code>latex</code> by default, <code>mathml</code> or <code>asciimath</code>. <code>mathml</code> reads presentation MathML (what Word, Google Docs, MathType and MathJax export) and content MathML (<code>&lt;apply&gt;</code>, what Maple and other CAS and assessment tools write) into the same tree. MathML passed as LaTeX (starting with <code>&lt;math</code>) is recognized on its own.</li>
           <li><strong>Braille code</strong>: by default the language's: CMU in pt-BR and es, Nemeth elsewhere.</li>
+          <li><strong>Maximum width</strong>, in em: none by default (one line, however wide). A wider equation is broken after a relation (<code>=</code>, <code>≤</code>, <code>→</code>…), and only when relations alone are not enough, after <code>+</code> and <code>−</code> too, at its top level only: never inside a fraction, a root, <code>\left…\right</code>, scripts, a group or a table. The operator is not repeated on the next line, and continuation lines start under the right-hand side of the first relation (2 em in when there is none, or it is more than half the width in). Each line is a <code>&lt;g data-line="k"&gt;</code> of the SVG; speech, text and braille do not change. What cannot be broken (a table, an <code>align</code>, one wide fraction) is drawn as it is, with an <code>L-BRK-2</code> note in <code>applied</code>.</li>
+          <li><strong>Fallback fonts</strong>: a character the math font lacks (an emoji, Chinese in <code>\text{…}</code>) is looked up in these fonts, in order, and its outline goes in the SVG like any other glyph, in the text color. Any <code>.otf</code> or <code>.ttf</code> with outlines works; no MATH table is needed. The terminal and Python embed Noto Emoji (the monochrome one), tried after yours, so emoji just work there; the npm package does not (it would add some 770 KB to the download), so pass a font you load. A character no font has is still a box (<a href="#broken">E-REC-8</a>), or refused in strict mode.</li>
+          <li><strong>Labels and citations</strong>: the numbers of the document's cross-references, which an equation converted alone cannot know. <code>\eqref{eq:a}</code> shows <code>(3)</code>, <code>\ref{eq:a}</code> shows <code>3</code> and <code>\cite{knuth}</code> shows <code>[1]</code>; an unknown key is <code>(??)</code>, <code>??</code> or <code>[?]</code>, as on LaTeX's first run, with a warning (refused with strict). A <code>\label</code> with a <code>\tag</code> on its line is numbered by the tag, and in <code>--batch</code> it counts for the lines after it.</li>
+          <li><strong>Text kerning</strong> (Rust only, <code>mathra::layout::kerning::TextKerning</code>): none by default, each letter of text by its own width. <code>Ot1</code> kerns the pairs Computer Modern kerns (<code>cmr10</code> and <code>cmbx10</code>, LaTeX's default fonts) and <code>T1</code> those of Latin Modern with <code>\usepackage[T1]{fontenc}</code> (<code>va</code>, <code>AV</code>, <code>To</code>…), for SVGs that should match a document set by TeX. It applies to upright text (<code>\text{…}</code>, <code>\textbf{…}</code>), not to italic, small caps, typewriter or math letters.</li>
         </ul>
       </section>
 
@@ -155,11 +166,12 @@ println!("{}", r.speech);</pre>
           <tr><td><code>speech</code></td><td>The phrase a screen reader says, in the language of the locale. The same phrase is in the SVG's <code>&lt;title&gt;</code>.</td></tr>
           <tr><td><code>text</code></td><td>Linear text close to UnicodeMath: <code>(n ¦ k)</code>, <code>x^2</code>. It is the SVG's selectable text layer.</td></tr>
           <tr><td><code>braille</code>, <code>braille_code</code></td><td>The equation in Unicode braille cells, and the code used: <code>"cmu"</code> or <code>"nemeth"</code>.</td></tr>
+          <tr><td><code>mathml</code></td><td>The equation as presentation MathML, in MathML Core's elements, with <code>display="block"</code> or <code>"inline"</code> and an <code>intent</code> where the tree knows what the drawing does not say. What MathML cannot draw is a <code>&lt;semantics&gt;</code> with the source (<a href="https://github.com/matheusmota-dev-br/mathra/blob/main/spec/mathml.md">spec/mathml.md</a>).</td></tr>
           <tr><td><code>tree</code></td><td>The tree of meaning: what each piece is (<code>{"type": "number", "value": "3.14"}</code>). Also in the SVG's <code>&lt;metadata&gt;</code>.</td></tr>
           <tr><td><code>applied</code></td><td>The numbered rules that changed something in this equation, as <code>{rule, description}</code>, in the order they acted.</td></tr>
           <tr><td><code>warnings</code></td><td>What tolerant mode fixed (<code>E-REC-*</code>), as <code>{rule, description}</code>. Always empty in strict mode.</td></tr>
         </table></div>
-        <p>Also: <code>locales()</code> lists the languages as <code>{code, name}</code>, and <code>version</code> (JavaScript), <code>core_version</code> (Python) or <code>mathra::VERSION</code> (Rust) give the version of the core inside the package. Python also has <code>tex_to_tree</code>, the tree as a JSON string.</p>
+        <p>Also: <code>locales()</code> lists the languages as <code>{code, name}</code>, and <code>version</code> (JavaScript), <code>core_version</code> (Python) or <code>mathra::VERSION</code> (Rust) give the version of the core inside the package. Python also has <code>tex_to_tree</code>, the tree as a JSON string, and <code>tex_to_png</code>, a <a href="#page">PNG</a> as bytes.</p>
       </section>
 
       <section id="page">
@@ -174,6 +186,10 @@ println!("{}", r.speech);</pre>
         </ul>
         <h3>As an image</h3>
         <p><code>&lt;img src="equation.svg" alt="…"&gt;</code> works too, but an image cannot see the page: it draws in a fixed dark ink (<code>#111</code>), and nothing in it is selectable. Give the <code>&lt;img&gt;</code> the speech as its <code>alt</code>.</p>
+        <h3>As a PNG</h3>
+        <p>Where SVG is not accepted (e-mail, some editors and LMSs), the terminal and the Python package write a PNG of the same drawing, rasterized in Rust with resvg: <code>-o equation.png</code> or <code>--png</code>, <code>mathra.tex_to_png(tex)</code> (bytes), and <code>Output::png</code> in Rust with the <code>png</code> feature. The size is <code>--dpi</code> (<code>dpi=</code>, 300 by default) over a 12pt body, so an em is dpi × 12 / 72 pixels (50 at 300 dpi), each side rounded up to a whole pixel. The background is transparent and the ink <code>#111</code>; <code>--background</code> and <code>--color</code> (<code>background=</code>, <code>color=</code>) take any CSS color, and colors set in the equation keep their own. A PNG is only the drawing: no speech, source or text layer, so give it the speech as its <code>alt</code>. The npm package leaves it out: in a browser, draw the SVG on a canvas.</p>
+<pre data-lang="sh">$ mathra 'e^{i\pi} + 1 = 0' -o euler.png
+$ mathra 'e^{i\pi} + 1 = 0' --png --dpi 600 --background white &gt; euler.png</pre>
         <h3>What else travels inside</h3>
         <p><code>role="img"</code> and <code>aria-labelledby</code> point to the <code>&lt;title&gt;</code> with the speech. <code>&lt;metadata&gt;</code> keeps the source with its notation, the tree, the braille, the font name and any warnings, so the equation can be recovered from the file. The same input always gives the same bytes. The full contract is <a href="https://github.com/matheusmota-dev-br/mathra/blob/main/spec/svg.md">spec/svg.md</a>.</p>
       </section>
@@ -181,19 +197,19 @@ println!("{}", r.speech);</pre>
       <section id="broken">
         <h2>Broken input</h2>
         <p>LaTeX copied from OCR, chat apps, HTML editors or unescaped JSON is often broken. By default mathra draws what it can and returns a warning for each fix. With <em>strict</em>, it refuses instead. A valid equation gives the same result in both modes.</p>
-<pre data-lang="sh">$ mathra '\vertA\vert = C_{16,2}' --text
-mathra: warning E-REC-1: column 1: unsupported command: \vertA; read as \vert A
+<pre data-lang="sh">$ mathra '\vert A\vert = C_{16,2' --text
+mathra: warning E-REC-4: column 18: '{' without a matching '}'; closed at the end
 |A| = C_(16, 2)</pre>
         <div class="tablewrap"><table>
           <tr><th>Rule</th><th>Problem</th><th>What mathra does</th></tr>
-          <tr><td>E-REC-1</td><td>Unknown command</td><td>Reads <code>\vertA</code> as <code>\vert A</code>, <code>\nlesssim</code> as <code>\not\lesssim</code>; otherwise writes the name in red</td></tr>
+          <tr><td>E-REC-1</td><td>Unknown command</td><td>Writes the name in red, whole; a backslash before a symbol (<code>\5</code>) is dropped</td></tr>
           <tr><td>E-REC-2</td><td>Leftover JSON escape (<code>\n</code>, <code>²</code>)</td><td>A space, or the character</td></tr>
           <tr><td>E-REC-3</td><td>Double script (<code>x_1_2</code>)</td><td>The second script goes on an empty base</td></tr>
           <tr><td>E-REC-4</td><td>Unbalanced braces</td><td>A stray <code>}</code> is ignored; an open <code>{</code> is closed at the end</td></tr>
           <tr><td>E-REC-5</td><td>Unpaired <code>\left</code>, <code>\right</code>, <code>\begin</code>, <code>\end</code></td><td>Closed with an empty delimiter, or ignored</td></tr>
           <tr><td>E-REC-6</td><td>Unknown environment</td><td>Read as a centered table</td></tr>
           <tr><td>E-REC-7</td><td>Missing argument (<code>\frac{1}</code>)</td><td>Left empty</td></tr>
-          <tr><td>E-REC-8</td><td>Character the font lacks</td><td>A box (□)</td></tr>
+          <tr><td>E-REC-8</td><td>Character neither the font nor a fallback font has</td><td>A box (□)</td></tr>
           <tr><td>E-REC-9</td><td>Others: stray <code>#</code>, invalid color, control characters, <code>\divchave</code> with a zero divisor…</td><td>Drawn as written, or ignored</td></tr>
           <tr><td>E-REC-10</td><td>MathML: unknown element or entity, wrong number of children</td><td>Children read as a row; unknown entity dropped</td></tr>
         </table></div>
@@ -206,22 +222,27 @@ mathra: warning E-REC-1: column 1: unsupported command: \vertA; read as \vert A
 echo '&lt;equation&gt;' | mathra [options]</pre>
         <div class="tablewrap"><table>
           <tr><th>Option</th><th>What it does</th></tr>
-          <tr><td><code>-o, --output &lt;file&gt;</code></td><td>Write the SVG to a file instead of printing it</td></tr>
+          <tr><td><code>-o, --output &lt;file&gt;</code></td><td>Write the SVG to a file instead of printing it; a <code>.png</code> file gets a <a href="#page">PNG</a></td></tr>
           <tr><td><code>-l, --locale &lt;code&gt;</code></td><td>The language (<code>en</code> by default)</td></tr>
           <tr><td><code>-f, --from &lt;format&gt;</code></td><td><code>latex</code> (default), <code>mathml</code> or <code>asciimath</code></td></tr>
           <tr><td><code>--inline</code></td><td>Inline style, as in <code>$…$</code></td></tr>
           <tr><td><code>--strict</code></td><td>Refuse invalid LaTeX, like TeX</td></tr>
           <tr><td><code>--explain</code></td><td>Show the text, the speech, the braille, the tree and the rules applied</td></tr>
-          <tr><td><code>--tree</code>, <code>--speech</code>, <code>--text</code>, <code>--braille</code></td><td>Print only that output</td></tr>
+          <tr><td><code>--tree</code>, <code>--speech</code>, <code>--text</code>, <code>--braille</code>, <code>--mathml</code></td><td>Print only that output</td></tr>
           <tr><td><code>--braille-code &lt;c&gt;</code></td><td><code>cmu</code> or <code>nemeth</code></td></tr>
           <tr><td><code>--animate</code></td><td>The SVG writes itself in the browser, in the order the layout set it (CSS in the SVG)</td></tr>
           <tr><td><code>--steps</code></td><td>Each element numbered by that order (<code>data-step</code>), with no animation</td></tr>
-          <tr><td><code>--batch</code></td><td>One equation per input line; with <code>-o &lt;folder&gt;</code> (it must exist), writes <code>1.svg</code>, <code>2.svg</code>…; prints <code>ok</code>, <code>warning⇥…</code> or <code>error⇥…</code> per line</td></tr>
+          <tr><td><code>--png</code></td><td>Write a PNG instead of the SVG, to <code>-o</code> or to stdout</td></tr>
+          <tr><td><code>--dpi &lt;n&gt;</code></td><td>PNG resolution over a 12pt body: an em is n × 12 / 72 pixels (300 by default: 50 pixels per em)</td></tr>
+          <tr><td><code>--background &lt;c&gt;</code>, <code>--color &lt;c&gt;</code></td><td>PNG background (transparent by default) and ink (<code>#111</code>), as CSS colors</td></tr>
+          <tr><td><code>--max-width &lt;w&gt;</code></td><td>Break lines wider than <code>w</code> em (<code>30em</code> or <code>30</code>): after a relation first, then after <code>+</code> and <code>−</code></td></tr>
+          <tr><td><code>--label &lt;key=n&gt;</code>, <code>--cite &lt;key=n&gt;</code></td><td>The number of a label (for <code>\ref</code>, <code>\eqref</code>) or of a citation (for <code>\cite</code>); repeat for more</td></tr>
+          <tr><td><code>--batch</code></td><td>One equation per input line; with <code>-o &lt;folder&gt;</code> (it must exist), writes <code>1.svg</code>, <code>2.svg</code>… (<code>1.png</code>, <code>2.png</code>… with <code>--png</code>); prints <code>ok</code>, <code>warning⇥…</code> or <code>error⇥…</code> per line; a <code>\label</code> with a <code>\tag</code> counts for the lines after it</td></tr>
           <tr><td><code>-V, --version</code>, <code>-h, --help</code></td><td>Version and help</td></tr>
         </table></div>
 <pre data-lang="sh">$ mathra --batch -o out/ &lt; equations.txt
 ok
-warning	E-REC-1 column 1: unsupported command: \vertA; read as \vert A</pre>
+warning	E-REC-4 column 18: '{' without a matching '}'; closed at the end</pre>
       </section>
 
       <section id="languages">
@@ -242,19 +263,19 @@ $ mathra 'x^2 + 1' --braille                                     # ⠭⠘⠆⠐�
       <section id="converts">
         <h2>What it converts</h2>
         <p>Fractions, roots, scripts and limits, stretchy delimiters, matrices and <code>array</code>, <code>cases</code>, alignments, accents and braces, <code>\text</code>, alphabets, every amssymb symbol and negation, <code>\cancel</code>, <code>\boxed</code>, colors, siunitx, mhchem, physics, braket, tensor, mathtools, <code>\newcommand</code> and friends, commutative diagrams (amscd, tikz-cd, xymatrix), structural chemistry (chemfig structures, reaction schemes and mechanism arrows, read aloud by their molecular formulas), and the computed <code>\divchave</code> and <code>\contaarmada</code>. Every construction, drawn and in braille, is in the <a href="reference.html">reference</a>; the full list is in the <a href="https://github.com/matheusmota-dev-br/mathra#what-it-converts">README</a>.</p>
-        <p><strong>Out of scope</strong>, because mathra is for equations: TikZ and TeX programming (<code>\ifx</code>, <code>\catcode</code>). <strong>Not yet</strong>: automatic line breaking, MathML and PNG output, content MathML.</p>
+        <p><strong>Out of scope</strong>, because mathra is for equations: TikZ and TeX programming (<code>\ifx</code>, <code>\catcode</code>).</p>
       </section>
 
       <section id="more">
         <h2>Specs and source</h2>
-        <p>Every decision is a numbered rule with a test: <a href="https://github.com/matheusmota-dev-br/mathra/blob/main/spec/rules.md">rules</a>, <a href="https://github.com/matheusmota-dev-br/mathra/blob/main/spec/svg.md">the SVG</a>, <a href="https://github.com/matheusmota-dev-br/mathra/blob/main/spec/input.md">input notations</a>, <a href="https://github.com/matheusmota-dev-br/mathra/blob/main/spec/tolerance.md">tolerance</a>, <a href="https://github.com/matheusmota-dev-br/mathra/blob/main/spec/locales.md">languages</a>, <a href="https://github.com/matheusmota-dev-br/mathra/blob/main/spec/braille.md">braille</a>, <a href="https://github.com/matheusmota-dev-br/mathra/blob/main/spec/chemistry.md">chemistry</a>, <a href="https://github.com/matheusmota-dev-br/mathra/blob/main/spec/boundary.md">the boundary</a>. The ideas behind them are in the <a href="philosophy.html">philosophy</a>. The code is on <a href="https://github.com/matheusmota-dev-br/mathra">GitHub</a>, under MIT or Apache-2.0.</p>
+        <p>Every decision is a numbered rule with a test: <a href="https://github.com/matheusmota-dev-br/mathra/blob/main/spec/rules.md">rules</a>, <a href="https://github.com/matheusmota-dev-br/mathra/blob/main/spec/svg.md">the SVG</a>, <a href="https://github.com/matheusmota-dev-br/mathra/blob/main/spec/input.md">input notations</a>, <a href="https://github.com/matheusmota-dev-br/mathra/blob/main/spec/tolerance.md">tolerance</a>, <a href="https://github.com/matheusmota-dev-br/mathra/blob/main/spec/locales.md">languages</a>, <a href="https://github.com/matheusmota-dev-br/mathra/blob/main/spec/braille.md">braille</a>, <a href="https://github.com/matheusmota-dev-br/mathra/blob/main/spec/mathml.md">MathML output</a>, <a href="https://github.com/matheusmota-dev-br/mathra/blob/main/spec/chemistry.md">chemistry</a>, <a href="https://github.com/matheusmota-dev-br/mathra/blob/main/spec/boundary.md">the boundary</a>. The ideas behind them are in the <a href="philosophy.html">philosophy</a>. The code is on <a href="https://github.com/matheusmota-dev-br/mathra">GitHub</a>, under MIT or Apache-2.0.</p>
       </section>
     </main>
   </div>
 
   <footer>
     <span>mathra · MIT or Apache-2.0 · STIX Two Math font under OFL-1.1</span>
-    <span><a href="https://github.com/sponsors/matheusmota-dev-br">Sponsor mathra</a> · <a href="https://github.com/matheusmota-dev-br/mathra">github.com/matheusmota-dev-br/mathra</a></span>
+    <span><a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="https://github.com/sponsors/matheusmota-dev-br">Sponsor mathra</a> · <a href="https://github.com/matheusmota-dev-br/mathra">github.com/matheusmota-dev-br/mathra</a></span>
   </footer>
 </div>
 </body>

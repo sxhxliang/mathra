@@ -240,9 +240,19 @@ fn every_committed_example_is_in_the_list() {
     }
 }
 
+/// The options a gallery row may carry (`"options": {"maxWidth": 20}`), as the page passes them to
+/// `render`: `maxWidth` in em breaks lines wider than that (L-BRK-1).
+fn row_max_width(row: &serde_json::Value) -> Option<f32> {
+    let options = row.get("options")?.as_object().expect("options: an object");
+    for key in options.keys() {
+        assert!(key == "maxWidth", "options: unknown {key} (only maxWidth)");
+    }
+    options.get("maxWidth").map(|w| w.as_f64().expect("maxWidth: a number of em") as f32)
+}
+
 /// The site's gallery page (`corpus/gallery.json`, by group): a row that names a README example is
-/// that same equation, every README example is on the page, and every row converts in strict mode
-/// with no warning.
+/// that same equation, every README example is on the page, and every row converts in strict mode,
+/// with its options, with no warning.
 #[test]
 fn the_site_gallery_matches_the_readme_gallery() {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/gallery.json");
@@ -258,12 +268,20 @@ fn the_site_gallery_matches_the_readme_gallery() {
             if let Some(name) = row["name"].as_str() {
                 let e = all().into_iter().find(|e| e.name == name).unwrap_or_else(|| panic!("{id}: {name} is not a README example"));
                 assert_eq!((tex, locale, caption), (e.tex, e.locale.to_string().as_str(), e.caption), "{id}: {name}");
+                // the README draws its examples on one line
+                assert!(row.get("options").is_none(), "{id}: {name}: a README example carries no options");
                 named.push(name);
             }
             let input = row["input"].as_str().unwrap_or("latex").parse().unwrap();
-            let options = Options { locale: locale.parse().unwrap(), input, strict: true, ..Options::default() };
+            let options = Options { locale: locale.parse().unwrap(), input, strict: true, max_width: row_max_width(row), ..Options::default() };
             let r = convert(tex, &options).unwrap_or_else(|err| panic!("{id}: {caption}: {err}"));
             assert!(r.warnings.is_empty(), "{id}: {caption}: {:?}", r.warnings);
+            // a max width the row carries must break it: narrower than the same equation on one line
+            if options.max_width.is_some() {
+                let width = |svg: &str| svg.split(" width=\"").nth(1).unwrap().split("em\"").next().unwrap().parse::<f32>().unwrap();
+                let one_line = convert(tex, &Options { max_width: None, ..options.clone() }).unwrap();
+                assert!(width(&r.svg) < width(&one_line.svg), "{id}: {caption}: maxWidth does not break it");
+            }
         }
     }
     for e in all() {

@@ -1,0 +1,23 @@
+{
+  "name": "mathra-browser",
+  "private": true,
+  "version": "0.1.0",
+  "description": "mathra for Chrome and Edge: mathra's editor from the toolbar, and selected LaTeX opened in it.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test \"test/*.test.ts\"",
+    "coverage": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 \"test/*.test.ts\"",
+    "zip": "node build.mjs && cd extension && zip -qr ../mathra-$npm_package_version.zip ."
+  },
+  "devDependencies": {
+    "@mathlabs/mathra": "file:../npm/pkg",
+    "@mathlabs/mathra-editor": "file:../editor",
+    "@resvg/resvg-wasm": "2.6.2",
+    "@types/chrome": "0.3.7",
+    "@types/node": "24.19.2",
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3"
+  }
+}

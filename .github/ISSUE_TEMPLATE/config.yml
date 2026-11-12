@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security problem
+    url: https://github.com/matheusmota-dev-br/mathra/security/advisories/new
+    about: Report crashes, hangs or unsafe output privately. Do not open a public issue (see SECURITY.md).
+  - name: Try it in the browser
+    url: https://matheusmota-dev-br.github.io/mathra/
+    about: Check how an equation converts in the latest version before reporting.

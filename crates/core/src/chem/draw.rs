@@ -188,6 +188,26 @@ impl Drawing {
         self.shapes.push(Shape::Circle { center, radius, width, fill });
     }
 
+    /// An arc of the circle around `center`, from `from` to `to` degrees counterclockwise, as short
+    /// strokes; with `dash` (on, off), only the strokes that fall on a dash.
+    pub fn arc(&mut self, center: P, radius: f32, from: f32, to: f32, width: f32, dash: Option<(f32, f32)>) {
+        let sweep = to - from;
+        let steps = ((sweep.abs() / 3.0).ceil() as usize).max(2);
+        let point = |t: f32| add(center, mul(direction(from + sweep * t), radius));
+        let step_length = radius * sweep.abs().to_radians() / steps as f32;
+        let mut travelled = 0.0;
+        let mut prev = point(0.0);
+        for k in 1..=steps {
+            let p = point(k as f32 / steps as f32);
+            let on = dash.is_none_or(|(on, off)| (travelled + step_length / 2.0) % (on + off) < on);
+            if on {
+                self.line(prev, p, width);
+            }
+            travelled += step_length;
+            prev = p;
+        }
+    }
+
     pub fn curve(&mut self, a: P, c1: P, c2: P, b: P, width: f32) {
         // the curve stays inside the hull of its four points; sampling gives a tighter box
         for i in 0..=16 {

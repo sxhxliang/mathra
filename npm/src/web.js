@@ -13,5 +13,5 @@ export function init(input) {
   return loading;
 }
 
-export const { texToSvg, render, locales, loadFont, catalogFonts, loadFontFromCatalog } = wrap(raw, () => ready);
+export const { texToSvg, render, locales, loadFont, loadFallbackFont, catalogFonts, loadFontFromCatalog } = wrap(raw, () => ready);
 export const version = "__VERSION__";

@@ -5,7 +5,12 @@ function args(options) {
   const o = typeof options === "string" ? { locale: options } : options ?? {};
   // a font is what `loadFont` returned, or its id
   const font = typeof o.font === "object" && o.font !== null ? o.font.id : o.font;
-  return [o.locale ?? null, o.display ?? null, o.strict ?? null, o.input ?? null, o.braille ?? null, o.animate ?? null, o.steps ?? null, font ?? null];
+  // a fallback font is what `loadFallbackFont` returned (its id), or a math font from `loadFont`
+  // (its id n, sent as -(n + 1))
+  const fallbacks = o.fallbackFonts == null ? null : Int32Array.from(o.fallbackFonts, (f) => (f.fallback ? f.id : -f.id - 1));
+  // labels and citations: objects from a key to its number, passed to the wasm as JSON
+  const numbers = (map) => (map == null ? null : JSON.stringify(map));
+  return [o.locale ?? null, o.display ?? null, o.strict ?? null, o.input ?? null, o.braille ?? null, o.animate ?? null, o.steps ?? null, font ?? null, o.maxWidth ?? null, fallbacks, numbers(o.labels), numbers(o.citations)];
 }
 
 // mathfonts: a catalog of math fonts checked with mathra. Nothing is downloaded unless asked for.
@@ -58,6 +63,10 @@ export function wrap(raw, isReady) {
     loadFont(bytes) {
       check();
       return JSON.parse(raw.loadFont(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)));
+    },
+    loadFallbackFont(bytes) {
+      check();
+      return JSON.parse(raw.loadFallbackFont(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)));
     },
     catalogFonts(options) {
       return catalog(options?.catalog);

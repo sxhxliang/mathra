@@ -1,0 +1,65 @@
+name: Bug report
+description: A wrong drawing, wrong text, a rejected equation or an error.
+title: "fix: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. A crash, a hang or output that carries something unsafe is a security problem: report it through [the security policy](https://github.com/matheusmota-dev-br/mathra/security/advisories/new) instead.
+
+        The title triages the issue: `fix(latex): …`, `fix(chem): …`, `fix(cli): …` adds the matching label.
+  - type: textarea
+    id: input
+    attributes:
+      label: Input
+      description: The equation exactly as given.
+      render: latex
+    validations:
+      required: true
+  - type: dropdown
+    id: notation
+    attributes:
+      label: Notation
+      options: [LaTeX, MathML, AsciiMath]
+    validations:
+      required: true
+  - type: input
+    id: options
+    attributes:
+      label: Options
+      description: "Locale and other options, for example `--locale pt-BR --strict`."
+  - type: textarea
+    id: got
+    attributes:
+      label: What mathra produced
+      description: The SVG (or a screenshot of it), the text, the warning or the error.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: A screenshot of how LaTeX draws it helps.
+    validations:
+      required: true
+  - type: textarea
+    id: explain
+    attributes:
+      label: Output of `mathra --explain`
+      description: Shows which rules applied. Optional, but it speeds things up.
+      render: text
+  - type: dropdown
+    id: package
+    attributes:
+      label: How you called mathra
+      options: [CLI, Rust crate, npm (JavaScript), PyPI (Python), The site]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`mathra --version`, or the crate, npm or PyPI version."
+    validations:
+      required: true

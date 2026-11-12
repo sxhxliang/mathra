@@ -95,3 +95,45 @@ fn mathml_entity_bombs_stay_bounded() {
     let _ = valid_svg_from(bomb, mathra::Input::MathMl);
     assert!(start.elapsed().as_secs() < 5, "took {:?}", start.elapsed());
 }
+
+#[test]
+fn html_attributes_cannot_inject_markup_or_css() {
+    for tex in [
+        r#"\cssId{a" onload="alert(1)}{x}"#,
+        r#"\htmlId{x"><script>alert(1)</script>}{x}"#,
+        r#"\class{a' onmouseover='alert(1)}{x}"#,
+        r#"\htmlClass{</g><script>x</script>}{x}"#,
+        r#"\style{color:red" onload="alert(1)}{x}"#,
+        r"\style{background:url(javascript:alert(1))}{x}",
+        r"\style{background-color:URL(data:x)}{x}",
+        r"\htmlStyle{color:red;}</style><script>x</script>{x}",
+        r"\htmlStyle{color:expression(alert(1))}{x}",
+        r"\style{position:fixed;top:0;left:0;width:100%}{x}",
+        r#"\htmlData{onload=alert(1), x" onclick="y=1}{x}"#,
+        r#"\htmlData{k=" onload="alert(1)}{x}"#,
+        r"\htmlData{k=</g><script>x</script>}{x}",
+    ] {
+        let svg = valid_svg(tex);
+        let doc = roxmltree::Document::parse(&svg).unwrap();
+        assert!(doc.descendants().all(|n| n.tag_name().name() != "script"), "{tex}");
+        assert!(doc.descendants().all(|n| n.attributes().all(|a| !a.name().starts_with("on"))), "{tex}");
+        for g in doc.descendants().filter(|n| n.has_tag_name("g")) {
+            for a in g.attributes() {
+                let value = a.value().to_ascii_lowercase();
+                assert!(!value.contains("url(") && !value.contains("javascript") && !value.contains("expression("), "{tex}: {}={}", a.name(), a.value());
+                if a.name() == "style" {
+                    for declaration in value.split(';') {
+                        let property = declaration.split(':').next().unwrap_or("").trim();
+                        assert!(["color", "background", "background-color", "opacity"].contains(&property), "{tex}: {value}");
+                    }
+                }
+                if a.name() == "id" || a.name() == "class" {
+                    assert!(a.value().chars().all(|c| c.is_ascii_alphanumeric() || "_- ".contains(c)), "{tex}: {}", a.value());
+                }
+                if a.name().starts_with("data-") {
+                    assert!(a.name().chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "_-".contains(c)), "{tex}: {}", a.name());
+                }
+            }
+        }
+    }
+}

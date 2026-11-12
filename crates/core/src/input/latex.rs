@@ -8,12 +8,17 @@ use crate::tree::*;
 use crate::Error;
 
 use super::symbols::{self, Symbol};
+use siunitx::{joined_units, unit_node, PerMode, UnitEntry, UnitSymbol};
 
 #[cfg(feature = "chem")]
 mod chemistry;
+mod color;
 mod compat;
 mod diagram;
+mod mathtools;
 mod proof;
+mod siunitx;
+mod tex;
 
 pub fn read(tex: &str, locale: Locale, registry: &mut Registry) -> Result<Node, Error> {
     read_with(tex, locale, registry, true)
@@ -27,11 +32,63 @@ pub fn read_with(tex: &str, locale: Locale, registry: &mut Registry, strict: boo
 /// [`read_with`], for an equation set in `font`: the words it writes in the language (a range's
 /// "to", a list's "and") are kept only if that font has their letters.
 pub fn read_in_font(tex: &str, locale: Locale, registry: &mut Registry, strict: bool, font: MathFont) -> Result<Node, Error> {
+    read_in_document(tex, locale, registry, strict, font, &Labels::new(), &Labels::new()).map(|(body, _)| body)
+}
+
+/// Keys and what they stand for: the number of a label (`"eq:a"` → `"3"`) or of a citation.
+pub type Labels = std::collections::BTreeMap<String, String>;
+
+/// [`read_in_font`], for an equation of a document: `\ref` and `\eqref` show the number `labels` gives
+/// their key, `\cite` the number `citations` gives it. Also returns the labels the equation numbers
+/// itself, a `\label` with a `\tag` on the same line, for the equations that come after it.
+pub fn read_in_document(tex: &str, locale: Locale, registry: &mut Registry, strict: bool, font: MathFont, labels: &Labels, citations: &Labels) -> Result<(Node, Labels), Error> {
     let clean = prepare(tex, registry, strict);
-    let mut macros = Macros { max_size: clean.chars().count() + MAX_GROWTH, ..Macros::default() };
-    let mut reader = Reader { c: clean.chars().collect(), pos: 0, locale, registry, macros: &mut macros, variant: Variant::Italic, strict, explicit_size: 1.0, font };
+    let c: Vec<char> = clean.chars().collect();
+    let mut macros = Macros { max_size: c.len() + MAX_GROWTH, json_text: json_signs(tex, &c), ..Macros::default() };
+    let mut refs = References { given: labels.clone(), citations: citations.clone(), ..References::default() };
+    let mut reader = Reader { c, pos: 0, locale, registry, macros: &mut macros, refs: &mut refs, variant: Variant::Italic, strict, explicit_size: 1.0, font };
     let body = reader.top()?;
-    Ok(body)
+    refs.end_line();
+    Ok((body, refs.defined))
+}
+
+/// The cross-references of the equation (`\label`, `\tag`, `\ref`, `\eqref`, `\cite`).
+#[derive(Default)]
+struct References {
+    /// The numbers of labels the caller knows (the document around the equation).
+    given: Labels,
+    citations: Labels,
+    /// Labels this equation numbers with `\tag`.
+    defined: Labels,
+    /// The `\label`s and the `\tag` of the line being read: they pair when the line ends.
+    line_labels: Vec<String>,
+    line_tag: Option<String>,
+}
+
+impl References {
+    /// The end of a numbered line (`\\` in `align`, the end of `equation` or of the input): a `\tag`
+    /// numbers the `\label`s of its line. A `\label` without a `\tag` would take the automatic number,
+    /// which mathra does not give: it stays unknown.
+    fn end_line(&mut self) {
+        let labels = std::mem::take(&mut self.line_labels);
+        if let Some(tag) = self.line_tag.take() {
+            for label in labels {
+                self.defined.insert(label, tag.clone());
+            }
+        }
+    }
+
+    /// The number of a label: numbered by this equation (on a line already read, or on this line, when
+    /// its `\label` and `\tag` came before), or given by the caller.
+    fn number(&self, key: &str) -> Option<&String> {
+        let this_line = self.line_tag.as_ref().filter(|_| self.line_labels.iter().any(|l| l == key));
+        this_line.or_else(|| self.defined.get(key)).or_else(|| self.given.get(key))
+    }
+}
+
+/// The environments that number their lines (and so take `\tag` and `\label` per line).
+fn numbered_environment(name: &str) -> bool {
+    matches!(name.trim_end_matches('*'), "equation" | "align" | "gather" | "multline" | "flalign" | "alignat" | "eqnarray")
 }
 
 /// Substitution macros defined in the equation itself (`\newcommand`, `\def`, `\let`…).
@@ -40,6 +97,10 @@ pub fn read_in_font(tex: &str, locale: Locale, registry: &mut Registry, strict: 
 struct Macros {
     commands: std::collections::HashMap<String, Macro>,
     environments: std::collections::HashMap<String, (String, String)>,
+    /// Colors defined by `\definecolor` and `\colorlet`, for the rest of the input.
+    colors: color::Colors,
+    /// Units declared by `\DeclareSIUnit` and options set by `\sisetup`, for the rest of the input.
+    siunitx: siunitx::State,
     expansions: usize,
     /// How much the text may grow through expansions, counting the original size.
     max_size: usize,
@@ -47,6 +108,16 @@ struct Macros {
     warned_excess: bool,
     /// Groups, commands and scripts open right now: protects the stack from inputs like `{{{{…`.
     depth: usize,
+    /// mathtools' `\shortvdotswithin` wrote the `\vdotswithin` that comes next: that one is short.
+    short_row: bool,
+    /// E-REC-2, [`json_signs`]: `None` when the input has a real tab or line break (a JSON string has
+    /// none, so it shows no escape); otherwise, does the input show a sign of JSON ([`json_evidence`]).
+    json_text: Option<bool>,
+    /// `\setlength{\arraycolsep}{…}`, in em, for the arrays and matrices after it.
+    array_colsep: Option<f32>,
+    /// chemfig's `\definesubmol`s, for the structures after them.
+    #[cfg(feature = "chem")]
+    submols: crate::chem::model::Submols,
 }
 
 #[derive(Clone)]
@@ -54,8 +125,18 @@ struct Macro {
     arguments: usize,
     default_arg: Option<String>,
     body: String,
-    /// `\DeclarePairedDelimiter`: opening and closing delimiters.
-    paired: Option<(String, String)>,
+    /// `\DeclarePairedDelimiter` and mathtools' X and XPP forms: the delimiters around the body.
+    paired: Option<Box<Paired>>,
+}
+
+/// The delimiters of a mathtools paired delimiter, and what `\DeclarePairedDelimiterXPP` puts before
+/// and after them.
+#[derive(Clone)]
+struct Paired {
+    open: String,
+    close: String,
+    pre: String,
+    post: String,
 }
 
 /// More than this is almost certainly a macro that calls itself.
@@ -88,13 +169,23 @@ pub const MARKERS: [char; 9] = [BOLD_START, BOLD_END, SMALL_CAPS_START, SMALL_CA
 fn prepare(tex: &str, registry: &mut Registry, strict: bool) -> String {
     // the repair comes before the trim: a \frac eaten by JSON starts with a form feed, which trim would delete
     let mut s = tex.to_string();
+    // an unescaped % starts a comment in TeX; pasted equations usually mean a percent sign (15%)
+    let (uncommented, percents) = comments(&s);
+    if strict {
+        s = uncommented;
+    } else {
+        for column in percents {
+            registry.warn(rules::E_REC_9, format!("column {column}: '%' starts a comment in TeX (write \\% for a percent sign); drawn as a percent sign"));
+        }
+    }
+    control_spaces(&mut s);
     if !strict {
         if let Some(repaired) = repair_controls(&s) {
             registry.warn(rules::E_REC_2, "JSON control character in place of the backslash (\\frac stored unescaped): command rebuilt");
             s = repaired;
         }
     }
-    s = s.trim().to_string();
+    s = trim_keeping_control_space(&s);
     if !strict {
         if let Some(undone) = undo_doubled_backslashes(&s) {
             registry.warn(rules::E_REC_2, "doubled backslashes (LaTeX escaped twice): one level undone");
@@ -148,6 +239,7 @@ struct Reader<'a> {
     locale: Locale,
     registry: &'a mut Registry,
     macros: &'a mut Macros,
+    refs: &'a mut References,
     /// Current variant, changed by `\bf`, `\rm`, `\mathrm{…}`.
     variant: Variant,
     strict: bool,
@@ -202,6 +294,45 @@ impl Reader<'_> {
 
     fn column(&self) -> usize {
         self.pos + 1
+    }
+
+    /// What `\ref{key}` (`name` "ref") or `\eqref{key}` shows: the label's number, `(3)` for `\eqref`.
+    /// A label with no number is `??`, as on LaTeX's first run: a warning, or an error in strict mode.
+    fn label_number(&mut self, name: &str, key: &str, col: usize) -> R<String> {
+        let key = key.trim();
+        let number = match self.refs.number(key).cloned() {
+            Some(n) => n,
+            None => {
+                let shown = if name == "eqref" { "(??)" } else { "??" };
+                self.tolerate(
+                    rules::E_REC_9,
+                    col,
+                    format!("\\{name}{{{key}}}: no number for this label (a \\tag on its line, or the labels option)"),
+                    &format!("drawn as {shown}"),
+                )?;
+                "??".to_string()
+            }
+        };
+        Ok(if name == "eqref" { format!("({number})") } else { number })
+    }
+
+    /// What `\cite[note]{a,b}` shows: `[1, 2, note]`, each key by its number in the citations; a key with
+    /// no number is `?`, as on LaTeX's first run: a warning, or an error in strict mode.
+    fn citation(&mut self, keys: &str, note: Option<&str>, col: usize) -> R<String> {
+        let mut shown = Vec::new();
+        for key in keys.split(',').map(str::trim).filter(|k| !k.is_empty()) {
+            match self.refs.citations.get(key).cloned() {
+                Some(n) => shown.push(n),
+                None => {
+                    self.tolerate(rules::E_REC_9, col, format!("\\cite{{{key}}}: no number for this citation (the citations option)"), "drawn as ?")?;
+                    shown.push("?".to_string());
+                }
+            }
+        }
+        if let Some(note) = note.map(|n| n.replace('~', " ")).filter(|n| !n.trim().is_empty()) {
+            shown.push(note.trim().to_string());
+        }
+        Ok(format!("[{}]", shown.join(", ")))
     }
 
     /// Runs `f` one level deeper. Going past the limit is an error in both modes: there is nothing to recover.
@@ -321,6 +452,7 @@ impl Reader<'_> {
             locale: self.locale,
             registry: self.registry,
             macros: self.macros,
+            refs: self.refs,
             variant,
             strict: self.strict,
             explicit_size: self.explicit_size,
@@ -339,7 +471,7 @@ impl Reader<'_> {
 
     // ---------- structure ----------
 
-    /// Whole body. Loose `\\` and `&` become rows and columns of an alignment.
+    /// Whole body. Loose `\\` and `&` become rows and columns of an alignment (a loose `&` is misplaced in TeX: E-REC-9).
     fn top(&mut self) -> R<Node> {
         let mut rows: Vec<Vec<Node>> = Vec::new();
         let mut cells: Vec<Node> = Vec::new();
@@ -349,8 +481,15 @@ impl Reader<'_> {
             cells.push(Node::row(items).simplify());
             match stop {
                 Stop::Eof => break,
-                Stop::E => had_e = true,
-                Stop::NewRow => rows.push(std::mem::take(&mut cells)),
+                Stop::E => {
+                    // TeX: "Misplaced alignment tab character &"
+                    self.tolerate(rules::E_REC_9, self.pos, "'&' outside an alignment", "read as a column of an alignment")?;
+                    had_e = true;
+                }
+                Stop::NewRow => {
+                    rows.push(std::mem::take(&mut cells));
+                    self.refs.end_line();
+                }
                 Stop::CloseBrace => self.tolerate(rules::E_REC_4, self.pos, "'}' without a matching '{'", "ignored")?,
                 Stop::End(n) => self.tolerate(rules::E_REC_5, self.pos, format!("\\end{{{n}}} without a matching \\begin"), "ignored")?,
                 Stop::Right(d) => {
@@ -371,7 +510,18 @@ impl Reader<'_> {
             rows.push(cells);
         }
         let kind = if had_e { TableKind::Aligned } else { TableKind::Centered };
-        Ok(Node::Table { shape: kind, rows, columns: vec![], verticals: vec![], dashed: vec![], horizontals: vec![], between: vec![], intertexts: vec![], stretch: 1.0 })
+        Ok(Node::Table {
+            shape: kind,
+            rows,
+            columns: vec![],
+            verticals: vec![],
+            dashed: vec![],
+            horizontals: vec![],
+            between: vec![],
+            intertexts: vec![],
+            stretch: 1.0,
+            colsep: 500,
+        })
     }
 
     /// Reads atoms up to a stop (end, `}`, `&`, `\\`, `\end`, `\right`…).
@@ -438,7 +588,8 @@ impl Reader<'_> {
                 vec![Node::Space { em: 0.333 }]
             }
             '$' => {
-                // a stray dollar sign in the middle of the equation: a leftover delimiter
+                // a stray dollar sign in the middle of the equation: a leftover delimiter (TeX would leave math mode)
+                self.tolerate(rules::E_REC_9, col, "'$' in the middle of the equation", "ignored")?;
                 self.pos += 1;
                 vec![]
             }
@@ -491,7 +642,15 @@ impl Reader<'_> {
         })
     }
 
+    #[inline(never)]
     fn number(&mut self) -> Node {
+        // \mathbb{1}, \mathds{1}, \mathbbm{1}: the double-struck digit 𝟙 (U+1D7D9), a symbol, not a number
+        if self.variant == Variant::DoubleStruck {
+            if let Some(digit) = self.current().filter(char::is_ascii_digit) {
+                self.pos += 1;
+                return Node::Identifier { name: digit.to_string(), variant: Variant::DoubleStruck };
+            }
+        }
         if let Some(node) = self.number_with_thousands() {
             return node;
         }
@@ -512,7 +671,7 @@ impl Reader<'_> {
         if written.contains(',') {
             self.registry.note(rules::L_NUM_1, format!("'{written}': comma between digits read as decimal separator ({value})"));
         }
-        Node::Number { value, group: false, thousands: None }
+        Node::Number { value, group: false, thousands: None, variant: self.variant.of_digits() }
     }
 
     /// L-NUM-3: `1.000` and `12.345,67` in pt-BR, `1,000` and `12,345.67` in English: the locale's thousands
@@ -561,7 +720,7 @@ impl Reader<'_> {
         let written: String = self.c[self.pos..i].iter().collect();
         self.pos = i;
         self.registry.note(rules::L_NUM_3, format!("'{written}': '{thousands}' separa milhares ({value})"));
-        Some(Node::Number { value, group: false, thousands: Some(thousands) })
+        Some(Node::Number { value, group: false, thousands: Some(thousands), variant: self.variant.of_digits() })
     }
 
     /// Argument of a command or script: a group or a single token.
@@ -587,7 +746,7 @@ impl Reader<'_> {
             }
             Some(c) if c.is_ascii_digit() => {
                 self.pos += 1;
-                Ok(Node::Number { value: c.to_string(), group: false, thousands: None })
+                Ok(Node::Number { value: c.to_string(), group: false, thousands: None, variant: self.variant.of_digits() })
             }
             Some(_) => Ok(Node::row(self.atom()?).simplify()),
         }
@@ -613,6 +772,45 @@ impl Reader<'_> {
     /// `^`, `_` and `'` attach to the last atom.
     fn scripts(&mut self, items: &mut Vec<Node>) -> R<()> {
         self.nested(|this| this.scripts_unguarded(items))
+    }
+
+    /// The argument of the script `mark` (`^` or `_`) TeX refuses, before it is read:
+    /// - `y__k`, `x^_2`: the argument is itself `^` or `_`. TeX stops ("Missing { inserted"); tolerant
+    ///   mode draws the mark as the script, as before, with a warning (E-REC-3).
+    /// - `^²`, `_₂`: a Unicode superscript or subscript, pasted from an editor, would be shrunk and
+    ///   raised twice; tolerant mode reads it as its plain character (`^2`, `_2`; a run of them as a
+    ///   group, `^⁻¹` as `^{-1}`), with a warning (E-REC-2).
+    fn check_script_argument(&mut self, mark: char) -> R<()> {
+        let saved = self.pos;
+        self.skip_spaces();
+        let col = self.column();
+        let found = self.current();
+        let at = self.pos;
+        self.pos = saved;
+        let which = if mark == '^' { "superscript" } else { "subscript" };
+        match found {
+            Some(second @ ('^' | '_')) => {
+                self.tolerate(rules::E_REC_3, col, format!("'{second}' right after '{mark}': the {which} has no argument"), &format!("'{second}' drawn as the {which}"))?;
+            }
+            Some(glyph) if plain_script_char(glyph).is_some() => {
+                // the whole run of the same kind is the script: ^⁻¹ is ^{-1}
+                let sub = is_subscript_char(glyph);
+                let run = self.c[at..].iter().take_while(|&&g| plain_script_char(g).is_some() && is_subscript_char(g) == sub).count();
+                let glyphs: String = self.c[at..at + run].iter().collect();
+                let plain: String = glyphs.chars().filter_map(plain_script_char).collect();
+                let argument = if run == 1 { plain } else { format!("{{{plain}}}") };
+                self.tolerate(
+                    rules::E_REC_2,
+                    col,
+                    format!("'{glyphs}' after '{mark}' is already a {}", if sub { "subscript" } else { "superscript" }),
+                    &format!("read as '{mark}{argument}'"),
+                )?;
+                self.c.splice(at..at + run, argument.chars());
+            }
+            Some(_) => {}
+            None => {}
+        }
+        Ok(())
     }
 
     fn scripts_unguarded(&mut self, items: &mut Vec<Node>) -> R<()> {
@@ -653,6 +851,7 @@ impl Reader<'_> {
                     }
                     Some('^') if sup.is_none() || only_primes(&sup) => {
                         self.pos += 1;
+                        self.check_script_argument('^')?;
                         let arg = self.argument()?;
                         sup = Some(match sup {
                             None => arg,
@@ -661,6 +860,7 @@ impl Reader<'_> {
                     }
                     Some('_') if sub.is_none() => {
                         self.pos += 1;
+                        self.check_script_argument('_')?;
                         sub = Some(self.argument()?);
                     }
                     Some(c @ ('^' | '_')) => {
@@ -762,6 +962,23 @@ impl Reader<'_> {
             "right" => return Ok(Some(Some(Stop::Right(self.delimiter()?)))),
             "middle" => return Ok(Some(Some(Stop::Middle(self.delimiter()?)))),
             "hline" | "midrule" | "toprule" | "bottomrule" => return Ok(Some(Some(Stop::Hline(false)))),
+            // TeX's \noalign{…} between the rows of an alignment: vertical space there is read and left
+            // out as the [length] of \\ is, a \hrule is a rule; anything else mathra does not draw
+            "noalign" => {
+                let content = self.raw_text()?;
+                let spacing = |s: &str| {
+                    let s = s.trim();
+                    s.is_empty() || ["\\vspace", "\\vskip", "\\smallskip", "\\medskip", "\\bigskip", "\\addvspace"].iter().any(|c| s.starts_with(c))
+                };
+                let trimmed = content.trim();
+                if trimmed == "\\hrule" || trimmed == "\\hline" {
+                    return Ok(Some(Some(Stop::Hline(false))));
+                }
+                if !spacing(trimmed) {
+                    self.tolerate(rules::E_REC_1, col, format!("\\noalign{{{trimmed}}}: only vertical space and rules are read"), "left out")?;
+                }
+                return Ok(Some(None));
+            }
             // arydshln
             "hdashline" => {
                 self.raw_optional();
@@ -789,11 +1006,108 @@ impl Reader<'_> {
                 self.pos = saved;
                 self.environment(col)?
             }
-            "intertext" | "shortintertext" => return Ok(Some(Some(Stop::Intertext(self.text()?)))),
+            "intertext" | "shortintertext" => return Ok(Some(Some(Stop::Intertext(Node::Text { parts: self.text_parts()? })))),
+            // amsmath, for a line of multline: the line at the left or right margin (the optional
+            // [length] away from it, which mathra, with no margin to measure from, leaves out)
+            "shoveleft" | "shoveright" => {
+                self.raw_optional();
+                let alignment = if name == "shoveleft" { 'l' } else { 'r' };
+                Node::Multicolumn { columns: 1, alignment, base: Box::new(self.argument()?) }
+            }
             _ => return Ok(None),
         };
         items.push(node);
         Ok(Some(None))
+    }
+
+    /// TeX's "Extra alignment tab has been changed to \cr": a row of an `array` with more cells than its
+    /// columns declare (E-REC-9; refused in strict mode). Out of line, so the frame of the environment
+    /// reader, on the path of nested environments, does not grow.
+    #[inline(never)]
+    fn extra_cells(&mut self, rows: &[Vec<Node>], declared: usize, intertexts: &[usize], name: &str, col: usize) -> R<()> {
+        let span = |cell: &Node| if let Node::Multicolumn { columns, .. } = cell { *columns } else { 1 };
+        for (r, row) in rows.iter().enumerate() {
+            let cells: usize = row.iter().map(span).sum();
+            if cells > declared && !intertexts.contains(&r) {
+                self.tolerate(rules::E_REC_9, col, format!("row {} of {name} has {cells} cells, the columns declare {declared}", r + 1), "the extra cells drawn centered")?;
+            }
+        }
+        Ok(())
+    }
+
+    /// amsmath's "Misplaced alignment tab character &": a line of `gather`, `gathered` or `multline`,
+    /// which have one column, split by `&` (E-REC-9; refused in strict mode). The cells are joined
+    /// into the one cell of the line. Out of line, as `extra_cells`.
+    #[inline(never)]
+    fn misplaced_tabs(&mut self, rows: &mut [Vec<Node>], name: &str, col: usize) -> R<()> {
+        for (r, row) in rows.iter_mut().enumerate() {
+            if row.len() > 1 {
+                self.tolerate(rules::E_REC_9, col, format!("'&' in line {} of {name}, which has one column", r + 1), "the cells joined")?;
+                let mut joined = Vec::new();
+                for cell in row.drain(..) {
+                    match cell {
+                        Node::Row { children } => joined.extend(children),
+                        other => joined.push(other),
+                    }
+                }
+                row.push(Node::row(joined).simplify());
+            }
+        }
+        Ok(())
+    }
+
+    /// mathtools' `\vdotswithin` and `\shortvdotswithin`, and the accents package's `\underaccent` and
+    /// `\accentset`, asked by `mod_command`: not in `structure_command`, which is on the path of every
+    /// nested environment, nor in `accent_command`, on the path of every nested `\not`, where arms widen
+    /// the stack frame.
+    fn vdots_command(&mut self, name: &str, col: usize, start: usize, items: &mut Vec<Node>) -> R<Option<Option<Stop>>> {
+        match name {
+            "vdotswithin" => items.push(self.vdots_within()?),
+            "shortvdotswithin" => self.short_vdots_within(start, col)?,
+            "underaccent" | "accentset" => items.push(self.accents_package(name == "underaccent")?),
+            _ => return Ok(None),
+        }
+        Ok(Some(None))
+    }
+
+    /// The accents package: `\underaccent{accent}{base}` puts the mark of an accent command under the
+    /// base (`\underaccent{\tilde}{x}`), and anything else under it in scriptscript style;
+    /// `\accentset{mark}{base}` sets the mark over the base in scriptscript style, as an accent (an
+    /// ordinary atom, whatever the base).
+    #[inline(never)]
+    fn accents_package(&mut self, under: bool) -> R<Node> {
+        let mark = self.raw_text()?;
+        let base = Box::new(self.argument()?);
+        let command = mark.trim().strip_prefix('\\').filter(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_alphabetic()));
+        if let Some((accent, stretchy)) = command.filter(|_| under).and_then(symbols::accent) {
+            return Ok(Node::Accent { base, accent, stretchy, below: true });
+        }
+        let mark = Some(Box::new(Node::Style { level: 3, base: Box::new(self.sub_reader(&mark, self.variant)?) }));
+        Ok(if under { Node::Stacked { base, above: None, below: mark } } else { Node::Stacked { base, above: mark, below: None } })
+    }
+
+    /// mathtools' `\vdotswithin{=}`: ⋮ centered in a box as wide as `{}={}`, so that it sits under
+    /// the symbol of the line above (a relation with its spaces). Short when `\shortvdotswithin`
+    /// wrote it.
+    fn vdots_within(&mut self) -> R<Node> {
+        let short = std::mem::take(&mut self.macros.short_row);
+        // read as a list, not as a group: `=` keeps its class, and its spaces
+        let raw = self.raw_text()?;
+        let symbol = self.sub_reader(&raw, self.variant)?;
+        Ok(Node::VdotsWithin { symbol: Box::new(symbol), short })
+    }
+
+    /// mathtools' `\shortvdotswithin{=}`: a row of its own, `&\vdotswithin{=}\\` (`\vdotswithin{=}&\\`
+    /// with the star, in the first column), set close to the rows around it.
+    fn short_vdots_within(&mut self, start: usize, col: usize) -> R<()> {
+        let starred = self.current() == Some('*');
+        if starred {
+            self.pos += 1;
+        }
+        let symbol = self.raw_text()?;
+        self.macros.short_row = true;
+        let row = if starred { format!("\\vdotswithin{{{symbol}}}&\\\\") } else { format!("&\\vdotswithin{{{symbol}}}\\\\") };
+        self.inject(start, &row, col)
     }
 
     fn space_command(&mut self, name: &str, col: usize, start: usize, star: bool, items: &mut Vec<Node>) -> R<Option<Option<Stop>>> {
@@ -816,7 +1130,15 @@ impl Reader<'_> {
                     self.pos += 1;
                 }
                 let measure = if self.c.get(self.pos).is_some_and(|c| *c == '{') || name.starts_with('h') && name != "hskip" { self.raw_text()? } else { self.raw_measure() };
-                Node::Space { em: measure_em(&measure).ok_or(Error::Syntax { column: col, message: format!("unrecognized measure: {measure}") })? }
+                match self.space_measure(&measure, col)? {
+                    Some(em) => Node::Space { em },
+                    None => return Ok(Some(None)),
+                }
+            }
+            // #206: plain TeX's math glue registers, which only an assignment names outside a skip
+            "thinmuskip" | "medmuskip" | "thickmuskip" => {
+                self.muskip_assignment(name, col)?;
+                return Ok(Some(None));
             }
             _ => return Ok(None),
         };
@@ -849,41 +1171,9 @@ impl Reader<'_> {
                 });
                 return Ok(Some(Some(p)));
             }
-            "over" | "choose" | "atop" | "brack" | "brace" | "above" => {
-                let num = Node::row(std::mem::take(items));
-                // \above<dimen>: TeX reads a dimension, written bare (2pt) or, as KaTeX allows, braced
-                let thickness = if name == "above" {
-                    self.skip_spaces();
-                    let raw = if self.current() == Some('{') {
-                        self.raw_text()?
-                    } else {
-                        let start = self.pos;
-                        while self.current().is_some_and(|c| c.is_ascii_digit() || matches!(c, '.' | ',' | '-')) {
-                            self.pos += 1;
-                        }
-                        while self.current().is_some_and(|c| c.is_ascii_alphabetic()) && self.pos - start < 12 {
-                            self.pos += 1;
-                            if measure_em(&self.c[start..self.pos].iter().collect::<String>()).is_some() {
-                                break;
-                            }
-                        }
-                        self.c[start..self.pos].iter().collect()
-                    };
-                    Some(measure_em(&raw).ok_or(Error::Syntax { column: col, message: format!("\\above needs a dimension, not {raw:?}") })?.max(0.0))
-                } else {
-                    None
-                };
-                let (remainder, p) = self.list()?;
-                let den = Node::row(remainder);
-                let rule = matches!(name, "over" | "above");
-                let fraction = Node::Fraction { num: Box::new(num), den: Box::new(den), style: FractionStyle::Auto, rule, thickness };
-                items.push(match name {
-                    "choose" => Node::Delimited { open: Some('('), close: Some(')'), parts: vec![fraction], middles: vec![] },
-                    "brack" => Node::Delimited { open: Some('['), close: Some(']'), parts: vec![fraction], middles: vec![] },
-                    "brace" => Node::Delimited { open: Some('{'), close: Some('}'), parts: vec![fraction], middles: vec![] },
-                    _ => fraction,
-                });
-                return Ok(Some(Some(p)));
+            // generalized fractions, out of line (tex.rs): the rest of the group is their denominator
+            "over" | "choose" | "atop" | "brack" | "brace" | "above" | "overwithdelims" | "atopwithdelims" | "abovewithdelims" => {
+                return self.generalized_fraction(name, col, items).map(|p| Some(Some(p)));
             }
             "bf" | "rm" | "it" | "sf" | "tt" | "cal" | "mit" | "boldmath" | "unboldmath" | "normalfont" => {
                 self.variant = match name {
@@ -907,17 +1197,46 @@ impl Reader<'_> {
                 }
                 return Ok(Some(None));
             }
-            "label" | "ref" | "eqref" => {
-                let label = self.raw_text()?;
-                if name == "label" {
-                    return Ok(Some(None));
-                }
-                Node::Text { parts: vec![TextPart::Text(if name == "eqref" { format!("({label})") } else { label })] }
+            "label" => {
+                let key = self.raw_text()?.trim().to_string();
+                self.refs.line_labels.push(key);
+                return Ok(Some(None));
             }
-            "nonumber" | "notag" | "nolinebreak" | "allowbreak" | "displaybreak" | "protect" | "relax" | "noindent" | "centering" | "ensuremath" => return Ok(Some(None)),
+            "ref" | "eqref" => {
+                let key = self.raw_text()?;
+                Node::Text { parts: vec![TextPart::Text(self.label_number(name, &key, col)?)] }
+            }
+            "cite" => {
+                let note = self.raw_optional();
+                let keys = self.raw_text()?;
+                Node::Text { parts: vec![TextPart::Text(self.citation(&keys, note.as_deref(), col)?)] }
+            }
+            // #255: \nobreak and \allowbreak (KaTeX's line break hints) are read and ignored: the tree has no
+            // node for a break hint, so the line breaking of --max-width (L-BRK-1) does not see them
+            "nonumber" | "notag" | "nolinebreak" | "nobreak" | "allowbreak" | "displaybreak" | "protect" | "relax" | "noindent" | "centering" | "ensuremath" => {
+                return Ok(Some(None))
+            }
+            // \linebreak[n] is a break hint too, as \allowbreak; \qedhere places a proof's end mark, and an
+            // equation converted alone is not a proof: both are read and draw nothing
+            "linebreak" => {
+                self.raw_optional();
+                return Ok(Some(None));
+            }
+            "qedhere" => return Ok(Some(None)),
+            // vertical space inside a formula (a row of cases, say) is left out, as the [length] of \\ is
+            "vspace" => {
+                if self.current() == Some('*') {
+                    self.pos += 1;
+                }
+                self.raw_text()?;
+                return Ok(Some(None));
+            }
+            "setlength" => return self.set_length(col).map(|()| Some(None)),
             "strut" | "mathstrut" => Node::Phantom { base: Box::new(Node::Operator { symbol: '(', class: Class::Open }), width: false, height: true },
             "tag" => {
                 let label = self.raw_text()?;
+                // \ref of a \label on this line gives the tag as written, \eqref the tag in parentheses
+                self.refs.line_tag = Some(label.trim().to_string());
                 let text = if star { label } else { format!("({label})") };
                 items.push(Node::Space { em: 2.0 });
                 Node::Text { parts: vec![TextPart::Text(text)] }
@@ -933,9 +1252,7 @@ impl Reader<'_> {
         let node: Node = match name {
             // fractions, roots, binomials
             "frac" | "dfrac" | "tfrac" | "cfrac" => {
-                if name == "cfrac" {
-                    self.raw_optional();
-                }
+                let numerator_align = if name == "cfrac" { self.cfrac_alignment() } else { None };
                 let num = self.argument()?;
                 let den = self.argument()?;
                 let style = match name {
@@ -943,7 +1260,7 @@ impl Reader<'_> {
                     "tfrac" => FractionStyle::Row,
                     _ => FractionStyle::Auto,
                 };
-                Node::Fraction { num: Box::new(num), den: Box::new(den), style, rule: true, thickness: None }
+                Node::Fraction { numerator_align, num: Box::new(num), den: Box::new(den), style, rule: true, thickness: None }
             }
             "binom" | "dbinom" | "tbinom" => {
                 let num = self.argument()?;
@@ -953,7 +1270,7 @@ impl Reader<'_> {
                     "tbinom" => FractionStyle::Row,
                     _ => FractionStyle::Auto,
                 };
-                let f = Node::Fraction { num: Box::new(num), den: Box::new(den), style, rule: false, thickness: None };
+                let f = Node::Fraction { numerator_align: None, num: Box::new(num), den: Box::new(den), style, rule: false, thickness: None };
                 Node::Delimited { open: Some('('), close: Some(')'), parts: vec![f], middles: vec![] }
             }
             "sqrt" | "root" => {
@@ -972,9 +1289,9 @@ impl Reader<'_> {
         let node: Node = match name {
             // text and fonts
             "text" | "textrm" | "textnormal" | "textup" | "mbox" | "hbox" | "textsf" | "textmd" | "textsl" | "fbox" | "framebox" => {
-                let text = self.text()?;
+                let text = Node::Text { parts: self.text_parts()? };
                 if matches!(name, "fbox" | "framebox") {
-                    Node::Framed { base: Box::new(text), shape: Frame::Rectangle, background: None, border: None }
+                    Node::Framed { base: Box::new(text), shape: Frame::Rectangle, background: None, border: None, padding: None, thickness: None }
                 } else {
                     text
                 }
@@ -986,17 +1303,21 @@ impl Reader<'_> {
                     "textit" | "emph" => (ITALIC_START, ITALIC_CORRECTED_END),
                     _ => (MONO_START, MONO_END),
                 };
-                match self.text()? {
-                    Node::Text { parts } => Node::Text {
-                        parts: parts
-                            .into_iter()
-                            .map(|p| match p {
-                                TextPart::Text(t) => TextPart::Text(format!("{open}{t}{close}")),
-                                math => math,
-                            })
-                            .collect(),
-                    },
-                    other => other,
+                // typewriter type has no dash ligatures: the text reader sees the variant
+                let variant = self.variant;
+                if name == "texttt" {
+                    self.variant = Variant::Monospace;
+                }
+                let text = self.text_parts();
+                self.variant = variant;
+                Node::Text {
+                    parts: text?
+                        .into_iter()
+                        .map(|p| match p {
+                            TextPart::Text(t) => TextPart::Text(format!("{open}{t}{close}")),
+                            math => math,
+                        })
+                        .collect(),
                 }
             }
             // hyperref: the address as written, in typewriter type (_ % # ~ are its own characters)
@@ -1006,14 +1327,14 @@ impl Reader<'_> {
                 Node::Text { parts: vec![TextPart::Text(format!("{MONO_START}{address}{MONO_END}"))] }
             }
             // graphicx: \scalebox{-1}[1]{…}, its argument in text mode
-            "reflectbox" => Node::Reflected { base: Box::new(self.text()?) },
+            "reflectbox" => Node::Reflected { base: Box::new(Node::Text { parts: self.text_parts()? }) },
             "mathrm" | "mathup" | "mathit" | "mathbf" | "mathsf" | "mathtt" | "mathbb" | "mathcal" | "mathscr" | "mathfrak" | "boldsymbol" | "bm" | "pmb" | "mathbfit"
-            | "mathnormal" | "mathsfit" | "frak" | "symbf" | "symrm" | "symit" | "mathds" | "mathbbm" | "Bbb" => {
+            | "mathsfit" | "frak" | "mathbold" | "mathnormal" | "symbf" | "symrm" | "symit" | "mathds" | "mathbbm" | "Bbb" => {
                 let variant = match name {
                     "mathrm" | "mathup" | "symrm" => Variant::Upright,
                     "mathit" | "mathnormal" | "symit" => Variant::Italic,
                     "mathbf" | "symbf" => Variant::Bold,
-                    "boldsymbol" | "bm" | "pmb" | "mathbfit" => Variant::BoldItalic,
+                    "boldsymbol" | "bm" | "pmb" | "mathbfit" | "mathbold" => Variant::BoldItalic,
                     "mathsf" => Variant::SansSerif,
                     "mathsfit" => Variant::SansSerifItalic,
                     "mathtt" => Variant::Monospace,
@@ -1031,6 +1352,8 @@ impl Reader<'_> {
                     node
                 }
             }
+            // #173: unicode-math's alphabets and its \sym… commands, and bbm's
+            other if symbols::unicode_math_alphabet(other).is_some() => self.unicode_math_alphabet(other)?,
             "operatorname" => {
                 let raw = self.raw_text()?;
                 // in math mode TeX ignores spaces: \operatorname{ l i m } is "lim"
@@ -1062,7 +1385,7 @@ impl Reader<'_> {
         let _ = (col, start, star);
         let node: Node = match name {
             // accents, bars, braces
-            "overline" | "underline" | "overlinesegment" | "underlinesegment" => Node::Bar { base: Box::new(self.argument()?), above: name.starts_with("over") },
+            "overline" | "underline" => Node::Bar { base: Box::new(self.argument()?), above: name.starts_with("over") },
             "overbrace" | "underbrace" => Node::Brace { base: Box::new(self.argument()?), above: name == "overbrace", label: None, bracket: false },
             "overbracket" | "underbracket" => {
                 // mathtools: [rule thickness][bracket height], which the font's bracket already has
@@ -1070,22 +1393,28 @@ impl Reader<'_> {
                 self.raw_optional();
                 Node::Brace { base: Box::new(self.argument()?), above: name == "overbracket", label: None, bracket: true }
             }
-            "undergroup" => Node::Accent { base: Box::new(self.argument()?), accent: '⏡', stretchy: true, below: true },
-            "underrightarrow" | "underleftarrow" | "underleftrightarrow" | "utilde" => {
+            "underrightarrow" | "underleftarrow" | "underleftrightarrow" | "utilde" | "undertilde" | "underlinesegment" => {
                 let accent = match name {
                     "underrightarrow" => '→',
                     "underleftarrow" => '←',
-                    // undertilde
-                    "utilde" => '\u{0303}',
+                    // undertilde (\utilde), accents' and mathabx's \undertilde
+                    "utilde" | "undertilde" => '\u{0303}',
+                    // KaTeX's line segment (see \overlinesegment in symbols.rs)
+                    "underlinesegment" => '\u{20E9}',
                     _ => '↔',
                 };
                 Node::Accent { base: Box::new(self.argument()?), accent, stretchy: true, below: true }
             }
-            "overset" | "stackrel" => {
+            // MathJax's \stackbin: \stackrel for a binary operator
+            "overset" | "stackrel" | "stackbin" => {
                 let above = self.argument()?;
                 let base = self.base_with_class()?;
                 Node::ForcedClass {
-                    class: if name == "stackrel" { Class::Rel } else { natural_class(&base) },
+                    class: match name {
+                        "stackrel" => Class::Rel,
+                        "stackbin" => Class::Bin,
+                        _ => natural_class(&base),
+                    },
                     base: Box::new(Node::Stacked { base: Box::new(base), above: Some(Box::new(above)), below: None }),
                 }
             }
@@ -1123,12 +1452,14 @@ impl Reader<'_> {
                 let below = self.optional_argument()?;
                 let above = self.argument()?;
                 let above = if empty(&above) { None } else { Some(Box::new(above)) };
-                Node::Arrow { symbol, above, below: below.map(Box::new) }
+                Node::Arrow { symbol, above, below: below.filter(|b| !empty(b)).map(Box::new) }
             }
-            "cancel" | "bcancel" | "xcancel" | "sout" => {
+            // slashed.sty's \slashed, the Feynman slash, an overlay drawn like the cancels
+            "cancel" | "bcancel" | "xcancel" | "sout" | "slashed" => {
                 let kind = match name {
                     "bcancel" => Cancel::Backslash,
                     "xcancel" => Cancel::X,
+                    "slashed" => Cancel::Slash,
                     _ => Cancel::Bar,
                 };
                 Node::Canceled { base: Box::new(self.argument()?), shape: kind }
@@ -1138,7 +1469,7 @@ impl Reader<'_> {
                 let base = self.argument()?;
                 Node::Scripts { base: Box::new(Node::Canceled { base: Box::new(base), shape: Cancel::Bar }), sup: Some(Box::new(value)), sub: None }
             }
-            "boxed" => Node::Framed { base: Box::new(self.argument()?), shape: Frame::Rectangle, background: None, border: None },
+            "boxed" => Node::Framed { base: Box::new(self.argument()?), shape: Frame::Rectangle, background: None, border: None, padding: None, thickness: None },
             // steinmetz: \phase[style]{angle}, the angle in text style unless [0] to [3] say otherwise
             // (display, text, script, scriptscript); any other option leaves the current style, as
             // the package's \ifcase does
@@ -1149,7 +1480,7 @@ impl Reader<'_> {
                     Some(level) => Node::Style { level, base: Box::new(angle) },
                     None => angle,
                 };
-                Node::Framed { base: Box::new(base), shape: Frame::Phase, background: None, border: None }
+                Node::Framed { base: Box::new(base), shape: Frame::Phase, background: None, border: None, padding: None, thickness: None }
             }
             // actuarialangle: \angl{n}, and \angln, \anglr, \anglk for the common durations
             "angl" | "angln" | "anglr" | "anglk" => {
@@ -1157,10 +1488,15 @@ impl Reader<'_> {
                     "angl" => self.argument()?,
                     _ => Node::Identifier { name: name[4..].to_string(), variant: Variant::Italic },
                 };
-                Node::Framed { base: Box::new(base), shape: Frame::ActuarialAngle, background: None, border: None }
+                Node::Framed { base: Box::new(base), shape: Frame::ActuarialAngle, background: None, border: None, padding: None, thickness: None }
             }
-            "textcircled" | "circled" => Node::Framed { base: Box::new(self.argument()?), shape: Frame::Circle, background: None, border: None },
+            "textcircled" | "circled" => Node::Framed { base: Box::new(self.argument()?), shape: Frame::Circle, background: None, border: None, padding: None, thickness: None },
             "phantom" | "hphantom" | "vphantom" => Node::Phantom { base: Box::new(self.argument()?), width: name != "vphantom", height: name != "hphantom" },
+            // MathJax's \class, \cssId, \style and KaTeX's \htmlClass, \htmlId, \htmlStyle, \htmlData:
+            // HTML attributes for the content's group in the SVG, kept only when safe (in strict mode too:
+            // they are not wrong LaTeX, what is dropped is a warning)
+            // (read in a function of its own: this match's frame is on the stack at every level of \not)
+            "class" | "cssId" | "style" | "htmlClass" | "htmlId" | "htmlStyle" | "htmlData" => self.html_attributes_command(name, col)?,
             "textcolor" => {
                 let color = self.color()?;
                 let base = self.argument()?;
@@ -1172,14 +1508,20 @@ impl Reader<'_> {
             // the color is the background, not the content's: the text keeps the page color
             "colorbox" => {
                 let background = self.color()?;
-                Node::Framed { base: Box::new(self.text()?), shape: Frame::Fill, background, border: None }
+                Node::Framed { base: Box::new(Node::Text { parts: self.text_parts()? }), shape: Frame::Fill, background, border: None, padding: None, thickness: None }
             }
             "fcolorbox" => {
                 let border = self.color()?;
                 let background = self.color()?;
-                Node::Framed { base: Box::new(self.text()?), shape: Frame::Rectangle, background, border }
+                Node::Framed { base: Box::new(Node::Text { parts: self.text_parts()? }), shape: Frame::Rectangle, background, border, padding: None, thickness: None }
             }
-            // \centernot (centernot package) is drawn like \not
+            // MathJax: \bbox[background,padding,border:…]{math}, a \colorbox or \fcolorbox around math
+            // (read in functions of their own: this match's frame is on the stack at every level of \not)
+            "bbox" => self.bbox(col)?,
+            // MathJax: \enclose{notation}[attributes]{math}, drawn as MathML's menclose
+            "enclose" => self.enclose(col)?,
+            // \centernot (centernot package) negates like \not; without a negated symbol, its slash is centered
+            // (the reading stays in this arm: a function of its own costs a frame at every level of \not)
             "not" | "centernot" => {
                 self.skip_spaces();
                 let mut following = Vec::new();
@@ -1190,12 +1532,13 @@ impl Reader<'_> {
                 } else if self.current().is_some() {
                     following.extend(self.atom()?);
                 }
+                let shape = if name == "centernot" { Cancel::CenterNot } else { Cancel::Bar };
                 match following.pop() {
                     Some(Node::Operator { symbol, class }) => match negate(symbol) {
                         Some(n) => Node::Operator { symbol: n, class },
-                        None => Node::Canceled { base: Box::new(Node::Operator { symbol, class }), shape: Cancel::Bar },
+                        None => Node::Canceled { base: Box::new(Node::Operator { symbol, class }), shape },
                     },
-                    Some(other) => Node::Canceled { base: Box::new(other), shape: Cancel::Bar },
+                    Some(other) => Node::Canceled { base: Box::new(other), shape },
                     None => return self.error(col, "\\not with no symbol after it"),
                 }
             }
@@ -1232,7 +1575,7 @@ impl Reader<'_> {
                 let value = self.raw_text()?;
                 // siunitx leaves out an explicit plus (`retain-explicit-plus` is off) and adds the
                 // zero of a bare point (`add-integer-zero`)
-                let value = value.trim_start().strip_prefix('+').map_or(value.clone(), str::to_string);
+                let value = if self.macros.siunitx.retain_plus { value } else { value.trim_start().strip_prefix('+').map_or(value.clone(), str::to_string) };
                 let value = match value.trim_start().strip_prefix('-') {
                     Some(rest) if rest.starts_with('.') => format!("-0{rest}"),
                     _ if value.trim_start().starts_with('.') => format!("0{}", value.trim_start()),
@@ -1246,7 +1589,20 @@ impl Reader<'_> {
                 let unit = self.raw_text()?;
                 self.quantity(None, &unit, col)?
             }
-            "num" => {
+            // siunitx v3's complex numbers, in siunitx.rs
+            "complexnum" => {
+                self.raw_optional();
+                let value = self.raw_text()?;
+                self.complex_number(&value, col)?.0
+            }
+            "complexqty" => {
+                self.raw_optional();
+                let value = self.raw_text()?;
+                let unit = self.raw_text()?;
+                self.complex_quantity(&value, &unit, col)?
+            }
+            // \tablenum: the number as \num (the alignment on the decimal marker of an S column is not done)
+            "num" | "tablenum" => {
                 self.raw_optional();
                 let value = self.raw_text()?;
                 self.raw_optional();
@@ -1307,10 +1663,10 @@ impl Reader<'_> {
                 }
                 Node::row(children)
             }
-            "ce" => {
-                let raw = self.raw_text()?;
-                self.chemistry(&raw, col)?
-            }
+            "ce" => match self.chemistry_command(start, col)? {
+                Some(node) => node,
+                None => return Ok(Some(None)),
+            },
             "pu" => {
                 // mhchem's physical units: a number, then the unit with ^ exponents and . or * between units
                 let raw = self.raw_text()?;
@@ -1325,7 +1681,9 @@ impl Reader<'_> {
             }
             "xymatrix" => self.xymatrix(col)?,
             #[cfg(feature = "chem")]
-            "chemfig" | "schemestart" | "chemname" => self.chem_construction(name, col)?,
+            "chemfig" | "schemestart" | "chemname" | "subscheme" | "charge" | "Charge" => self.chem_construction(name, col)?,
+            #[cfg(feature = "chem")]
+            "chemleft" | "chemright" | "chemup" | "chemdown" | "chemskipalign" | "merge" => return self.chem_delimiters(name, start, col).map(|()| Some(None)),
             "divchave" => {
                 let dividend = self.raw_text()?.trim().to_string();
                 let divisor = self.raw_text()?.trim().to_string();
@@ -1367,10 +1725,13 @@ impl Reader<'_> {
         let _ = (col, start, star);
         let node: Node = match name {
             "unicode" => {
+                // MathJax: \unicode[height,depth][font]{…} or \unicode[font]{…}; the font is MathJax's
+                // way to find a glyph its own fonts lack, and mathra has its own fallback fonts
+                if self.raw_optional().is_some() {
+                    self.raw_optional();
+                }
                 let raw = self.raw_text()?;
-                let code = raw.trim().trim_start_matches(['x', 'X', '#', 'U', '+']);
-                let c = u32::from_str_radix(code, 16).ok().and_then(char::from_u32);
-                match c {
+                match unicode_code_point(&raw) {
                     Some(c) => Node::Operator { symbol: c, class: Class::Ord },
                     None => return self.error(col, format!("\\unicode{{{raw}}}: invalid code point")),
                 }
@@ -1406,7 +1767,7 @@ impl Reader<'_> {
                 let rule = !thickness.trim().trim_start_matches(['0', '.']).trim_end_matches(char::is_alphabetic).is_empty() || thickness.trim().is_empty();
                 // an empty thickness is the font's; a given one is drawn as given
                 let given = measure_em(&thickness).filter(|_| rule);
-                let f = Node::Fraction { num: Box::new(num), den: Box::new(den), style, rule, thickness: given };
+                let f = Node::Fraction { numerator_align: None, num: Box::new(num), den: Box::new(den), style, rule, thickness: given };
                 let delim = |t: &str| -> Option<char> {
                     let t = t.trim();
                     match t.strip_prefix('\\') {
@@ -1433,13 +1794,19 @@ impl Reader<'_> {
                 let base = self.argument()?;
                 Node::Smashed { base: Box::new(base), height: option != "b", depth: option != "t" }
             }
+            // LaTeX's \lefteqn{…}: its argument in display style, with no width, overlapping to the right
+            // (eqnarray's long left-hand side)
+            "lefteqn" => {
+                let base = self.argument()?;
+                Node::Overlapped { base: Box::new(Node::Style { level: 0, base: Box::new(base) }), side: 'r' }
+            }
             "mathllap" | "mathrlap" | "mathclap" | "llap" | "rlap" | "clap" => {
                 let side = match name.trim_start_matches("math") {
                     "llap" => 'l',
                     "rlap" => 'r',
                     _ => 'c',
                 };
-                let base = if name.starts_with("math") { self.argument()? } else { self.text()? };
+                let base = if name.starts_with("math") { self.argument()? } else { Node::Text { parts: self.text_parts()? } };
                 Node::Overlapped { base: Box::new(base), side }
             }
             // graphicx's boxes, their argument in text mode
@@ -1448,7 +1815,7 @@ impl Reader<'_> {
                 let em = measure_em(&measure).ok_or(Error::Syntax { column: col, message: format!("unrecognized measure: {measure}") })?;
                 let height = self.box_length(col)?;
                 let depth = if height.is_some() { self.box_length(col)? } else { None };
-                Node::Raised { em, height: height.flatten(), depth: depth.flatten(), base: Box::new(self.text()?) }
+                Node::Raised { em, height: height.flatten(), depth: depth.flatten(), base: Box::new(Node::Text { parts: self.text_parts()? }) }
             }
             "scalebox" => {
                 let factor = |s: &str| s.trim().parse::<f32>().ok().filter(|f| f.is_finite()).map(|f| f.signum() * f.abs().clamp(0.05, 20.0));
@@ -1457,7 +1824,7 @@ impl Reader<'_> {
                     Some(y) => Some(factor(&y).ok_or(Error::Syntax { column: col, message: "\\scalebox{h}[v]{…} takes numbers".into() })?),
                     None => None,
                 };
-                Node::Scaled { factor: x, vertical: y.filter(|y| *y != x), base: Box::new(self.text()?) }
+                Node::Scaled { factor: x, vertical: y.filter(|y| *y != x), base: Box::new(Node::Text { parts: self.text_parts()? }) }
             }
             "resizebox" => {
                 let mut size = Vec::with_capacity(2);
@@ -1471,7 +1838,7 @@ impl Reader<'_> {
                         },
                     });
                 }
-                Node::Resized { width: size[0], height: size[1], total: star, base: Box::new(self.text()?) }
+                Node::Resized { width: size[0], height: size[1], total: star, base: Box::new(Node::Text { parts: self.text_parts()? }) }
             }
             "rotatebox" => {
                 // of the options, origin=…; x=, y= and units= are ignored
@@ -1482,7 +1849,7 @@ impl Reader<'_> {
                 let angle = self.raw_text()?;
                 let degrees =
                     angle.trim().parse::<f32>().ok().filter(|a| a.is_finite()).ok_or(Error::Syntax { column: col, message: "\\rotatebox{angle}{…} takes a number".into() })?;
-                Node::Rotated { degrees: degrees % 360.0, origin, base: Box::new(self.text()?) }
+                Node::Rotated { degrees: degrees % 360.0, origin, base: Box::new(Node::Text { parts: self.text_parts()? }) }
             }
             "rule" => {
                 let raise = self.raw_optional().and_then(|m| measure_em(&m)).unwrap_or(0.0);
@@ -1509,7 +1876,7 @@ impl Reader<'_> {
                 pos
             }
             "textsuperscript" | "textsubscript" => {
-                let t = self.text()?;
+                let t = Node::Text { parts: self.text_parts()? };
                 if name == "textsuperscript" {
                     Node::Scripts { base: Box::new(Node::row(vec![])), sup: Some(Box::new(t)), sub: None }
                 } else {
@@ -1565,7 +1932,7 @@ impl Reader<'_> {
                 let points = (0..n.clamp(1, 50) * 3).flat_map(|_| [Node::Operator { symbol: '.', class: Class::Ord }, Node::Space { em: 0.35 }]).collect();
                 Node::Multicolumn { columns: n.clamp(1, 50), alignment: 'c', base: Box::new(Node::row(points)) }
             }
-            _ => return Ok(None),
+            _ => return self.tex_command(name, items),
         };
         items.push(node);
         Ok(Some(None))
@@ -1573,6 +1940,9 @@ impl Reader<'_> {
 
     fn mod_command(&mut self, name: &str, col: usize, start: usize, star: bool, items: &mut Vec<Node>) -> R<Option<Option<Stop>>> {
         let _ = (col, start, star);
+        if let Some(done) = self.vdots_command(name, col, start, items)? {
+            return Ok(Some(done));
+        }
         let mu = |m: f32| Node::Space { em: m / 18.0 };
         let node: Node = match name {
             // modular arithmetic, with amsmath's spacing
@@ -1628,14 +1998,42 @@ impl Reader<'_> {
             let variant = if symbols::greek_upright(other) && self.variant == Variant::Italic { Variant::Upright } else { self.variant };
             Node::Identifier { name: letter.to_string(), variant }
         } else if let Some((accent, stretchy)) = symbols::accent(other) {
-            Node::Accent { base: Box::new(self.argument()?), accent, stretchy, below: false }
+            // the "under" ones (⏝, ⏡) go below the base
+            Node::Accent { base: Box::new(self.argument()?), accent, stretchy, below: matches!(accent, '⏝' | '⏡') }
+        } else if matches!(other, "implies" | "impliedby" | "iff") {
+            return self.long_implication(other, start, col, items);
         } else if let Some(Symbol { symbol, class }) = symbols::command(other) {
+            // \boldsymbol{\nabla}, \bm{\nabla}: TeX's bold symbol font has an upright bold nabla, the 𝛁 of
+            // physics' \grad (U+1D6C1)
+            let symbol = if symbol == '∇' && self.variant == Variant::BoldItalic { '𝛁' } else { symbol };
             Node::Operator { symbol, class }
         } else {
             return self.unknown_command(other, start, col, items);
         };
         items.push(node);
         Ok(None)
+    }
+
+    /// #250: amsmath's `\implies`, `\impliedby` and `\iff`, defined as `\;\Longrightarrow\;`,
+    /// `\;\Longleftarrow\;` and `\;\Longleftrightarrow\;`: the long arrow with a thick space on each
+    /// side. The arrow is the last node read, so `\not\implies` still strikes the arrow; the space after
+    /// it is read next, from the input. Out of line: `symbol_command` ends every chain of commands.
+    #[inline(never)]
+    fn long_implication(&mut self, name: &str, start: usize, col: usize, items: &mut Vec<Node>) -> R<Option<Stop>> {
+        let symbol = symbols::command(name).map_or('⟹', |s| s.symbol);
+        items.push(Node::Space { em: 5.0 / 18.0 });
+        items.push(Node::Operator { symbol, class: Class::Rel });
+        self.inject(start, "\\;", col)?;
+        Ok(None)
+    }
+
+    /// #173: `\mathbfcal{L}`, `\symup{d}`: the argument in the alphabet the command names. Out of line,
+    /// so that `text_command`'s frame, on the stack of every nested argument, does not grow.
+    #[inline(never)]
+    fn unicode_math_alphabet(&mut self, name: &str) -> R<Node> {
+        let variant = symbols::unicode_math_alphabet(name).unwrap_or(Variant::Upright);
+        let raw = self.raw_text()?;
+        self.sub_reader(&raw, variant)
     }
 
     /// The optional `[length]` of a graphicx box: `None` without brackets; `Some(None)` for a length it
@@ -1654,6 +2052,25 @@ impl Reader<'_> {
     fn raw_measure(&mut self) -> String {
         self.skip_spaces();
         let mut s = String::new();
+        // #206: a glue register, maybe with a factor: \thinmuskip, 2\medmuskip, -\thickmuskip
+        let factor: String = self.c[self.pos..].iter().take_while(|c| c.is_ascii_digit() || matches!(c, '.' | ',' | '-')).collect();
+        let at = self.pos + factor.chars().count();
+        if self.c.get(at) == Some(&'\\') {
+            let name: String = self.c[at + 1..].iter().take_while(|c| c.is_ascii_alphabetic()).collect();
+            if !name.is_empty() {
+                self.pos = at + 1 + name.chars().count();
+                // #213: a box dimension takes its register, a number or a name (\wd0, \ht\mybox)
+                if matches!(name.as_str(), "wd" | "ht" | "dp") {
+                    let rest = &self.c[self.pos..];
+                    let digits = rest.iter().take_while(|c| c.is_ascii_digit()).count();
+                    let len = if digits == 0 && rest.first() == Some(&'\\') { 1 + rest[1..].iter().take_while(|c| c.is_ascii_alphabetic()).count() } else { digits };
+                    let register: String = rest[..len].iter().collect();
+                    self.pos += len;
+                    return format!("{factor}\\{name}{register}");
+                }
+                return format!("{factor}\\{name}");
+            }
+        }
         while let Some(c) = self.current() {
             if c.is_ascii_digit() || c == '.' || c == '-' || c == ',' || (c.is_ascii_alphabetic() && s.len() < 12) {
                 s.push(c);
@@ -1673,17 +2090,101 @@ impl Reader<'_> {
         let col = self.column();
         let model = self.raw_optional();
         let raw = self.raw_text()?.trim().to_string();
-        let color = match model.as_deref() {
+        let color = match model.as_deref().map(str::trim) {
+            // the digits as written
             Some("HTML") => format!("#{raw}"),
-            Some("rgb") => format!("rgb({raw})"),
-            _ => raw,
+            // a name the equation defined, or an xcolor mix (red!40!blue); any other name as written
+            None | Some("named") => color::expression(&raw, &self.macros.colors).map_or(raw, |d| d.css),
+            // a model's value as #rrggbb; a value that does not fit stays invalid, with its model
+            Some(m) => color::model(m, &raw).map_or_else(|| format!("[{m}]{{{raw}}}"), color::hex),
         };
+        self.checked_color(color, col)
+    }
+
+    /// A color named in place (`\bbox[brand]`, `\enclose{…}[mathcolor=brand]`): a color the equation
+    /// defined or an xcolor mix becomes its CSS value, any other name stays as written; then checked.
+    fn named_color(&mut self, name: &str, col: usize) -> R<Option<String>> {
+        let css = color::expression(name, &self.macros.colors).map_or_else(|| name.to_string(), |d| d.css);
+        self.checked_color(css, col)
+    }
+
+    /// `color` when it is a color mathra can write into the SVG; None in tolerant mode otherwise.
+    fn checked_color(&mut self, color: String, col: usize) -> R<Option<String>> {
         let valid = color.chars().all(|c| c.is_ascii_alphanumeric() || "#(),. ".contains(c)) && !color.is_empty() && color.len() < 40;
         if valid {
             return Ok(Some(color));
         }
         self.tolerate(rules::E_REC_9, col, format!("invalid color: {color}"), "drawn without color")?;
         Ok(None)
+    }
+
+    /// `\bbox[…]` (MathJax): the parts, separated by commas, are a background color, a padding (`5px`)
+    /// and CSS styles, of which mathra draws `border:` (width, style and color).
+    fn bbox(&mut self, col: usize) -> R<Node> {
+        let spec = self.raw_optional().unwrap_or_default();
+        let base = self.argument()?;
+        let (mut background, mut padding, mut border, mut thickness, mut framed) = (None, None, None, None, false);
+        for part in spec.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            if let Some(em) = measure_em(part).filter(|v| v.is_finite() && *v >= 0.0) {
+                padding = Some(em);
+            } else if let Some((property, value)) = part.split_once(':') {
+                if !property.trim().eq_ignore_ascii_case("border") {
+                    self.tolerate(rules::E_REC_9, col, format!("\\bbox style not drawn: {part}"), "ignored")?;
+                    continue;
+                }
+                framed = true;
+                for word in value.split_whitespace() {
+                    if let Some(em) = measure_em(word).filter(|v| v.is_finite() && *v >= 0.0) {
+                        thickness = Some(em);
+                    } else if matches!(word, "solid" | "dashed" | "dotted" | "double" | "groove" | "ridge" | "inset" | "outset") {
+                        if word != "solid" {
+                            self.tolerate(rules::E_REC_9, col, format!("\\bbox border style not drawn: {word}"), "drawn solid")?;
+                        }
+                    } else {
+                        border = self.named_color(word, col)?;
+                    }
+                }
+            } else if background.is_none() {
+                background = self.named_color(part, col)?;
+            } else {
+                self.tolerate(rules::E_REC_9, col, format!("\\bbox part not understood: {part}"), "ignored")?;
+            }
+        }
+        let shape = if framed { Frame::Rectangle } else { Frame::Fill };
+        // MathJax adds no space of its own: without a padding the background fits the content
+        Ok(Node::Framed { base: Box::new(base), shape, background, border, padding: Some(padding.unwrap_or(0.0)), thickness })
+    }
+
+    /// `\enclose{notation}[attributes]{…}` (MathJax): the same tree as MathML's `menclose`, with its
+    /// `mathcolor` and `mathbackground` attributes.
+    fn enclose(&mut self, col: usize) -> R<Node> {
+        let notation = self.raw_text()?;
+        let attributes = self.raw_optional();
+        let base = self.argument()?;
+        for n in notation.split(|c: char| c.is_whitespace() || c == ',').filter(|n| !n.is_empty()) {
+            if !super::mathml::ENCLOSE_NOTATIONS.contains(&n) {
+                self.tolerate(rules::E_REC_9, col, format!("\\enclose notation not drawn: {n}"), "ignored")?;
+            }
+        }
+        let mut out = super::mathml::enclose(base, &notation);
+        for attribute in attributes.as_deref().unwrap_or_default().split(',').map(str::trim).filter(|a| !a.is_empty()) {
+            let (name, value) = attribute.split_once('=').unwrap_or((attribute, ""));
+            let value = value.trim().trim_matches(['"', '\'']).to_string();
+            match name.trim() {
+                "mathcolor" => {
+                    if let Some(color) = self.named_color(&value, col)? {
+                        out = Node::Colored { color, base: Box::new(out) };
+                    }
+                }
+                "mathbackground" => {
+                    if let Some(background) = self.named_color(&value, col)? {
+                        out = Node::Framed { base: Box::new(out), shape: Frame::Fill, background: Some(background), border: None, padding: None, thickness: None };
+                    }
+                }
+                _ => self.tolerate(rules::E_REC_9, col, format!("\\enclose attribute not drawn: {attribute}"), "ignored")?,
+            }
+        }
+        Ok(out)
     }
 
     fn delimiter(&mut self) -> R<Option<char>> {
@@ -1751,6 +2252,9 @@ impl Reader<'_> {
         if name == "prooftree" {
             return self.proof_tree(col);
         }
+        if matches!(name.as_str(), "cases*" | "dcases*" | "rcases*" | "drcases*") {
+            return self.text_column_cases(&name, col);
+        }
         let base = name.trim_end_matches('*');
         let mut columns: Vec<char> = Vec::new();
         let mut verticals = Vec::new();
@@ -1787,6 +2291,9 @@ impl Reader<'_> {
             }
             "equation" | "displaymath" | "math" => {
                 let (items, stop) = self.list()?;
+                if numbered_environment(&name) {
+                    self.refs.end_line();
+                }
                 return match stop {
                     Stop::End(end) if end == name => Ok(Node::row(items)),
                     _ => self.error(col, format!("\\begin{{{name}}} without \\end{{{name}}}")),
@@ -1800,7 +2307,7 @@ impl Reader<'_> {
         if matches!(base, "alignat" | "alignedat" | "flalignat") {
             self.raw_text()?;
         }
-        if matches!(base, "pmatrix" | "bmatrix" | "matrix" | "vmatrix" | "Bmatrix" | "Vmatrix") && name.ends_with('*') {
+        if matches!(base, "pmatrix" | "bmatrix" | "matrix" | "vmatrix" | "Bmatrix" | "Vmatrix" | "smallmatrix") && name.ends_with('*') {
             if let Some(a) = self.raw_optional() {
                 columns = vec![a.trim().chars().next().unwrap_or('c'); 1];
             }
@@ -1811,14 +2318,76 @@ impl Reader<'_> {
             self.array_columns(&spec, &mut columns, &mut verticals, &mut dashed, &mut between, col)?;
         }
 
-        let (rows, horizontals, intertexts) = self.table_body(Some(&name), col)?;
+        let (mut rows, horizontals, intertexts) = self.table_body(Some(&name), col)?;
+        if matches!(base, "gather" | "gathered" | "multline") {
+            self.misplaced_tabs(&mut rows, &name, col)?;
+        }
+        if base == "multline" {
+            multline_alignments(&mut rows);
+        }
+        if kind == TableKind::Array {
+            self.extra_cells(&rows, columns.len(), &intertexts, &name, col)?;
+        }
         if !columns.is_empty() && kind != TableKind::Array {
             // pmatrix*[r]: the same alignment in every column
             let a = columns[0];
             let n = rows.iter().map(Vec::len).max().unwrap_or(1);
             columns = vec![a; n];
         }
-        Ok(Node::Table { shape: kind, rows, columns, verticals, dashed, horizontals, between, intertexts, stretch: self.array_stretch() })
+        Ok(Node::Table {
+            shape: kind,
+            rows,
+            columns,
+            verticals,
+            dashed,
+            horizontals,
+            between,
+            intertexts,
+            stretch: self.array_stretch(),
+            colsep: self.macros.array_colsep.map_or(500, |em| (em * 1000.0).round() as u16),
+        })
+    }
+
+    /// mathtools' `cases*`, `dcases*`, `rcases*` and `drcases*`: the second column is text, with `$…$` for
+    /// math in it. The body is read as the unstarred environment with that column in `\text{…}`.
+    #[inline(never)]
+    fn text_column_cases(&mut self, name: &str, col: usize) -> R<Node> {
+        let raw = self.environment_body(name, col)?;
+        let base = name.trim_end_matches('*');
+        self.sub_reader(&format!("\\begin{{{base}}}{}\\end{{{base}}}", text_second_column(&raw)), self.variant)
+    }
+
+    /// amsmath's `\cfrac[l]` and `\cfrac[r]`: where the numerator goes; `[c]` or no option centers it.
+    #[inline(never)]
+    fn cfrac_alignment(&mut self) -> Option<char> {
+        self.raw_optional().and_then(|a| match a.trim() {
+            "l" => Some('l'),
+            "r" => Some('r'),
+            _ => None,
+        })
+    }
+
+    /// `\setlength{\register}{length}` (or `\setlength\register{…}`), `\setlength` just read.
+    /// `\arraycolsep` sets half the space between columns of the arrays and matrices after it; any
+    /// other length is one mathra does not use (E-REC-1, ignored).
+    #[inline(never)]
+    fn set_length(&mut self, col: usize) -> R<()> {
+        self.skip_spaces();
+        let register = if self.current() == Some('\\') {
+            self.pos += 1;
+            format!("\\{}", self.read_command_name())
+        } else {
+            self.raw_text()?.trim().to_string()
+        };
+        let value = self.raw_text()?;
+        match (register.as_str(), measure_em(&value)) {
+            ("\\arraycolsep", Some(em)) if em.is_finite() && em >= 0.0 => {
+                self.macros.array_colsep = Some(em.min(10.0));
+                Ok(())
+            }
+            ("\\arraycolsep", _) => self.tolerate(rules::E_REC_9, col, format!("\\setlength{{\\arraycolsep}}: unrecognized measure: {value}"), "the spacing left as it was"),
+            _ => self.tolerate(rules::E_REC_1, col, format!("\\setlength{{{register}}}: a length mathra does not use"), "ignored"),
+        }
     }
 
     /// `\arraystretch` as the input defined it (`\def`, `\renewcommand`), or 1.
@@ -1843,10 +2412,14 @@ impl Reader<'_> {
                 (Stop::Eof, None) => true,
                 _ => false,
             };
+            let numbered = name.is_some_and(numbered_environment);
             if body_end {
                 if !cell.is_empty() || !row.is_empty() {
                     row.push(Node::row(std::mem::take(&mut cell)).simplify());
                     rows.push(row);
+                }
+                if numbered {
+                    self.refs.end_line();
                 }
                 break;
             }
@@ -1855,6 +2428,9 @@ impl Reader<'_> {
                 Stop::NewRow => {
                     row.push(Node::row(std::mem::take(&mut cell)).simplify());
                     rows.push(std::mem::take(&mut row));
+                    if numbered {
+                        self.refs.end_line();
+                    }
                 }
                 Stop::Hline(dashed) => horizontals.push(TableRule { row: rows.len(), from: 0, to: usize::MAX, dashed }),
                 Stop::Cline(from, to, dashed) => horizontals.push(TableRule { row: rows.len(), from, to, dashed }),
@@ -1898,13 +2474,14 @@ impl Reader<'_> {
             locale: self.locale,
             registry: self.registry,
             macros: self.macros,
+            refs: self.refs,
             variant: self.variant,
             strict: self.strict,
             explicit_size: self.explicit_size,
             font: self.font,
         };
         let (rows, horizontals, intertexts) = sub.table_body(None, col)?;
-        Ok(Node::Table { shape, rows, columns: vec![], verticals: vec![], dashed: vec![], horizontals, between: vec![], intertexts, stretch: 1.0 })
+        Ok(Node::Table { shape, rows, columns: vec![], verticals: vec![], dashed: vec![], horizontals, between: vec![], intertexts, stretch: 1.0, colsep: 500 })
     }
 
     /// amscd commutative diagram: `A @>f>> B \\ @VgVV @VVhV \\ C @>>k> D`.
@@ -2019,6 +2596,7 @@ impl Reader<'_> {
             between: vec![],
             intertexts: vec![],
             stretch: 1.0,
+            colsep: 500,
         })
     }
 
@@ -2091,17 +2669,15 @@ impl Reader<'_> {
                     }
                 }
                 ' ' => i += 1,
-                other => {
-                    self.tolerate(rules::E_REC_9, col, format!("unsupported array column: '{other}'"), "ignored")?;
-                    i += 1;
-                }
+                // anything else, the array package's >{…} and <{…} among it (#177)
+                _ => i = self.other_column(&c, i, col)?,
             }
         }
         Ok(())
     }
 
-    /// Content of `\text{…}`: running text, old-style accents and `$…$` snippets.
-    fn text(&mut self) -> R<Node> {
+    /// Content of `\text{…}`: running text, old-style accents and `$…$` snippets, as the parts of its node.
+    fn text_parts(&mut self) -> R<Vec<TextPart>> {
         let col = self.column();
         let raw = self.raw_text()?;
         let c: Vec<char> = raw.chars().collect();
@@ -2170,11 +2746,21 @@ impl Reader<'_> {
                     let mark = c.get(i).copied().unwrap_or(' ');
                     if "'`^~\"=.".contains(mark) || (matches!(mark, 'c' | 'u' | 'v' | 'H' | 'r' | 'k' | 'b' | 'd' | 't') && c.get(i + 1).is_some_and(|x| *x == '{' || *x == ' ')) {
                         i += 1;
+                        let mut braced = false;
                         while c.get(i) == Some(&' ') || c.get(i) == Some(&'{') {
+                            braced |= c[i] == '{';
                             i += 1;
                         }
                         let letter = c.get(i).copied().unwrap_or(' ');
                         i += 1;
+                        // L-TXT-6: an empty argument (`\^{}`) is the accent alone, not an accent on its `}` (#306)
+                        if braced && letter == '}' {
+                            match symbols::text_spacing(mark) {
+                                Some(alone) => current.push(alone),
+                                None => current.extend(['\u{00A0}'].into_iter().chain(symbols::text_combining(mark))),
+                            }
+                            continue;
+                        }
                         if c.get(i) == Some(&'}') {
                             i += 1;
                         }
@@ -2241,7 +2827,7 @@ impl Reader<'_> {
                             current.push(ITALIC_START);
                             open_until.push((level, ITALIC_END));
                         }
-                        "textrm" | "textsf" | "text" | "mbox" | "textup" | "textnormal" | "rm" | "sf" | "small" | "scriptsize" | "footnotesize" | "tiny" | "large"
+                        "textrm" | "textsf" | "textsl" | "text" | "mbox" | "textup" | "textnormal" | "rm" | "sf" | "small" | "scriptsize" | "footnotesize" | "tiny" | "large"
                         | "normalsize" | "mdseries" | "selectfont" => {}
                         // L-ENT-3: the size comes from whoever uses the SVG
                         "fontsize" => {
@@ -2256,7 +2842,7 @@ impl Reader<'_> {
                             parts.push(TextPart::Math(self.sub_reader(&tex, math_variant)?));
                         }
                         // L-CHE-1: mhchem typesets its formulas and quantities in text as in math
-                        "ce" | "pu" => {
+                        "ce" | "pu" | "cf" => {
                             let tex = format!("\\{name}{}", text_arguments(&c, &mut i, "{"));
                             split_text(&mut parts, &mut current, &open_until);
                             parts.push(TextPart::Math(self.sub_reader(&tex, math_variant)?));
@@ -2325,14 +2911,22 @@ impl Reader<'_> {
                             split_text(&mut parts, &mut current, &open_until);
                             parts.push(TextPart::Math(self.sub_reader(&tex, math_variant)?));
                         }
+                        // cross-references read as in math: a number, as text
+                        "label" | "ref" | "eqref" | "cite" => {
+                            let tex = format!("\\{name}{}", text_arguments(&c, &mut i, if name == "cite" { "[{" } else { "{" }));
+                            let node = self.sub_reader(&tex, math_variant)?;
+                            if let Node::Text { parts: inner } = node {
+                                current.extend(inner.into_iter().filter_map(|p| if let TextPart::Text(t) = p { Some(t) } else { None }));
+                            }
+                        }
                         // L-TXT-3: space inside text, set by the math reader, which knows lengths and phantoms
                         "hspace" => {
                             let tex = format!("\\hspace{}", text_arguments(&c, &mut i, "*{"));
                             split_text(&mut parts, &mut current, &open_until);
                             parts.push(TextPart::Math(self.sub_reader(&tex, math_variant)?));
                         }
-                        "phantom" | "hphantom" | "vphantom" => {
-                            // the argument stays text: the room it takes is the text's
+                        "phantom" | "hphantom" | "vphantom" | "sout" | "textcircled" => {
+                            // the argument stays text: the room it takes is the text's (#177: also what \sout strikes and \textcircled circles)
                             let arg = text_arguments(&c, &mut i, "{");
                             let arg = if arg.starts_with('{') { arg } else { format!("{{{arg}}}") };
                             split_text(&mut parts, &mut current, &open_until);
@@ -2391,6 +2985,15 @@ impl Reader<'_> {
                         }
                     }
                 }
+                // L-TXT-1: TeX's dash ligatures in text: -- and --- become – and —, except in typewriter
+                // type, whose font has none (KaTeX takes them apart in \texttt too)
+                '-' if c.get(i + 1) == Some(&'-') && self.variant != Variant::Monospace && !open_until.iter().any(|&(_, end)| end == MONO_END) => {
+                    let em_dash = c.get(i + 2) == Some(&'-');
+                    let dash = if em_dash { '—' } else { '–' };
+                    self.registry.note(rules::L_TXT_1, format!("{} written as {dash}", if em_dash { "---" } else { "--" }));
+                    current.push(dash);
+                    i += if em_dash { 3 } else { 2 };
+                }
                 // L-TXT-1: TeX's quote ligatures in text: `` '' ` ' become “ ” ‘ ’
                 q @ ('`' | '\'') => {
                     let double = c.get(i + 1) == Some(&q);
@@ -2404,6 +3007,16 @@ impl Reader<'_> {
                     current.push(typographic);
                     i += if double { 2 } else { 1 };
                 }
+                // #212: a line break or a tab is a space, as in TeX; with the spaces around it (a line's
+                // indentation, a blank line) it is one space
+                '\n' | '\r' | '\t' => {
+                    let end = current.trim_end_matches(' ').len();
+                    current.truncate(end);
+                    current.push(' ');
+                    while c.get(i).is_some_and(|x| matches!(x, ' ' | '\n' | '\r' | '\t')) {
+                        i += 1;
+                    }
+                }
                 other => {
                     current.push(other);
                     i += 1;
@@ -2416,16 +3029,26 @@ impl Reader<'_> {
         if !current.is_empty() {
             parts.push(TextPart::Text(current));
         }
-        Ok(Node::Text { parts })
+        Ok(parts)
     }
 
     /// A siunitx number; in tolerant mode, something else is drawn as math, with a warning.
     fn number_value(&mut self, value: &str, col: usize) -> R<Node> {
+        Ok(self.uncertain_value(value, col)?.0)
+    }
+
+    /// A siunitx number, perhaps with an uncertainty, drawn as written: `1.23(4)` (compact, siunitx's
+    /// default `uncertainty-mode`) or `1.23 \pm 0.04` (separate, `true` in the answer: a unit after it puts
+    /// the value in parentheses, siunitx's default `separate-uncertainty-units = bracket`).
+    fn uncertain_value(&mut self, value: &str, col: usize) -> R<(Node, bool)> {
         if let Some(n) = siunitx_number(value, true) {
-            return Ok(n);
+            return Ok((n, false));
+        }
+        if let Some(uncertain) = siunitx_uncertainty(value) {
+            return Ok(uncertain);
         }
         self.tolerate(rules::E_REC_9, col, format!("{value} is not a number"), "drawn as written")?;
-        self.sub_reader(value, Variant::Italic)
+        Ok((self.sub_reader(value, Variant::Italic)?, false))
     }
 
     /// `\ang{30}` → 30°; `\ang{12;30;15}` → 12°30′15″ (degrees, minutes and seconds; any of them may be empty).
@@ -2453,16 +3076,21 @@ impl Reader<'_> {
         }
     }
 
-    /// L-UNI-1: `\SI{9,8}{\meter\per\second\squared}` → 9,8 m/s² in pt-BR.
+    /// L-UNI-1: `\SI{9,8}{\meter\per\second\squared}` → 9,8 m/s² in pt-BR. The units declared with
+    /// `\DeclareSIUnit`, the ones based on constants and `\highlight` come from siunitx.rs; so does
+    /// `per-mode`, which only `\sisetup` changes from the slash.
     fn quantity(&mut self, value: Option<String>, unit: &str, col: usize) -> R<Node> {
+        let unit = self.declared_units_written_out(unit);
         let unit_node = if unit.contains('\\') {
-            // (symbol, exponent, prefix names, unit name)
-            let mut numerator: Vec<(String, i32, String, String)> = Vec::new();
-            let mut denominator: Vec<(String, i32, String, String)> = Vec::new();
+            // (symbol, exponent, prefix names, unit name, highlight color)
+            let mut numerator: Vec<UnitEntry> = Vec::new();
+            let mut denominator: Vec<UnitEntry> = Vec::new();
             let mut prefix = String::new();
             let mut prefix_names = String::new();
             let mut per = false;
             let mut last_in_den = false;
+            let mut highlight = None;
+            let mut raised: Option<i32> = None;
             for token in unit.split('\\').map(str::trim).filter(|t| !t.is_empty()) {
                 let (name, remainder) = token.split_at(token.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(token.len()));
                 match name {
@@ -2474,89 +3102,127 @@ impl Reader<'_> {
                         }
                     }
                     "square" | "cubic" => prefix.push(if name == "square" { '²' } else { '³' }),
-                    "tothe" | "raiseto" => {
+                    "tothe" => {
                         let n: i32 = remainder.trim_matches(['{', '}', ' ']).parse().unwrap_or(1);
                         let target = if last_in_den { denominator.last_mut() } else { numerator.last_mut() };
                         if let Some(u) = target {
                             u.1 *= n;
                         }
                     }
+                    // \highlight{color}: the next unit's symbol in that color
+                    "highlight" => highlight = self.named_color(remainder.trim().trim_matches(['{', '}']).trim(), col)?,
+                    // \raiseto{4}\metre: the prefix form of \tothe, for the next unit (m⁴)
+                    "raiseto" => raised = remainder.trim_matches(['{', '}', ' ']).parse().ok(),
                     _ => {
-                        if let Some(p) = symbols::prefix(name) {
+                        if let Some(p) = symbols::prefix(name).filter(|_| !self.macros.siunitx.units.contains_key(name)) {
                             // \square\kilo\meter: the pending exponent still applies (km²)
                             prefix.insert_str(0, p);
                             prefix_names.insert_str(0, symbols::canonical_prefix(name));
                             continue;
                         }
-                        let symbol = match symbols::unit(name) {
-                            Some(symbol) => symbol.to_string(),
-                            None => {
+                        // a declared unit comes first, even over one of siunitx's own names
+                        let other = if self.macros.siunitx.units.contains_key(name) || symbols::unit(name).is_none() { self.other_unit_symbol(name)? } else { None };
+                        let symbol = match (other, symbols::unit(name)) {
+                            (Some(symbol), _) => symbol,
+                            (None, Some(symbol)) => UnitSymbol::Text(symbol.to_string()),
+                            (None, None) => {
                                 self.tolerate(rules::E_REC_1, col, format!("unsupported unit: \\{name}"), "written by its name")?;
-                                name.to_string()
+                                UnitSymbol::Text(name.to_string())
                             }
                         };
-                        let exponent = if prefix.contains('²') {
+                        let exponent = if let Some(n) = raised.take() {
+                            n
+                        } else if prefix.contains('²') {
                             2
                         } else if prefix.contains('³') {
                             3
                         } else {
                             1
                         };
-                        let text = format!("{}{symbol}", prefix.trim_end_matches(['²', '³']));
+                        let written = prefix.trim_end_matches(['²', '³']).to_string();
+                        let base = match symbol {
+                            UnitSymbol::Text(t) => Node::Text { parts: vec![TextPart::Text(format!("{written}{t}"))] },
+                            UnitSymbol::Math(math) if !written.is_empty() => Node::row(vec![Node::Text { parts: vec![TextPart::Text(written)] }, math]),
+                            UnitSymbol::Math(math) => math,
+                        };
                         prefix.clear();
                         let names = (std::mem::take(&mut prefix_names), symbols::canonical_unit(name).to_string());
+                        let entry = (base, exponent, names.0, names.1, highlight.take());
                         if per {
-                            denominator.push((text, exponent, names.0, names.1));
+                            denominator.push(entry);
                             last_in_den = true;
                             per = false;
                         } else {
-                            numerator.push((text, exponent, names.0, names.1));
+                            numerator.push(entry);
                             last_in_den = false;
                         }
                     }
                 }
             }
-            let mut children = Vec::new();
-            let unit_node = |u: &(String, i32, String, String)| -> Node {
-                let text = Node::Text { parts: vec![TextPart::Text(u.0.clone())] };
-                let base = Node::Unit { prefix: Some(u.2.clone()).filter(|p| !p.is_empty()), name: u.3.clone(), base: Box::new(text) };
-                if u.1 == 1 {
-                    base
-                } else {
-                    Node::Scripts { base: Box::new(base), sup: Some(Box::new(Node::Number { value: u.1.to_string(), group: false, thousands: None })), sub: None }
-                }
-            };
-            for (i, u) in numerator.iter().enumerate() {
-                if i > 0 {
-                    children.push(Node::Space { em: 3.0 / 18.0 });
-                }
-                children.push(unit_node(u));
+            // a \raiseto with no unit after it (\second\raiseto{2}): the unit before it, as \tothe
+            if let Some((n, u)) = raised.zip(if last_in_den { denominator.last_mut() } else { numerator.last_mut() }) {
+                u.1 *= n;
             }
+            let mode = self.macros.siunitx.per_mode;
+            let inter = self.macros.siunitx.inter_unit_product.clone();
+            let product = self.si_product(inter)?;
+            let mut children = joined_units(&numerator, false, &product);
             if !denominator.is_empty() {
-                if numerator.is_empty() {
-                    children.push(Node::Number { value: "1".into(), group: false, thousands: None });
-                }
-                children.push(Node::Operator { symbol: '/', class: Class::Ord });
-                let several = denominator.len() > 1;
-                if several {
-                    children.push(Node::Operator { symbol: '(', class: Class::Open });
-                }
-                for (i, u) in denominator.iter().enumerate() {
-                    if i > 0 {
-                        children.push(Node::Operator { symbol: '·', class: Class::Ord });
+                let one = || Node::Number { value: "1".into(), group: false, thousands: None, variant: Variant::Upright };
+                match mode {
+                    PerMode::Power => {
+                        if !children.is_empty() {
+                            children.push(product.clone());
+                        }
+                        children.extend(joined_units(&denominator, true, &product));
                     }
-                    children.push(unit_node(u));
-                }
-                if several {
-                    children.push(Node::Operator { symbol: ')', class: Class::Close });
+                    PerMode::Fraction => {
+                        let num = if children.is_empty() { one() } else { Node::row(std::mem::take(&mut children)) };
+                        let den = Node::row(joined_units(&denominator, false, &product));
+                        children.push(Node::Fraction { numerator_align: None, num: Box::new(num), den: Box::new(den), style: FractionStyle::Auto, rule: true, thickness: None });
+                    }
+                    PerMode::Repeated => {
+                        if children.is_empty() {
+                            children.push(one());
+                        }
+                        for u in &denominator {
+                            children.push(Node::Operator { symbol: '/', class: Class::Ord });
+                            children.push(unit_node(u, false));
+                        }
+                    }
+                    PerMode::Symbol => {
+                        if children.is_empty() {
+                            children.push(one());
+                        }
+                        children.push(Node::Operator { symbol: '/', class: Class::Ord });
+                        let several = denominator.len() > 1;
+                        if several {
+                            children.push(Node::Operator { symbol: '(', class: Class::Open });
+                        }
+                        for (i, u) in denominator.iter().enumerate() {
+                            if i > 0 {
+                                children.push(Node::Operator { symbol: '·', class: Class::Ord });
+                            }
+                            children.push(unit_node(u, false));
+                        }
+                        if several {
+                            children.push(Node::Operator { symbol: ')', class: Class::Close });
+                        }
+                    }
                 }
             }
-            self.registry.note(rules::L_UNI_1, format!("unit {unit} written with a slash for negative exponents"));
+            let how = match mode {
+                PerMode::Symbol => "with a slash for negative exponents",
+                PerMode::Repeated => "with a slash before each unit of the denominator (per-mode=repeated-symbol)",
+                PerMode::Power => "with negative exponents (per-mode=power)",
+                PerMode::Fraction => "as a fraction (per-mode=fraction)",
+            };
+            self.registry.note(rules::L_UNI_1, format!("unit {unit} written {how}"));
             let names: Vec<String> = numerator.iter().chain(&denominator).map(|u| format!("{}{}", u.2, u.3)).collect();
             self.registry.note(rules::L_UNI_3, format!("units kept by name for the speech: {}", names.join(", ")));
             Node::row(children)
         } else {
-            self.sub_reader(unit, Variant::Upright)?
+            self.sub_reader(&unit, Variant::Upright)?
         };
         self.quantity_node(value, unit_node, col)
     }
@@ -2564,7 +3230,11 @@ impl Reader<'_> {
     /// Value, thin space and unit, as one quantity.
     fn quantity_node(&mut self, value: Option<String>, unit_node: Node, col: usize) -> R<Node> {
         let value = match value {
-            Some(v) => Some(self.number_value(&v, col)?),
+            // (1.23 ± 0.04) kg: the value with its uncertainty in parentheses before the unit
+            Some(v) => Some(match self.uncertain_value(&v, col)? {
+                (node, true) => Node::row(vec![Node::Operator { symbol: '(', class: Class::Open }, node, Node::Operator { symbol: ')', class: Class::Close }]),
+                (node, false) => node,
+            }),
             None => None,
         };
         let text_value = value.as_ref().map(|v| match v {
@@ -2574,10 +3244,29 @@ impl Reader<'_> {
         let mut children = Vec::new();
         if let Some(v) = value {
             children.push(v);
-            children.push(Node::Space { em: 3.0 / 18.0 });
+            let product = self.macros.siunitx.quantity_product.clone();
+            children.push(self.si_product(product)?);
         }
         children.push(unit_node);
         Ok(Node::Quantity { value: text_value.filter(|v| !v.is_empty()), unit: Box::new(Node::row(children)) })
+    }
+
+    /// `\ce{…}`, its backslash at `start`. An `&` or `\\` in it belongs to the alignment around it, as
+    /// mhchem passes them on (#270): `\ce{A &-> B \\ C}` is read again as `\ce{A }&\ce{-> B }\\\ce{C}`, and
+    /// nothing is returned this time.
+    #[inline(never)]
+    fn chemistry_command(&mut self, start: usize, col: usize) -> R<Option<Node>> {
+        let raw = self.raw_text()?;
+        let pieces = chemical_alignment_pieces(&raw);
+        if pieces.len() == 1 {
+            return self.chemistry(&raw, col).map(Some);
+        }
+        let mut text = String::new();
+        for (piece, separator) in pieces {
+            text.push_str(&format!("\\ce{{{piece}}}{separator}"));
+        }
+        self.inject(start, &text, col)?;
+        Ok(None)
     }
 
     /// L-CHE-1: mhchem subset. Formulas with automatic subscripts, charges, isotopes, hydrates, bonds and
@@ -2586,19 +3275,69 @@ impl Reader<'_> {
         let c: Vec<char> = raw.chars().collect();
         let mut children: Vec<Node> = Vec::new();
         let mut i = 0;
+        // whether the last token was a formula or a word, for the word space before the next one
+        let mut previous_entity = false;
         loop {
+            let before = i;
             while c.get(i).is_some_and(|x| x.is_whitespace()) {
                 i += 1;
             }
             if i >= c.len() {
                 break;
             }
-            if let Some(previous) = children.last() {
-                // a variable coefficient written apart ($x$ H2O, n H2O) gets the small space a number gets
-                let coefficient = matches!(previous.clone().simplify(), Node::Identifier { .. });
-                children.push(Node::Space { em: if coefficient { 2.0 / 18.0 } else { 0.0 } });
+            // a mark around a piece (\htmlData, \class, \htmlId…): the piece is read as chemistry and
+            // the mark goes around it, so an editor knows where each species, coefficient, state or
+            // arrow is, and the drawing is the one without the mark
+            if let Some((command, value, inner, len)) = chemical_mark(&c[i..]) {
+                let spaced = i > before;
+                i += len;
+                // whether the piece is a formula or a word, read from its text without the marks inside
+                let inner_chars: Vec<char> = chemical_unmarked(&inner).chars().collect();
+                let mut k = 0;
+                while inner_chars.get(k).is_some_and(|x| x.is_whitespace()) {
+                    k += 1;
+                }
+                let entity = chemical_arrow(&inner_chars[k..]).is_none() && chemical_entity(&chemical_token(&inner_chars, &mut k));
+                if let Some(previous) = children.last() {
+                    // the spaces between pieces are those of the text: none where pieces touch
+                    let coefficient = matches!(previous.clone().simplify(), Node::Identifier { .. });
+                    let em = if !spaced {
+                        0.0
+                    } else if coefficient {
+                        2.0 / 18.0
+                    } else if previous_entity && entity {
+                        CHEMICAL_WORD_SPACE
+                    } else {
+                        0.0
+                    };
+                    children.push(Node::Space { em });
+                }
+                previous_entity = entity;
+                let node = self.chemistry(&inner, col)?.simplify();
+                let (node, dropped) = html_attributes(&command, &value, node);
+                if !dropped.is_empty() {
+                    self.registry.warn(rules::E_REC_9, format!("column {col}: \\{command} in \\ce: unsafe or unsupported {}; dropped", dropped.join(", ")));
+                }
+                children.push(node);
+                continue;
             }
-            if let Some((symbol, len)) = chemical_arrow(&c[i..]) {
+            let arrow = chemical_arrow(&c[i..]);
+            let entity = arrow.is_none() && chemical_entity(&chemical_token(&c, &mut i.clone()));
+            if let Some(previous) = children.last() {
+                // a variable coefficient written apart ($x$ H2O, n H2O) gets the small space a number gets;
+                // two formulas or words written apart get a word space, mhchem's entitySkip (sodium chloride)
+                let coefficient = matches!(previous.clone().simplify(), Node::Identifier { .. });
+                let em = if coefficient {
+                    2.0 / 18.0
+                } else if previous_entity && entity {
+                    CHEMICAL_WORD_SPACE
+                } else {
+                    0.0
+                };
+                children.push(Node::Space { em });
+            }
+            previous_entity = entity;
+            if let Some((symbol, len)) = arrow {
                 i += len;
                 let above = bracketed(&c, &mut i);
                 let below = if above.is_some() { bracketed(&c, &mut i) } else { None };
@@ -2608,6 +3347,19 @@ impl Reader<'_> {
                 }
                 let label = |t: Option<String>, this: &mut Self| -> R<Option<Box<Node>>> {
                     match t.filter(|t| !t.trim().is_empty()) {
+                        // a label between braces is text, spaces and all (#268): ->[{text above}]
+                        Some(t) if braced_whole(t.trim()).is_some() => {
+                            let text = braced_whole(t.trim()).unwrap_or_default();
+                            let mut parts = Vec::new();
+                            for (k, piece) in text.trim().split('$').enumerate() {
+                                if k % 2 == 1 {
+                                    parts.push(TextPart::Math(this.sub_reader(piece, Variant::Italic)?));
+                                } else if !piece.is_empty() {
+                                    parts.push(TextPart::Text(piece.to_string()));
+                                }
+                            }
+                            Ok(Some(Box::new(Node::Text { parts })))
+                        }
                         Some(t) => Ok(Some(Box::new(this.chemistry(&t, col)?.simplify()))),
                         None => Ok(None),
                     }
@@ -2626,8 +3378,8 @@ impl Reader<'_> {
                 "→" | "⇌" | "←" => children.push(Node::Operator { symbol: token.chars().next().unwrap_or('→'), class: Class::Rel }),
                 // a variable as coefficient (x, n): italic, like in math
                 t if t.len() == 1 && t.chars().all(|x| x.is_ascii_lowercase()) => children.push(Node::Identifier { name: t.to_string(), variant: Variant::Italic }),
-                // a word (heat, light, catalyst): upright text
-                t if t.len() > 1 && t.chars().all(|x| x.is_alphabetic() && x.is_lowercase()) => children.push(Node::Text { parts: vec![TextPart::Text(t.to_string())] }),
+                // a word (heat, catalyst, Water, sodium): upright text, whole
+                t if chemical_word(t) => children.push(Node::Text { parts: vec![TextPart::Text(t.to_string())] }),
                 formula => children.push(self.chemical_formula(formula, col)?),
             }
         }
@@ -2673,7 +3425,7 @@ impl Reader<'_> {
                     d.push(c[i]);
                     i += 1;
                 }
-                attach_script(&mut children, None, Some(Node::Number { value: d, group: false, thousands: None }));
+                attach_script(&mut children, None, Some(Node::Number { value: d, group: false, thousands: None, variant: Variant::Upright }));
             } else if ch == '^' || ch == '_' {
                 i += 1;
                 let payload = if c.get(i) == Some(&'{') {
@@ -2689,7 +3441,16 @@ impl Reader<'_> {
                     }
                     p
                 };
-                let node = if ch == '^' { charge(&payload) } else { self.chemical_subscript(&payload)? };
+                let node = if payload.contains('$') {
+                    // mhchem's escape to math (#269): _{$\frac{6}{2}$}, ^{$n+$}
+                    self.sub_reader(&payload.replace('$', ""), Variant::Italic)?
+                } else if ch != '^' {
+                    self.chemical_subscript(&payload)?
+                } else if payload.contains('\\') {
+                    self.chemical_superscript(&payload)?
+                } else {
+                    charge(&payload)
+                };
                 if ch == '^' {
                     attach_script(&mut children, Some(node), None);
                 } else {
@@ -2699,9 +3460,21 @@ impl Reader<'_> {
                 // a charge at the end of the formula or before a closing bracket: Ag+, [H+], [A-]
                 attach_script(&mut children, Some(charge(&ch.to_string())), None);
                 i += 1;
-            } else if let Some(state) = ["(aq)", "(s)", "(l)", "(g)", "(sol)", "(cr)"].into_iter().find(|e| c[i..].iter().take(e.len()).copied().eq(e.chars())) {
+            } else if let Some(state) = CHEMICAL_STATES.into_iter().find(|e| c[i..].iter().take(e.len()).copied().eq(e.chars())) {
                 children.push(upright(state.to_string()));
                 i += state.chars().count();
+            } else if let Some((state, len)) = chemical_state(&c[i..]) {
+                // mhchem's state of aggregation with more inside: (aq,$\infty$)
+                let mut parts = Vec::new();
+                for (k, piece) in state.split('$').enumerate() {
+                    if k % 2 == 1 {
+                        parts.push(TextPart::Math(self.sub_reader(piece, Variant::Italic)?));
+                    } else if !piece.is_empty() {
+                        parts.push(TextPart::Text(piece.to_string()));
+                    }
+                }
+                children.push(Node::Text { parts });
+                i += len;
             } else if matches!(ch, '.' | '*' | '·') && i > 0 {
                 // hydrate or adduct: the dot is centered and a coefficient may follow
                 children.push(Node::Operator { symbol: '·', class: Class::Ord });
@@ -2745,10 +3518,34 @@ impl Reader<'_> {
         Ok(Node::row(children))
     }
 
+    /// #252: a superscript with a command in it (an isotope's `^{234\mathrm{m}}`): read as math, upright as
+    /// mhchem sets it, so an unknown command warns (E-REC-1) and strict mode refuses it. Digits and upright
+    /// letters alone are joined as the superscript written without the command (`^{234m}`) is.
+    #[inline(never)]
+    fn chemical_superscript(&mut self, payload: &str) -> R<Node> {
+        let node = self.sub_reader(payload, Variant::Upright)?;
+        let children = match &node {
+            Node::Row { children } => children.as_slice(),
+            other => std::slice::from_ref(other),
+        };
+        let mut plain = String::new();
+        for child in children {
+            match child {
+                Node::Number { value, .. } => plain.push_str(value),
+                Node::Identifier { name, variant: Variant::Upright } => plain.push_str(name),
+                Node::Text { parts } if parts.iter().all(|p| matches!(p, TextPart::Text(_))) => {
+                    plain.extend(parts.iter().filter_map(|p| if let TextPart::Text(t) = p { Some(t.as_str()) } else { None }));
+                }
+                _ => return Ok(node),
+            }
+        }
+        Ok(charge(&plain))
+    }
+
     /// Subscript in a formula: a number, a state (`_{(aq)}`) as text, anything else as math (`NO_x`).
     fn chemical_subscript(&mut self, payload: &str) -> R<Node> {
         if !payload.is_empty() && payload.chars().all(|x| x.is_ascii_digit()) {
-            return Ok(Node::Number { value: payload.to_string(), group: false, thousands: None });
+            return Ok(Node::Number { value: payload.to_string(), group: false, thousands: None, variant: Variant::Upright });
         }
         if payload.starts_with('(') {
             return Ok(Node::Text { parts: vec![TextPart::Text(payload.to_string())] });
@@ -2776,11 +3573,22 @@ impl Reader<'_> {
         }
         match (name.as_str(), arguments.as_slice()) {
             ("bond", [b, ..]) => {
+                // #267: the dashed bond, the bonds with more than one kind of line and of four dots are drawn by composition
+                let composite = match b.trim() {
+                    "~" => Some(crate::composite::BOND_DASHED),
+                    "~-" => Some(crate::composite::BOND_DASHED_OVER_SINGLE),
+                    "~=" | "~--" => Some(crate::composite::BOND_DASHED_OVER_DOUBLE),
+                    "-~-" => Some(crate::composite::BOND_DASHED_BETWEEN),
+                    "...." => Some(crate::composite::BOND_FOUR_DOTS),
+                    _ => None,
+                };
+                if let Some(symbol) = composite {
+                    return Ok(Node::Operator { symbol, class: Class::Ord });
+                }
                 let symbol = match b.trim() {
                     "-" | "1" => '−',
                     "=" | "2" => '=',
                     "#" | "3" => '≡',
-                    "~" => '∼',
                     "..." => '⋯',
                     "->" => '→',
                     "<-" => '←',
@@ -2794,7 +3602,7 @@ impl Reader<'_> {
             ("frac", [a, b, ..]) => {
                 let num = self.chemistry(a, col)?.simplify();
                 let den = self.chemistry(b, col)?.simplify();
-                Ok(Node::Fraction { num: Box::new(num), den: Box::new(den), style: FractionStyle::Auto, rule: true, thickness: None })
+                Ok(Node::Fraction { numerator_align: None, num: Box::new(num), den: Box::new(den), style: FractionStyle::Auto, rule: true, thickness: None })
             }
             _ => {
                 let raw: String = c[start..*i].iter().collect();
@@ -2802,6 +3610,104 @@ impl Reader<'_> {
             }
         }
     }
+}
+
+/// The pieces of a `\ce` argument between the `&` and `\\` that belong to the alignment around it (#270),
+/// each with the separator after it (the last one has none): outside braces and `$…$`; `\&` is a
+/// character. Without them, one piece, the whole argument.
+fn chemical_alignment_pieces(raw: &str) -> Vec<(String, String)> {
+    let c: Vec<char> = raw.chars().collect();
+    let mut pieces = Vec::new();
+    let mut piece = String::new();
+    let (mut level, mut math) = (0i32, false);
+    let mut i = 0;
+    while i < c.len() {
+        let ch = c[i];
+        let top = level == 0 && !math;
+        match ch {
+            '\\' if top && c.get(i + 1) == Some(&'\\') => {
+                pieces.push((std::mem::take(&mut piece), "\\\\".to_string()));
+                i += 2;
+                continue;
+            }
+            '\\' => {
+                // a control sequence or an escaped character stays whole: \&, \{, \bond
+                piece.push(ch);
+                if let Some(&next) = c.get(i + 1) {
+                    piece.push(next);
+                    i += 1;
+                }
+            }
+            '&' if top => pieces.push((std::mem::take(&mut piece), "&".to_string())),
+            '{' => {
+                level += 1;
+                piece.push(ch);
+            }
+            '}' => {
+                level -= 1;
+                piece.push(ch);
+            }
+            '$' => {
+                math = !math;
+                piece.push(ch);
+            }
+            _ => piece.push(ch),
+        }
+        i += 1;
+    }
+    pieces.push((piece, String::new()));
+    pieces
+}
+
+/// The space mhchem puts between two formulas or words written apart: its `entitySkip`, a `~`.
+const CHEMICAL_WORD_SPACE: f32 = 0.333;
+
+/// The states of aggregation `\ce` reads as upright text wherever they are.
+const CHEMICAL_STATES: [&str; 6] = ["(aq)", "(s)", "(l)", "(g)", "(sol)", "(cr)"];
+
+/// A token of `\ce` that is a word, kept whole as upright text: letters only, at least two, and either
+/// all lowercase (heat, sodium) or a capital followed by lowercase letters that is not an element
+/// symbol (Water, Hydrogen; Na and Co stay elements). mhchem draws any run of letters upright as
+/// written, so the drawing is the same; this decides how the tree keeps it (spec/chemistry.md).
+fn chemical_word(t: &str) -> bool {
+    let mut letters = t.chars();
+    let Some(first) = letters.next() else { return false };
+    let rest: Vec<char> = letters.collect();
+    if rest.is_empty() || !first.is_alphabetic() || !rest.iter().all(|x| x.is_alphabetic() && x.is_lowercase()) {
+        return false;
+    }
+    first.is_lowercase() || !symbols::ELEMENTS.contains(&t)
+}
+
+/// A token of `\ce` that is a formula or a word, which mhchem separates from the next one by a word
+/// space when they are written apart: it has a letter, and it is not an operator, a bond (`\bond{…}`),
+/// a coefficient (`n`, `$x$`) or a state of aggregation standing alone (`(g)`).
+fn chemical_entity(t: &str) -> bool {
+    if t.starts_with("\\bond") {
+        return false;
+    }
+    let c: Vec<char> = t.chars().collect();
+    let coefficient = (c.len() == 1 && c[0].is_ascii_lowercase()) || (c.len() > 1 && t.starts_with('$') && t.ends_with('$'));
+    let state = CHEMICAL_STATES.contains(&t) || chemical_state(&c).is_some_and(|(_, len)| len == c.len());
+    c.iter().any(|x| x.is_alphabetic()) && !coefficient && !state
+}
+
+/// mhchem's state of aggregation with more inside, `(aq,$\infty$)`: a parenthesis, one to three
+/// lowercase letters and a comma, up to the closing parenthesis, at the end of the formula or before a
+/// space or `,;)]}` (mhchem's pattern `state of aggregation $`). Its text and its length.
+fn chemical_state(c: &[char]) -> Option<(String, usize)> {
+    if c.first() != Some(&'(') {
+        return None;
+    }
+    let letters = c[1..].iter().take_while(|x| x.is_ascii_lowercase()).count();
+    if !(1..=3).contains(&letters) || c.get(1 + letters) != Some(&',') {
+        return None;
+    }
+    let close = c.iter().position(|&x| x == ')')?;
+    if c.get(close + 1).is_some_and(|x| !x.is_whitespace() && !",;)]}".contains(*x)) {
+        return None;
+    }
+    Some((c[..=close].iter().collect(), close + 1))
 }
 
 /// A chemical bond: drawn as its line, but it is not a minus, an equals or a congruence.
@@ -2839,6 +3745,56 @@ fn bracketed(c: &[char], i: &mut usize) -> Option<String> {
         k += 1;
     }
     None
+}
+
+/// The content of `t` when one pair of braces holds all of it (`{text above}`), else `None`.
+fn braced_whole(t: &str) -> Option<String> {
+    let c: Vec<char> = t.chars().collect();
+    if c.first() != Some(&'{') {
+        return None;
+    }
+    let mut i = 0;
+    let inner = braced(&c, &mut i);
+    (i == c.len() && c.last() == Some(&'}')).then_some(inner)
+}
+
+/// The text of a piece of `\ce` without the marks in it (`\htmlData{m=a}{Zn}(s)` → `Zn(s)`).
+fn chemical_unmarked(text: &str) -> String {
+    let c: Vec<char> = text.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < c.len() {
+        if let Some((_, _, inner, len)) = chemical_mark(&c[i..]) {
+            out.push_str(&chemical_unmarked(&inner));
+            i += len;
+        } else {
+            out.push(c[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// A mark at the start of `c` inside `\ce`: `\htmlData{value}{inner}` (or `\class`, `\htmlClass`,
+/// `\htmlId`, `\cssId`): the command, the value, the inner text and how many characters it all takes.
+fn chemical_mark(c: &[char]) -> Option<(String, String, String, usize)> {
+    if c.first() != Some(&'\\') {
+        return None;
+    }
+    let name: String = c[1..].iter().take_while(|x| x.is_ascii_alphabetic()).collect();
+    if !matches!(name.as_str(), "htmlData" | "class" | "htmlClass" | "htmlId" | "cssId") {
+        return None;
+    }
+    let mut i = 1 + name.len();
+    if c.get(i) != Some(&'{') {
+        return None;
+    }
+    let value = braced(c, &mut i);
+    if c.get(i) != Some(&'{') {
+        return None;
+    }
+    let inner = braced(c, &mut i);
+    Some((name, value, inner, i))
 }
 
 /// Content of `{…}` starting at `c[*i] == '{'`, without the outer braces.
@@ -2908,16 +3864,16 @@ fn chemical_coefficient(c: &[char], i: &mut usize) -> Node {
     } else if c.get(*i) == Some(&'/') && c.get(*i + 1).is_some_and(char::is_ascii_digit) {
         *i += 1;
         let den = digits(i);
-        let number = |v: String| Box::new(Node::Number { value: v, group: false, thousands: None });
-        return Node::Fraction { num: number(value), den: number(den), style: FractionStyle::Row, rule: true, thickness: None };
+        let number = |v: String| Box::new(Node::Number { value: v, group: false, thousands: None, variant: Variant::Upright });
+        return Node::Fraction { numerator_align: None, num: number(value), den: number(den), style: FractionStyle::Row, rule: true, thickness: None };
     }
-    Node::Number { value, group: false, thousands: None }
+    Node::Number { value, group: false, thousands: None, variant: Variant::Upright }
 }
 
 /// Charge or oxidation state: `2-` → 2−, `.-` → •− (radical), `II` → II.
 fn charge(payload: &str) -> Node {
     if !payload.is_empty() && payload.chars().all(|x| x.is_ascii_digit()) {
-        return Node::Number { value: payload.to_string(), group: false, thousands: None };
+        return Node::Number { value: payload.to_string(), group: false, thousands: None, variant: Variant::Upright };
     }
     let text: String = payload
         .chars()
@@ -2999,9 +3955,180 @@ fn staggered_indices(raw: &str, pre: bool) -> String {
 }
 
 /// mhchem's `\pu` unit to math: `J mol^-1` → `J\,mol^{-1}`, `.` and `*` between units → `\cdot`.
+/// The commands of `physics_expansion`, besides the long names of `physics_long_name`.
+const PHYSICS: &[&str] = &[
+    "mqty",
+    "matrixquantity",
+    "smqty",
+    "smallmatrixquantity",
+    "pmqty",
+    "Pmqty",
+    "bmqty",
+    "vmqty",
+    "mdet",
+    "matrixdeterminant",
+    "spmqty",
+    "sPmqty",
+    "sbmqty",
+    "svmqty",
+    "smdet",
+    "smallmatrixdeterminant",
+    "imat",
+    "identitymatrix",
+    "xmat",
+    "xmatrix",
+    "zmat",
+    "zeromatrix",
+    "paulimatrix",
+    "pmat",
+    "paulixmatrix",
+    "pauliymatrix",
+    "paulizmatrix",
+    "dmat",
+    "diagonalmatrix",
+    "admat",
+    "antidiagonalmatrix",
+    "qq",
+    "qqtext",
+    "qc",
+    "qcomma",
+    "qcc",
+    "qif",
+    "qthen",
+    "qelse",
+    "qotherwise",
+    "qunless",
+    "qgiven",
+    "qusing",
+    "qassume",
+    "qsince",
+    "qlet",
+    "qfor",
+    "qall",
+    "qeven",
+    "qodd",
+    "qinteger",
+    "qand",
+    "qor",
+    "qas",
+    "qin",
+    "var",
+    "variation",
+    "pv",
+    "principalvalue",
+    "PV",
+    "op",
+    "vev",
+    "flatfrac",
+    "Trace",
+    "Residue",
+    "asin",
+    "acos",
+    "atan",
+    "acsc",
+    "asec",
+    "acot",
+    "asine",
+    "acosine",
+    "atangent",
+    "acosecant",
+    "asecant",
+    "acotangent",
+    "vnabla",
+    "gradientnabla",
+    "diffd",
+    "real",
+    "imaginary",
+];
+
+/// physics' Pauli matrices σx, σy, σz, as the package writes their contents.
+const PAULI: [&str; 3] = ["0&1\\\\1&0", "0&-i\\\\i&0", "1&0\\\\0&-1"];
+
+/// A physics matrix: `shape` is `(`, `[`, `|`, `P` (\lgroup…\rgroup) or `{` (none); `small` for
+/// `\smqty` and its family, a `smallmatrix` between `\left…\right` delimiters, as the package's
+/// `\spmqty` is `\pqty{\begin{smallmatrix}…}`.
+fn physics_matrix(small: bool, shape: char, body: &str) -> String {
+    let (env, open, close) = match (small, shape) {
+        (false, '(') => ("pmatrix", "", ""),
+        (false, '[') => ("bmatrix", "", ""),
+        (false, '|') => ("vmatrix", "", ""),
+        (false, 'P') => ("matrix", "\\lgroup", "\\rgroup"),
+        (false, _) => ("matrix", "", ""),
+        (true, '(') => ("smallmatrix", "(", ")"),
+        (true, '[') => ("smallmatrix", "[", "]"),
+        (true, '|') => ("smallmatrix", "|", "|"),
+        (true, 'P') => ("smallmatrix", "\\lgroup", "\\rgroup"),
+        (true, _) => ("smallmatrix", "", ""),
+    };
+    let table = format!("\\begin{{{env}}}{body}\\end{{{env}}}");
+    if open.is_empty() {
+        table
+    } else {
+        format!("\\left{open} {table} \\right{close}")
+    }
+}
+
+/// The contents of a generated matrix (`\imat`, `\xmat`, `\dmat`…): `rows` × `columns` entries, by
+/// row and column from 0, in `&` and `\\`.
+fn generated_matrix(rows: usize, columns: usize, entry: impl Fn(usize, usize) -> String) -> String {
+    (0..rows).map(|i| (0..columns).map(|j| entry(i, j)).collect::<Vec<_>>().join("&")).collect::<Vec<_>>().join("\\\\")
+}
+
+/// `raw` split at each `separator` outside braces, each part trimmed.
+fn split_top_level(raw: &str, separator: char) -> Vec<String> {
+    let mut parts = vec![String::new()];
+    let mut level = 0usize;
+    for c in raw.chars() {
+        match c {
+            '{' => level += 1,
+            '}' => level = level.saturating_sub(1),
+            c if c == separator && level == 0 => {
+                parts.push(String::new());
+                continue;
+            }
+            _ => {}
+        }
+        parts.last_mut().unwrap().push(c);
+    }
+    parts.into_iter().map(|p| p.trim().to_string()).collect()
+}
+
+/// physics' long names of the elementary functions (`\sine` is `\sin`), which the package keeps when
+/// it redefines the short ones.
+fn physics_long_name(long: &str) -> Option<&'static str> {
+    Some(match long {
+        "sine" => "sin",
+        "cosine" => "cos",
+        "tangent" => "tan",
+        "cosecant" => "csc",
+        "secant" => "sec",
+        "cotangent" => "cot",
+        "hypsine" => "sinh",
+        "hypcosine" => "cosh",
+        "hyptangent" => "tanh",
+        "hypcosecant" => "csch",
+        "hypsecant" => "sech",
+        "hypcotangent" => "coth",
+        "arcsine" => "arcsin",
+        "arccosine" => "arccos",
+        "arctangent" => "arctan",
+        "arccosecant" => "arccsc",
+        "arcsecant" => "arcsec",
+        "arccotangent" => "arccot",
+        "exponential" => "exp",
+        "logarithm" => "log",
+        "naturallogarithm" => "ln",
+        "determinant" => "det",
+        "Probability" => "Pr",
+        _ => return None,
+    })
+}
+
 fn mhchem_unit(unit: &str) -> String {
-    if let Some((num, den)) = unit.split_once("//") {
-        return format!("\\frac{{{}}}{{{}}}", mhchem_unit(num.trim()), mhchem_unit(den.trim()));
+    // `//` is a fraction bar: mhchem.js' `pu` state reads the unit before it and after it apart and
+    // writes them as a `pu-frac`, \frac in text style (\mathchoice{\textstyle\frac{…}{…}}…)
+    if let Some((numerator, denominator)) = unit.split_once("//") {
+        return format!("\\tfrac{{{}}}{{{}}}", mhchem_unit(numerator.trim()), mhchem_unit(denominator.trim()));
     }
     let c: Vec<char> = unit.chars().collect();
     let mut s = String::new();
@@ -3054,6 +4181,8 @@ fn natural_class(node: &Node) -> Class {
     match node {
         Node::Operator { class, .. } => *class,
         Node::LargeOperator { .. } | Node::Function { .. } => Class::Op,
+        // \overset{a}{\underset{b}{=}}: the class the inner command gave
+        Node::ForcedClass { class, .. } => *class,
         _ => Class::Ord,
     }
 }
@@ -3101,6 +4230,64 @@ fn split_text(parts: &mut Vec<TextPart>, current: &mut String, open: &[(usize, c
 }
 
 /// The arguments of a command inside text, as written, to read them again with the command: `spec` has
+/// The body of a `cases*` with its second column in `\text{…}`: the text after the first `&` of each row, up
+/// to the row's `\\` (or a further `&`), outside braces and nested environments. Spaces at the ends of the
+/// text go, as TeX skips them in an alignment cell.
+fn text_second_column(raw: &str) -> String {
+    let c: Vec<char> = raw.chars().collect();
+    let mut out = String::new();
+    let (mut braces, mut environments, mut in_text, mut i) = (0usize, 0usize, false, 0);
+    let close = |out: &mut String, in_text: &mut bool| {
+        if *in_text {
+            out.truncate(out.trim_end().len());
+            out.push('}');
+            *in_text = false;
+        }
+    };
+    while i < c.len() {
+        let top = braces == 0 && environments == 0;
+        match c[i] {
+            '\\' if top && c.get(i + 1) == Some(&'\\') => {
+                close(&mut out, &mut in_text);
+                out.push_str("\\\\");
+                i += 2;
+                continue;
+            }
+            '\\' => {
+                let name: String = c[i + 1..].iter().take_while(|c| c.is_ascii_alphabetic()).collect();
+                match name.as_str() {
+                    "begin" => environments += 1,
+                    "end" => environments = environments.saturating_sub(1),
+                    "cr" if top => close(&mut out, &mut in_text),
+                    _ => {}
+                }
+                // the command, or the character after the backslash (\{, \&)
+                let n = name.chars().count().max(1);
+                out.extend(&c[i..(i + 1 + n).min(c.len())]);
+                i += 1 + n;
+                continue;
+            }
+            '{' => braces += 1,
+            '}' => braces = braces.saturating_sub(1),
+            '&' if top && in_text => close(&mut out, &mut in_text),
+            '&' if top => {
+                out.push_str("&\\text{");
+                in_text = true;
+                i += 1;
+                while c.get(i).is_some_and(|c| c.is_whitespace()) {
+                    i += 1;
+                }
+                continue;
+            }
+            _ => {}
+        }
+        out.push(c[i]);
+        i += 1;
+    }
+    close(&mut out, &mut in_text);
+    out
+}
+
 /// `{` for each mandatory argument, `[` for each optional one and `*` for an optional star, in order. A
 /// mandatory argument without braces is one character or one command, as in TeX.
 fn text_arguments(c: &[char], i: &mut usize, spec: &str) -> String {
@@ -3195,6 +4382,9 @@ fn siunitx_in_text(name: &str) -> Option<&'static str> {
         "SI" | "qty" | "SIlist" | "qtylist" | "SIproduct" | "qtyproduct" => "[{{",
         "si" | "unit" | "ang" | "numlist" | "anglist" | "numproduct" => "[{",
         "num" => "[{[",
+        "complexnum" => "[{",
+        "complexqty" => "[{{",
+        "tablenum" => "[{",
         "SIrange" | "qtyrange" => "[{{{",
         "numrange" | "angrange" => "[{{",
         _ => return None,
@@ -3216,12 +4406,29 @@ fn graphicx_box(name: &str) -> Option<&'static str> {
 /// Math commands that authors write in text, with their arguments (as for `text_arguments`).
 fn math_in_text(name: &str) -> Option<&'static str> {
     Some(match name {
-        "mathrm" | "mathit" | "mathsf" | "mathtt" | "mathcal" | "mathbb" | "mathfrak" | "mathscr" | "mathbfit" | "mathnormal" | "boldsymbol" | "bm" => "{",
+        "mathrm" | "mathit" | "mathsf" | "mathtt" | "mathcal" | "mathbb" | "mathfrak" | "mathscr" | "mathbfit" | "mathnormal" | "boldsymbol" | "bm" | "mathbold" => "{",
         "frac" | "dfrac" | "tfrac" => "{{",
         "sqrt" => "[{",
         "operatorname" => "*{",
         _ => return None,
     })
+}
+
+/// amsmath's `multline`: the first line at the left, the last at the right, the ones between
+/// centered, except a line in `\shoveleft{…}` or `\shoveright{…}` (already a one-column
+/// `Multicolumn` with its alignment). One line alone stays as it is.
+fn multline_alignments(rows: &mut [Vec<Node>]) {
+    let last = rows.len().saturating_sub(1);
+    if last == 0 {
+        return;
+    }
+    // a line is one cell by now: `misplaced_tabs` has joined the cells of a line split by `&`
+    for (i, alignment) in [(0, 'l'), (last, 'r')] {
+        for cell in rows[i].iter_mut().filter(|cell| !matches!(cell, Node::Multicolumn { .. })) {
+            let base = std::mem::replace(cell, Node::row(vec![]));
+            *cell = Node::Multicolumn { columns: 1, alignment, base: Box::new(base) };
+        }
+    }
 }
 
 /// Environments that start math, read in text: `Some(true)` for the displays, which TeX allows in a
@@ -3315,6 +4522,9 @@ fn box_length(m: &str) -> Option<BoxLength> {
 
 fn measure_em(m: &str) -> Option<f32> {
     let m = m.trim().replace(',', ".");
+    if let Some((factor, register)) = m.split_once('\\') {
+        return muskip_em(factor.trim(), register.trim());
+    }
     let units = [("em", 1.0), ("ex", 0.45), ("pt", 0.1), ("mu", 1.0 / 18.0), ("cm", 2.845), ("mm", 0.2845), ("in", 7.227), ("px", 0.075)];
     for (u, f) in units {
         if let Some(v) = m.strip_suffix(u) {
@@ -3322,6 +4532,311 @@ fn measure_em(m: &str) -> Option<f32> {
         }
     }
     None
+}
+
+/// #206: plain TeX's math glue (plain.tex: `\thinmuskip=3mu`, `\medmuskip=4mu plus 2mu minus 4mu`,
+/// `\thickmuskip=5mu plus 5mu`; the stretch and shrink are ignored), times a factor (`2\thinmuskip`).
+fn muskip_em(factor: &str, register: &str) -> Option<f32> {
+    let mu = match register {
+        "thinmuskip" => 3.0,
+        "medmuskip" => 4.0,
+        "thickmuskip" => 5.0,
+        _ => return None,
+    };
+    let factor = match factor {
+        "" | "+" => 1.0,
+        "-" => -1.0,
+        f => f.parse::<f32>().ok().filter(|f| f.is_finite())?,
+    };
+    Some(factor * mu / 18.0)
+}
+
+impl Reader<'_> {
+    /// #206: the width of `\mskip`, `\hskip`, `\mspace`, `\kern`…; a measure mathra cannot read is no space
+    /// in tolerant mode (E-REC-9) and an error in strict mode.
+    #[inline(never)]
+    fn space_measure(&mut self, measure: &str, col: usize) -> R<Option<f32>> {
+        match measure_em(measure) {
+            Some(em) => Ok(Some(em)),
+            None => {
+                self.tolerate(rules::E_REC_9, col, format!("unrecognized measure: {}", measure.trim()), "no space")?;
+                Ok(None)
+            }
+        }
+    }
+
+    /// #206: `\thinmuskip`, `\medmuskip` or `\thickmuskip` outside a skip: an assignment (`\thinmuskip=2mu`),
+    /// which mathra does not honor, read and ignored in tolerant mode (E-REC-9); an error in strict mode.
+    #[inline(never)]
+    fn muskip_assignment(&mut self, name: &str, col: usize) -> R<()> {
+        self.skip_spaces();
+        let value = if self.current() == Some('=') {
+            self.pos += 1;
+            let mut value = self.raw_measure();
+            // the stretch and shrink of the glue: `plus 2mu minus 4mu`
+            for word in ["plus", "minus"] {
+                self.skip_spaces();
+                let w: Vec<char> = word.chars().collect();
+                if self.c[self.pos..].starts_with(&w) {
+                    self.pos += w.len();
+                    value = format!("{value} {word} {}", self.raw_measure());
+                }
+            }
+            format!("={value}")
+        } else {
+            String::new()
+        };
+        self.tolerate(rules::E_REC_9, col, format!("\\{name}{value}: math glue is not changed"), "ignored")
+    }
+
+    /// `\class{…}{…}` and its kin: the content with the attributes [`html_attributes`] keeps.
+    fn html_attributes_command(&mut self, name: &str, col: usize) -> R<Node> {
+        let value = self.raw_text()?;
+        let base = self.argument()?;
+        let (node, dropped) = html_attributes(name, &value, base);
+        if !dropped.is_empty() {
+            self.registry.warn(rules::E_REC_9, format!("column {col}: \\{name}: unsafe or unsupported {}; dropped", dropped.join(", ")));
+        }
+        Ok(node)
+    }
+
+    /// #177: colortbl's colors, which mathra's tables have no place for, and the array package's
+    /// `\newcolumntype`, which mathra does not expand: read with their arguments and ignored (E-REC-9).
+    /// MathJax's `\Newextarrow{\cs}{lspace,rspace}{code}` defines `\cs[below]{above}`: an extensible
+    /// arrow mathra knows (`\xrightarrow` and family) when the code is its arrow, else the character
+    /// with the labels over and under it, not stretched (E-REC-9). What is left in place of the command.
+    #[inline(never)]
+    fn table_and_arrow_definitions(&mut self, name: &str, col: usize) -> R<String> {
+        match name {
+            "newcolumntype" => {
+                let letter = self.raw_text()?;
+                self.raw_optional();
+                self.raw_text()?;
+                self.tolerate(rules::E_REC_9, col, format!("\\newcolumntype{{{}}}: new column types are not expanded", letter.trim()), "ignored")?;
+            }
+            "Newextarrow" => {
+                let target = self.raw_text()?.trim().trim_start_matches('\\').to_string();
+                self.raw_text()?;
+                let raw = self.raw_text()?;
+                let code = raw.trim();
+                let symbol = match code.strip_prefix("0x").or_else(|| code.strip_prefix("0X")) {
+                    Some(hex) => u32::from_str_radix(hex, 16).ok(),
+                    None => code.parse::<u32>().ok(),
+                }
+                .and_then(char::from_u32)
+                .ok_or(Error::Syntax { column: col, message: format!("\\Newextarrow: {code} is not a character code") })?;
+                let known = match symbol {
+                    '→' => "xrightarrow",
+                    '←' => "xleftarrow",
+                    '⇒' => "xRightarrow",
+                    '⇐' => "xLeftarrow",
+                    '↔' => "xleftrightarrow",
+                    '⇔' => "xLeftrightarrow",
+                    '⇌' => "xrightleftharpoons",
+                    '⇋' => "xleftrightharpoons",
+                    '↦' => "xmapsto",
+                    '↪' => "xhookrightarrow",
+                    '↩' => "xhookleftarrow",
+                    '↠' => "xtwoheadrightarrow",
+                    '↞' => "xtwoheadleftarrow",
+                    '⇀' => "xrightharpoonup",
+                    '⇁' => "xrightharpoondown",
+                    '↼' => "xleftharpoonup",
+                    '↽' => "xleftharpoondown",
+                    '⇄' => "xtofrom",
+                    '=' => "xlongequal",
+                    _ => "",
+                };
+                let body = if known.is_empty() {
+                    self.tolerate(
+                        rules::E_REC_9,
+                        col,
+                        format!("\\Newextarrow{{\\{target}}}: U+{:04X} has no extensible form in mathra", symbol as u32),
+                        "drawn with its labels over and under it, not stretched",
+                    )?;
+                    format!("\\mathrel{{\\overset{{#2}}{{\\underset{{#1}}{{\\unicode{{x{:X}}}}}}}}}", symbol as u32)
+                } else {
+                    format!("\\{known}[#1]{{#2}}")
+                };
+                self.registry.note(rules::L_MAC_1, format!("macro \\{target} defined with 2 argument(s)"));
+                self.macros.commands.insert(target, Macro { arguments: 2, default_arg: Some(String::new()), body, paired: None });
+            }
+            _ => {
+                self.raw_optional();
+                let color = self.raw_text()?;
+                if matches!(name, "rowcolor" | "columncolor") {
+                    self.raw_optional();
+                    self.raw_optional();
+                }
+                self.tolerate(rules::E_REC_9, col, format!("\\{name}{{{}}}: mathra's tables have no colors", color.trim()), "ignored")?;
+            }
+        }
+        Ok(String::new())
+    }
+
+    /// A character of an array's column specification that is no column mathra knows, at `spec[at]`:
+    /// ignored (E-REC-9); the position after it. #177: the `>{…}` or `<{…}` of the array package,
+    /// declarations put before or after each cell of the column, which mathra does not apply, are
+    /// skipped with their group. Out of line, so the frame of `array_columns`, which `*{n}{…}` nests,
+    /// does not grow.
+    #[inline(never)]
+    fn other_column(&mut self, spec: &[char], at: usize, col: usize) -> R<usize> {
+        if !(matches!(spec[at], '>' | '<') && spec.get(at + 1) == Some(&'{')) {
+            self.tolerate(rules::E_REC_9, col, format!("unsupported array column: '{}'", spec[at]), "ignored")?;
+            return Ok(at + 1);
+        }
+        let mut level = 0;
+        let mut end = at + 1;
+        while end < spec.len() {
+            match spec[end] {
+                '{' => level += 1,
+                '}' => level -= 1,
+                _ => {}
+            }
+            end += 1;
+            if level == 0 {
+                break;
+            }
+        }
+        let group: String = spec[at + 1..end].iter().collect();
+        self.tolerate(rules::E_REC_9, col, format!("{}{group} of an array column: declarations are not applied to the cells", spec[at]), "ignored")?;
+        Ok(end)
+    }
+}
+
+/// The CSS properties `\style` and `\htmlStyle` keep: they change how the content looks, and cannot
+/// load anything or move it out of its place.
+const STYLE_PROPERTIES: [&str; 4] = ["color", "background", "background-color", "opacity"];
+
+/// The safe attributes of a mark command (`\htmlData{m=a}` gives `data-m="a"`), for readers that put
+/// them somewhere else than around a node (chemfig's atoms).
+pub(crate) fn html_attribute_list(command: &str, value: &str) -> Vec<(String, String)> {
+    match html_attributes(command, value, Node::row(vec![])).0 {
+        Node::Attributed { attributes, .. } => attributes,
+        _ => Vec::new(),
+    }
+}
+
+/// `\class`, `\cssId`, `\style`, `\htmlClass`, `\htmlId`, `\htmlStyle` or `\htmlData` with its first
+/// argument `value`, around `base`; and what was dropped as unsafe or unsupported. Classes, ids and
+/// data keys keep only `[A-Za-z0-9_-]`; a style keeps only [`STYLE_PROPERTIES`] with plain values
+/// (no `url(`, quotes, `;`, `<` or `>`). A style's color also colors the content, as `\color` does,
+/// so it reaches the outputs that have no CSS.
+fn html_attributes(command: &str, value: &str, base: Node) -> (Node, Vec<String>) {
+    let mut dropped = Vec::new();
+    let mut attributes: Vec<(String, String)> = Vec::new();
+    let mut color = None;
+    let safe_name = |raw: &str, dropped: &mut Vec<String>| -> String {
+        let kept: String = raw.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-').collect();
+        if kept.len() != raw.len() {
+            dropped.push(format!("characters of {raw:?}"));
+        }
+        kept
+    };
+    match command {
+        "class" | "htmlClass" => {
+            let classes: Vec<String> = value.split_whitespace().map(|c| safe_name(c, &mut dropped)).filter(|c| !c.is_empty()).collect();
+            if !classes.is_empty() {
+                attributes.push(("class".into(), classes.join(" ")));
+            }
+        }
+        "cssId" | "htmlId" => {
+            let id = safe_name(value.trim(), &mut dropped);
+            if !id.is_empty() {
+                attributes.push(("id".into(), id));
+            }
+        }
+        "style" | "htmlStyle" => {
+            let kept;
+            (kept, color) = style_declarations(value, &mut dropped);
+            if !kept.is_empty() {
+                attributes.push(("style".into(), kept.join(";")));
+            }
+        }
+        _ => {
+            for pair in value.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+                let (key, v) = pair.split_once('=').unwrap_or((pair, ""));
+                // HTML lowercases attribute names; XML keeps them as written
+                let key = safe_name(key.trim(), &mut dropped).to_ascii_lowercase();
+                if key.is_empty() {
+                    dropped.push(format!("data {pair:?}"));
+                    continue;
+                }
+                attributes.push((format!("data-{key}"), v.trim().to_string()));
+            }
+        }
+    }
+    let mut out = base;
+    if let Some(color) = color {
+        out = Node::Colored { color, base: Box::new(out) };
+    }
+    if !attributes.is_empty() {
+        out = Node::Attributed { attributes, base: Box::new(out) };
+    }
+    (out, dropped)
+}
+
+/// The declarations of a style that [`html_attributes`] keeps, as it writes them (`property:value`),
+/// and the color among them; the others go to `dropped`.
+fn style_declarations(value: &str, dropped: &mut Vec<String>) -> (Vec<String>, Option<String>) {
+    let mut kept = Vec::new();
+    let mut color = None;
+    for declaration in value.split(';').map(str::trim).filter(|d| !d.is_empty()) {
+        let Some((property, v)) = declaration.split_once(':') else {
+            dropped.push(format!("style {declaration:?}"));
+            continue;
+        };
+        let (property, v) = (property.trim().to_ascii_lowercase(), v.trim());
+        let lower = v.to_ascii_lowercase();
+        let plain = !v.is_empty() && v.len() < 60 && v.chars().all(|c| c.is_ascii_alphanumeric() || "#(),.% -".contains(c));
+        let is_color = v.chars().all(|c| c.is_ascii_alphanumeric() || "#(),. ".contains(c));
+        if !STYLE_PROPERTIES.contains(&property.as_str()) || !plain || lower.contains("url(") || lower.contains("expression(") || (property == "color" && !is_color) {
+            dropped.push(format!("style {declaration:?}"));
+            continue;
+        }
+        if property == "color" {
+            color = Some(v.to_string());
+        }
+        kept.push(format!("{property}:{v}"));
+    }
+    (kept, color)
+}
+
+/// A style attribute with only the declarations [`html_attributes`] keeps, as it writes them; `None`
+/// when none is left. For the MathML reader, which reads back the `style` mathra writes.
+pub(crate) fn safe_style(value: &str) -> Option<String> {
+    let (kept, _) = style_declarations(value, &mut Vec::new());
+    (!kept.is_empty()).then(|| kept.join(";"))
+}
+
+/// A siunitx number with an uncertainty, as written: compact, `1.23(4)` (and `1.23(4)e3`), or separate,
+/// `1.23 \pm 0.04` (and `+-`), which answers `true`.
+fn siunitx_uncertainty(raw: &str) -> Option<(Node, bool)> {
+    let raw = raw.replace("+-", "\\pm");
+    if let Some((value, uncertainty)) = raw.split_once("\\pm") {
+        let value = siunitx_number(value, true)?;
+        let uncertainty = siunitx_number(uncertainty, true)?;
+        return Some((Node::row(vec![value, Node::Operator { symbol: '±', class: Class::Bin }, uncertainty]), true));
+    }
+    let (value, rest) = raw.split_once('(')?;
+    let (uncertainty, exponent) = rest.split_once(')')?;
+    let uncertainty = uncertainty.trim();
+    if uncertainty.is_empty() || !uncertainty.chars().all(|c| c.is_ascii_digit() || matches!(c, '.' | ',')) {
+        return None;
+    }
+    // the parenthesized digits right after the number, before any exponent
+    let mut children = match siunitx_number(&format!("{value}{exponent}"), true)? {
+        Node::Row { children } => children,
+        number => vec![number],
+    };
+    let at = children.iter().position(|n| matches!(n, Node::Number { .. }))? + 1;
+    let compact = [
+        Node::Operator { symbol: '(', class: Class::Open },
+        Node::Number { value: uncertainty.replace(',', "."), group: false, thousands: None, variant: Variant::Upright },
+        Node::Operator { symbol: ')', class: Class::Close },
+    ];
+    children.splice(at..at, compact);
+    Some((Node::row(children), false))
 }
 
 /// A number in siunitx format: decimal comma or dot, spaces, exponent with `e`.
@@ -3343,7 +4858,7 @@ fn siunitx_number(raw: &str, group: bool) -> Option<Node> {
     if let Some(s) = sign {
         children.push(Node::Operator { symbol: if s == '-' { '−' } else { '+' }, class: Class::Ord });
     }
-    children.push(Node::Number { value, group, thousands: None });
+    children.push(Node::Number { value, group, thousands: None, variant: Variant::Upright });
     if let Some(e) = exponent {
         let (sign_e, digits) = match e.strip_prefix(['-', '+']) {
             Some(d) => (e.starts_with('-'), d.to_string()),
@@ -3356,10 +4871,10 @@ fn siunitx_number(raw: &str, group: bool) -> Option<Node> {
         if sign_e {
             exp.push(Node::Operator { symbol: '−', class: Class::Ord });
         }
-        exp.push(Node::Number { value: digits, group: false, thousands: None });
+        exp.push(Node::Number { value: digits, group: false, thousands: None, variant: Variant::Upright });
         children.push(Node::Operator { symbol: '×', class: Class::Bin });
         children.push(Node::Scripts {
-            base: Box::new(Node::Number { value: "10".into(), group: false, thousands: None }),
+            base: Box::new(Node::Number { value: "10".into(), group: false, thousands: None, variant: Variant::Upright }),
             sup: Some(Box::new(Node::row(exp).simplify())),
             sub: None,
         });
@@ -3402,20 +4917,15 @@ impl Reader<'_> {
 
     fn expand(&mut self, start: usize, m: &Macro, col: usize) -> R<()> {
         self.macros.expansions += 1;
-        if let Some((open, close)) = &m.paired {
-            // \abs{x} → \mathopen{|}x\mathclose{|};  \abs*{x} → \left|x\right|
-            let star = self.current() == Some('*');
+        let mut star = false;
+        let mut size = None;
+        if m.paired.is_some() {
+            // \abs{x} → \mathopen{|}x\mathclose{|};  \abs*{x} → \left|x\right|;  \abs[\big]{x} → \bigl|x\bigr|
+            star = self.current() == Some('*');
             if star {
                 self.pos += 1;
             }
-            let size = self.raw_optional();
-            let x = self.raw_text()?;
-            let text = match (star, size) {
-                (true, _) => format!("\\left{open} {x} \\right{close}"),
-                (false, Some(t)) => format!("{t}l{open} {x} {t}r{close}"),
-                (false, None) => format!("\\mathopen{{{open}}} {x} \\mathclose{{{close}}}"),
-            };
-            return self.inject(start, &text, col);
+            size = self.raw_optional();
         }
         let mut args = Vec::new();
         if let Some(default_arg) = &m.default_arg {
@@ -3431,10 +4941,16 @@ impl Reader<'_> {
             if c[i] == '#' && i + 1 < c.len() {
                 if let Some(d) = c[i + 1].to_digit(10) {
                     // #0 does not exist in TeX: it disappears, like a missing argument
+                    // a paired delimiter's argument goes in as written, as TeX puts it in
                     if let Some(a) = (d as usize).checked_sub(1).and_then(|k| args.get(k)) {
-                        body.push('{');
+                        let braces = m.paired.is_none();
+                        if braces {
+                            body.push('{');
+                        }
                         body.push_str(a);
-                        body.push('}');
+                        if braces {
+                            body.push('}');
+                        }
                     }
                     i += 2;
                     continue;
@@ -3442,6 +4958,17 @@ impl Reader<'_> {
             }
             body.push(c[i]);
             i += 1;
+        }
+        if let Some(p) = &m.paired {
+            // mathtools' \delimsize: the size the delimiters got, \middle with the star
+            let delimsize = if star { "\\middle" } else { size.as_deref().unwrap_or("") };
+            let x = body.replace("\\delimsize", delimsize);
+            let (open, close, pre, post) = (&p.open, &p.close, &p.pre, &p.post);
+            body = match (star, size) {
+                (true, _) => format!("{pre}\\left{open} {x} \\right{close}{post}"),
+                (false, Some(t)) => format!("{pre}{t}l{open} {x} {t}r{close}{post}"),
+                (false, None) => format!("{pre}\\mathopen{{{open}}} {x} \\mathclose{{{close}}}{post}"),
+            };
         }
         // a space keeps the macro from sticking to what follows (\foo x)
         body.push(' ');
@@ -3543,11 +5070,21 @@ impl Reader<'_> {
                 self.macros.commands.insert(target, Macro { arguments: 0, default_arg: None, body, paired: None });
                 Ok(true)
             }
-            "DeclarePairedDelimiter" => {
+            // mathtools: \DeclarePairedDelimiter{\abs}{\lvert}{\rvert}; the X form takes [n] arguments and
+            // a body, where \delimsize is the size of the delimiters; XPP adds what goes before and after
+            "DeclarePairedDelimiter" | "DeclarePairedDelimiterX" | "DeclarePairedDelimiterXPP" => {
                 let target = self.defined_name(col)?;
+                let arguments = match self.raw_optional() {
+                    Some(n) => n.trim().parse::<usize>().map_err(|_| Error::Syntax { column: col, message: format!("invalid number of arguments: {n}") })?,
+                    None => 1,
+                };
+                let pre = if name == "DeclarePairedDelimiterXPP" { self.raw_text()? } else { String::new() };
                 let open = self.raw_text()?.trim().to_string();
                 let close = self.raw_text()?.trim().to_string();
-                self.macros.commands.insert(target, Macro { arguments: 1, default_arg: None, body: String::new(), paired: Some((open, close)) });
+                let post = if name == "DeclarePairedDelimiterXPP" { self.raw_text()? } else { String::new() };
+                let body = if name == "DeclarePairedDelimiter" { "#1".to_string() } else { self.raw_text()? };
+                let paired = Some(Box::new(Paired { open, close, pre, post }));
+                self.macros.commands.insert(target, Macro { arguments, default_arg: None, body, paired });
                 Ok(true)
             }
             "newenvironment" | "renewenvironment" => {
@@ -3560,6 +5097,57 @@ impl Reader<'_> {
                 let open = self.raw_text()?;
                 let close = self.raw_text()?;
                 self.macros.environments.insert(target, (open, close));
+                Ok(true)
+            }
+            // chemfig, manual section 9: a submolecule `!{name}` stands for in the structures after it
+            #[cfg(feature = "chem")]
+            "definesubmol" | "redefinesubmol" => {
+                self.skip_spaces();
+                let target = if self.current() == Some('\\') {
+                    self.pos += 1;
+                    format!("\\{}", self.read_command_name())
+                } else {
+                    self.raw_text()?.trim().to_string()
+                };
+                self.skip_spaces();
+                let arguments = match self.current().and_then(|d| d.to_digit(10)) {
+                    Some(n) => {
+                        self.pos += 1;
+                        n as usize
+                    }
+                    None => 0,
+                };
+                let right = self.raw_optional();
+                let code = self.raw_text()?;
+                self.macros.submols.insert(target, crate::chem::model::Submol { arguments, right, code });
+                Ok(true)
+            }
+            // xcolor: a color for the rest of the input, as \newcommand defines a macro
+            "definecolor" | "providecolor" => {
+                self.raw_optional();
+                let target = self.raw_text()?.trim().to_string();
+                let model = self.raw_text()?;
+                let value = self.raw_text()?;
+                match color::model(&model, &value) {
+                    Some(rgb) if name == "definecolor" || !self.macros.colors.contains_key(&target) => {
+                        self.macros.colors.insert(target, color::Defined { css: color::hex(rgb), rgb: Some(rgb) });
+                    }
+                    Some(_) => {}
+                    None => self.tolerate(rules::E_REC_9, col, format!("invalid color: {{{}}}{{{}}}", model.trim(), value.trim()), "not defined")?,
+                }
+                Ok(true)
+            }
+            "colorlet" => {
+                self.raw_optional();
+                let target = self.raw_text()?.trim().to_string();
+                self.raw_optional();
+                let expression = self.raw_text()?.trim().to_string();
+                match color::expression(&expression, &self.macros.colors).or_else(|| color::name(&expression)) {
+                    Some(defined) => {
+                        self.macros.colors.insert(target, defined);
+                    }
+                    None => self.tolerate(rules::E_REC_9, col, format!("invalid color: {expression}"), "not defined")?,
+                }
                 Ok(true)
             }
             "usepackage" | "RequirePackage" | "require" => {
@@ -3581,7 +5169,7 @@ impl Reader<'_> {
                 }
                 Ok(true)
             }
-            _ => Ok(false),
+            _ => self.siunitx_definition(name, col),
         }
     }
 
@@ -3688,7 +5276,25 @@ impl Reader<'_> {
         Ok(Some(format!("\\left{left} {x} \\right{right}")))
     }
 
+    /// physics' `\sin[n](x)`: `\sin^{n}` and `x` in parentheses that resize; `None`, with nothing read, when the brackets are
+    /// not followed by parentheses.
+    #[inline(never)]
+    fn physics_function_power(&mut self, name: &str) -> Option<String> {
+        let saved = self.pos;
+        if let Some(power) = self.raw_optional() {
+            self.skip_spaces();
+            if self.current() == Some('(') {
+                let x = self.raw_delimited('(', ')');
+                // physics' \argopen: an empty \mathopen keeps the space after the function out
+                return Some(format!("\\{name}^{{{power}}}\\mathopen{{}}\\mathclose{{\\left( {x} \\right)}}"));
+            }
+        }
+        self.pos = saved;
+        None
+    }
+
     /// Package commands defined through other commands (physics, braket, xfrac, units, tensor, mathtools).
+    #[inline(never)]
     fn package_expansion(&mut self, name: &str, col: usize) -> R<Option<String>> {
         let d = |p: bool| if p { "\\partial" } else { "\\mathrm{d}" };
         let star = |this: &mut Self| {
@@ -3698,16 +5304,23 @@ impl Reader<'_> {
             }
             s
         };
+        if let Some(text) = self.tex_expansion(name, col)? {
+            return Ok(Some(text));
+        }
         Ok(Some(match name {
-            "fdv" | "functionalderivative" => {
+            "fdv" | "functionalderivative" | "fderivative" => {
+                let flat = star(self);
+                let power = self.raw_optional().map(|n| format!("^{{{n}}}")).unwrap_or_default();
                 let f = self.raw_text()?;
                 match self.optional_braced()? {
-                    Some(x) => format!("\\frac{{\\delta {f}}}{{\\delta {x}}}"),
-                    None => format!("\\frac{{\\delta}}{{\\delta {f}}}"),
+                    Some(x) => physics_fraction(flat, format!("\\delta{power} {f}"), format!("\\delta {x}{power}")),
+                    None => physics_fraction(flat, format!("\\delta{power}"), format!("\\delta {f}{power}")),
                 }
             }
-            "dv" | "odv" | "pdv" | "derivative" | "partialderivative" | "pd" => {
+            "dv" | "odv" | "pdv" | "derivative" | "partialderivative" | "pderivative" | "pd" => {
                 let partial = name.starts_with('p');
+                // physics' \dv* and \pdv*: the derivative as a flat fraction, df/dx
+                let flat = matches!(name, "dv" | "pdv" | "derivative" | "partialderivative") && star(self);
                 let order = self.raw_optional();
                 let f = self.raw_text()?;
                 self.skip_spaces();
@@ -3715,20 +5328,24 @@ impl Reader<'_> {
                 self.skip_spaces();
                 let y = if partial && x.is_some() && self.current() == Some('{') { Some(self.raw_text()?) } else { None };
                 let dd = d(partial);
-                match (x, y, order) {
-                    (None, _, None) => format!("\\frac{{{dd}}}{{{dd} {f}}}"),
-                    (None, _, Some(n)) => format!("\\frac{{{dd}^{{{n}}}}}{{{dd} {f}^{{{n}}}}}"),
-                    (Some(x), None, None) => format!("\\frac{{{dd} {f}}}{{{dd} {x}}}"),
-                    (Some(x), None, Some(n)) => {
-                        format!("\\frac{{{dd}^{{{n}}} {f}}}{{{dd} {x}^{{{n}}}}}")
-                    }
-                    (Some(x), Some(y), _) => {
-                        format!("\\frac{{{dd}^{{2}} {f}}}{{{dd} {x} \\, {dd} {y}}}")
-                    }
-                }
+                let (numerator, denominator) = match (x, y, order) {
+                    (None, _, None) => (dd.to_string(), format!("{dd} {f}")),
+                    (None, _, Some(n)) => (format!("{dd}^{{{n}}}"), format!("{dd} {f}^{{{n}}}")),
+                    (Some(x), None, None) => (format!("{dd} {f}"), format!("{dd} {x}")),
+                    (Some(x), None, Some(n)) => (format!("{dd}^{{{n}}} {f}"), format!("{dd} {x}^{{{n}}}")),
+                    (Some(x), Some(y), _) => (format!("{dd}^{{2}} {f}"), format!("{dd} {x} \\, {dd} {y}")),
+                };
+                physics_fraction(flat, numerator, denominator)
             }
-            "ket" | "Ket" => format!("\\left| {} \\right\\rangle", self.raw_text()?),
-            "bra" | "Bra" => format!("\\left\\langle {} \\right|", self.raw_text()?),
+            // physics' \ket* and \bra*: brackets that do not resize (braket's \Ket and \Bra have no star)
+            "ket" | "Ket" => {
+                let s = name == "ket" && star(self);
+                physics_fence(s, "|", "|", "\\rangle", &[&self.raw_text()?])
+            }
+            "bra" | "Bra" => {
+                let s = name == "bra" && star(self);
+                physics_fence(s, "\\langle", "|", "|", &[&self.raw_text()?])
+            }
             // mathtools (its names since 2022) and colonequals: a colon on the axis beside another
             // relation, set as one; \coloneq, \coloneqq, \eqcolon and \eqqcolon are single symbols
             "Coloneq" | "coloncolonequals" => "\\Coloneqq ".into(),
@@ -3758,6 +5375,14 @@ impl Reader<'_> {
                 self.raw_optional();
                 format!("{{{}}}", self.raw_text()?)
             }
+            // slashed.sty's \declareslashed{class}{slash}{right shift}{up shift}{symbol}: another slash or
+            // offset for one symbol; read, and not applied (each \slashed is drawn centered)
+            "declareslashed" => {
+                for _ in 0..5 {
+                    self.raw_text()?;
+                }
+                String::new()
+            }
             // the LaTeX kernel
             "underbar" => format!("\\underline{{{}}}", self.raw_text()?),
             // definitions already last for the whole equation: \global changes nothing
@@ -3780,7 +5405,7 @@ impl Reader<'_> {
                     }
                     let c = self.current().ok_or(Error::Syntax { column: col, message: "\\char` without a character".into() })?;
                     self.pos += 1;
-                    return Ok(Some(format!("\\unicode{{{:X}}}", c as u32)));
+                    return Ok(Some(format!("\\unicode{{x{:X}}}", c as u32)));
                 }
                 let (radix, digits): (u32, fn(char) -> bool) = match self.current() {
                     Some('"') => (16, |c| c.is_ascii_hexdigit()),
@@ -3793,52 +5418,73 @@ impl Reader<'_> {
                 let code: String = self.c[self.pos..].iter().take_while(|c| digits(**c)).collect();
                 self.pos += code.chars().count();
                 match u32::from_str_radix(&code, radix).ok().and_then(char::from_u32).filter(|c| !c.is_control()) {
-                    Some(c) => format!("\\unicode{{{:X}}}", c as u32),
+                    Some(c) => format!("\\unicode{{x{:X}}}", c as u32),
                     None => return self.error(col, format!("\\char needs a character code, not \"{code}\"")),
                 }
             }
             "braket" | "Braket" | "innerproduct" | "ip" => {
+                let s = name != "Braket" && star(self);
                 let x = self.raw_text()?;
                 match self.optional_braced()? {
                     // physics: \braket{a}{b}
-                    Some(y) => format!("\\left\\langle {x} \\middle| {y} \\right\\rangle"),
+                    Some(y) => physics_fence(s, "\\langle", "|", "\\rangle", &[&x, &y]),
                     // braket: \braket{a|b}
-                    None => format!("\\left\\langle {} \\right\\rangle", x.replacen('|', " \\middle| ", 2)),
+                    None => physics_fence(s, "\\langle", "|", "\\rangle", &x.splitn(3, '|').collect::<Vec<_>>()),
                 }
             }
             "ketbra" | "outerproduct" | "dyad" => {
+                let s = star(self);
                 let a = self.raw_text()?;
                 let b = self.optional_braced()?.unwrap_or_else(|| a.clone());
-                format!("\\left| {a} \\right\\rangle\\!\\left\\langle {b} \\right|")
+                format!("{}\\!{}", physics_fence(s, "|", "|", "\\rangle", &[&a]), physics_fence(s, "\\langle", "|", "|", &[&b]))
             }
+            // #177: the \Ketbra braket.sty suggests (its comments: each side as tall as both)
+            "Ketbra" => {
+                let a = self.raw_text()?;
+                let b = self.raw_text()?;
+                format!("\\left|{{{a}}}\\vphantom{{{b}}}\\right\\rangle\\left\\langle{{{b}}}\\vphantom{{{a}}}\\right|")
+            }
+            // bm's \hm: heavy bold where a heavy math version exists, \bm otherwise (`\let\hm\bm`)
+            "hm" => format!("\\bm{{{}}}", self.raw_text()?),
+            // MathJax's \data{key=value}{math}, its html extension: KaTeX's \htmlData
+            "data" => "\\htmlData".into(),
+            // mhchem's deprecated \cf, its old name for \ce
+            "cf" => format!("\\ce{{{}}}", self.raw_text()?),
+            // colortbl, the array package's \newcolumntype and MathJax's \Newextarrow
+            "cellcolor" | "rowcolor" | "columncolor" | "arrayrulecolor" | "newcolumntype" | "Newextarrow" => self.table_and_arrow_definitions(name, col)?,
+            // starred, the brackets do not resize; doubly starred (\expval**, \mel**), they do
             "expval" | "ev" | "expectationvalue" => {
+                let s = star(self) && !star(self);
                 let a = self.raw_text()?;
                 match self.optional_braced()? {
-                    Some(psi) => format!("\\left\\langle {psi} \\middle| {a} \\middle| {psi} \\right\\rangle"),
-                    None => format!("\\left\\langle {a} \\right\\rangle"),
+                    Some(psi) => physics_fence(s, "\\langle", "|", "\\rangle", &[&psi, &a, &psi]),
+                    None => physics_fence(s, "\\langle", "|", "\\rangle", &[&a]),
                 }
             }
             "mel" | "matrixel" | "matrixelement" => {
+                let s = star(self) && !star(self);
                 let a = self.raw_text()?;
                 let op = self.raw_text()?;
                 let b = self.raw_text()?;
-                format!("\\left\\langle {a} \\middle| {op} \\middle| {b} \\right\\rangle")
+                physics_fence(s, "\\langle", "|", "\\rangle", &[&a, &op, &b])
             }
-            "comm" | "commutator" | "acomm" | "anticommutator" | "pb" | "poissonbracket" => {
+            "comm" | "commutator" | "acomm" | "acommutator" | "anticommutator" | "pb" | "poissonbracket" => {
+                let s = star(self);
                 let a = self.raw_text()?;
                 let b = self.raw_text()?;
+                let ab = format!("{a}, {b}");
                 if matches!(name, "comm" | "commutator") {
-                    format!("\\left[ {a}, {b} \\right]")
+                    physics_fence(s, "[", "|", "]", &[&ab])
                 } else {
-                    format!("\\left\\{{ {a}, {b} \\right\\}}")
+                    physics_fence(s, "\\{", "|", "\\}", &[&ab])
                 }
             }
             // physics' vector calculus: the nabla in bold (U+1D6C1), like the package
-            "grad" | "gradient" => "\\unicode{1D6C1} ".into(),
-            "divergence" => "\\unicode{1D6C1} \\cdot ".into(),
-            "curl" | "rot" => "\\unicode{1D6C1} \\times ".into(),
+            "grad" | "gradient" => "\\unicode{x1D6C1} ".into(),
+            "divergence" => "\\unicode{x1D6C1} \\cdot ".into(),
+            "curl" | "rot" => "\\unicode{x1D6C1} \\times ".into(),
             "laplacian" => "\\nabla^{2} ".into(),
-            "cross" | "crossproduct" => "\\times ".into(),
+            "cross" | "crossproduct" | "cp" => "\\times ".into(),
             "vdot" | "dotproduct" => "\\cdot ".into(),
             "vb" | "vectorbold" => {
                 let bold = if star(self) { "\\boldsymbol" } else { "\\mathbf" };
@@ -3885,15 +5531,18 @@ impl Reader<'_> {
             // physics' \qty(…), \qty[…], \qty|…|, \qty{x}; siunitx's \qty{3}{m} (two groups) goes to the units
             "qty" | "quantity" if name == "quantity" || self.physics_qty_follows() => self.physics_brackets()?.unwrap_or_default(),
             "pqty" | "bqty" | "vqty" | "Bqty" => {
+                let s = star(self);
                 let x = self.raw_text()?;
-                match name {
-                    "pqty" => format!("\\left( {x} \\right)"),
-                    "bqty" => format!("\\left[ {x} \\right]"),
-                    "vqty" => format!("\\left| {x} \\right|"),
-                    _ => format!("\\left\\{{ {x} \\right\\}}"),
-                }
+                let (open, close) = match name {
+                    "pqty" => ("(", ")"),
+                    "bqty" => ("[", "]"),
+                    "vqty" => ("|", "|"),
+                    _ => ("\\{", "\\}"),
+                };
+                physics_fence(s, open, "|", close, &[&x])
             }
-            "idotsint" => "\\int\\!\\cdots\\!\\int ".into(),
+            // esint's \dotsint is amsmath's \idotsint
+            "idotsint" | "dotsint" => "\\int\\!\\cdots\\!\\int ".into(),
             // mathtools: \prescript{sup}{sub}{base}
             "prescript" => {
                 let sup = self.raw_text()?;
@@ -3909,6 +5558,15 @@ impl Reader<'_> {
                 let indices = self.raw_text()?;
                 format!("{}{{{base}}}{}", pre.map(|p| staggered_indices(&p, true)).unwrap_or_default(), staggered_indices(&indices, false))
             }
+            // esvect: \vv*{x}{i} is \vv{x}_{i}, the index pulled 1 mu closer (\vv alone is in the accents)
+            "vv" if self.current() == Some('*') => {
+                self.pos += 1;
+                let x = self.raw_text()?;
+                let index = self.raw_text()?;
+                format!("\\overrightarrow{{{x}}}_{{\\mkern-1mu {index}}}")
+            }
+            // mathabx: \widering, built on \wideparen as the package builds it, a ring at the top of the arc
+            "widering" => format!("\\mathring{{\\wideparen{{{}}}}}", self.raw_text()?),
             "Set" | "set" => {
                 let x = self.raw_text()?;
                 match x.split_once('|') {
@@ -3916,8 +5574,26 @@ impl Reader<'_> {
                     None => format!("\\left\\{{ {x} \\right\\}}"),
                 }
             }
-            "abs" => format!("\\left| {} \\right|", self.raw_text()?),
-            "norm" => format!("\\left\\| {} \\right\\|", self.raw_text()?),
+            // physics: \abs*{…} and \norm*{…} keep the delimiters at the text size
+            "abs" | "absolutevalue" => {
+                let s = star(self);
+                physics_fence(s, "|", "|", "|", &[&self.raw_text()?])
+            }
+            "norm" => {
+                let s = star(self);
+                physics_fence(s, "\\|", "|", "\\|", &[&self.raw_text()?])
+            }
+            // physics' \sin[2](x): the power on the function, the argument in parentheses that resize
+            // (without the parentheses, physics leaves [2] as written, as mathra does)
+            "sin" | "cos" | "tan" | "csc" | "sec" | "cot" | "arcsin" | "arccos" | "arctan" | "arccsc" | "arcsec" | "arccot" | "sinh" | "cosh" | "tanh" | "csch" | "sech"
+            | "coth" | "log" | "ln"
+                if self.current() == Some('[') =>
+            {
+                match self.physics_function_power(name) {
+                    Some(expansion) => expansion,
+                    None => return Ok(None),
+                }
+            }
             "sfrac" | "nicefrac" => {
                 let a = self.raw_text()?;
                 let b = self.raw_text()?;
@@ -3935,11 +5611,166 @@ impl Reader<'_> {
                 let u = self.raw_text()?;
                 format!("{v}\\,\\mathrm{{{u}}}")
             }
-            _ => {
-                let _ = col;
-                return Ok(None);
-            }
+            // (asked by name: its frame stays off the stack of the commands that nest, \frac or \sqrt)
+            _ if PHYSICS.contains(&name) || physics_long_name(name).is_some() => return self.physics_expansion(name, col),
+            // #172: KaTeX's texvc aliases (\R, \cnums, \bold…)
+            _ if symbols::texvc_macro(name).is_some() => return Ok(symbols::texvc_macro(name).map(str::to_string)),
+            // #169's mathtools, asked by name too
+            _ if mathtools::is_mathtools(name, &self.c, self.pos) => return self.mathtools_expansion(name, col),
+            _ => return Ok(None),
         }))
+    }
+
+    /// physics' matrices, spaced text and the long names of its operators (physics.sty 1.3; MathJax's
+    /// physics extension draws the same), the names in `PHYSICS`. Out of line, so `package_expansion`,
+    /// which runs for every command, keeps its size.
+    #[inline(never)]
+    fn physics_expansion(&mut self, name: &str, col: usize) -> R<Option<String>> {
+        let starred = |this: &mut Self| {
+            let s = this.current() == Some('*');
+            if s {
+                this.pos += 1;
+            }
+            s
+        };
+        Ok(Some(match name {
+            // \mqty(…), \mqty*(…) (\lgroup…\rgroup), \mqty[…], \mqty|…|, \mqty{…} (no delimiters); \mqty
+            // alone is "()", as in the package. What follows the first form is read as written
+            "mqty" | "matrixquantity" | "smqty" | "smallmatrixquantity" => {
+                let small = name.starts_with('s');
+                let star = starred(self);
+                self.skip_spaces();
+                let (shape, body) = match self.current() {
+                    Some('(') => (if star { 'P' } else { '(' }, self.raw_delimited('(', ')')),
+                    Some('[') => ('[', self.raw_delimited('[', ']')),
+                    Some('|') => ('|', self.raw_delimited('|', '|')),
+                    Some('{') => ('{', self.raw_text()?),
+                    _ => return Ok(Some("()".into())),
+                };
+                physics_matrix(small, shape, &body)
+            }
+            "pmqty" | "Pmqty" | "bmqty" | "vmqty" | "mdet" | "matrixdeterminant" | "spmqty" | "sPmqty" | "sbmqty" | "svmqty" | "smdet" | "smallmatrixdeterminant" => {
+                let small = name.starts_with("sm") || (name.len() == 6 && name.starts_with('s'));
+                let shape = match name.trim_start_matches('s').chars().next() {
+                    Some('p') => '(',
+                    Some('P') => 'P',
+                    Some('b') => '[',
+                    _ => '|',
+                };
+                physics_matrix(small, shape, &self.raw_text()?)
+            }
+            // the generated contents, to be put in a matrix: \pmqty{\imat{2}}
+            "imat" | "identitymatrix" => {
+                let n = self.matrix_size(name, col)?;
+                generated_matrix(n, n, |i, j| if i == j { "1".into() } else { "0".into() })
+            }
+            "xmat" | "xmatrix" | "zmat" | "zeromatrix" => {
+                let indexed = name.starts_with('x') && starred(self);
+                let x = if name.starts_with('x') { self.raw_text()? } else { "0".into() };
+                let rows = self.matrix_size(name, col)?;
+                // \zeromatrix{m}: square
+                let columns = match name.starts_with('z') {
+                    true => match self.optional_braced()? {
+                        Some(raw) => self.size_of(name, &raw, col)?,
+                        None => rows,
+                    },
+                    false => self.matrix_size(name, col)?,
+                };
+                generated_matrix(rows, columns, |i, j| match indexed {
+                    true => format!("{x}_{{{}{}}}", if rows > 1 { (i + 1).to_string() } else { String::new() }, if columns > 1 { (j + 1).to_string() } else { String::new() }),
+                    false => x.clone(),
+                })
+            }
+            "paulimatrix" | "pmat" => {
+                let which = self.raw_text()?;
+                match which.trim() {
+                    "0" => generated_matrix(2, 2, |i, j| if i == j { "1".into() } else { "0".into() }),
+                    "1" | "x" => PAULI[0].into(),
+                    "2" | "y" => PAULI[1].into(),
+                    "3" | "z" => PAULI[2].into(),
+                    other => {
+                        self.tolerate(rules::E_REC_9, col, format!("\\{name}{{{other}}}: no Pauli matrix by that name (0 to 3, x, y or z)"), "left empty")?;
+                        String::new()
+                    }
+                }
+            }
+            "paulixmatrix" => PAULI[0].into(),
+            "pauliymatrix" => PAULI[1].into(),
+            "paulizmatrix" => PAULI[2].into(),
+            // \dmat[filler]{a,b,c}: the entries on the diagonal (\admat: the antidiagonal), the filler
+            // elsewhere; an entry with its own rows is a matrix, as the package's \mqty{…} makes it
+            "dmat" | "diagonalmatrix" | "admat" | "antidiagonalmatrix" => {
+                let filler = self.raw_optional().unwrap_or_default();
+                let entries = split_top_level(&self.raw_text()?, ',');
+                let n = entries.len();
+                let anti = name.starts_with('a');
+                generated_matrix(n, n, |i, j| match (anti && j == n - 1 - i) || (!anti && i == j) {
+                    true if entries[i].contains('&') || entries[i].contains("\\\\") => format!("\\begin{{matrix}}{}\\end{{matrix}}", entries[i]),
+                    true => entries[i].clone(),
+                    false => filler.clone(),
+                })
+            }
+            // spaced text: \qq{text} is \quad\text{text}\quad, without the first \quad when starred
+            "qq" | "qqtext" => {
+                let lead = if starred(self) { "" } else { "\\quad" };
+                format!("{lead}\\text{{{}}}\\quad ", self.raw_text()?)
+            }
+            "qc" | "qcomma" => ",\\quad ".into(),
+            "qcc" | "qif" | "qthen" | "qelse" | "qotherwise" | "qunless" | "qgiven" | "qusing" | "qassume" | "qsince" | "qlet" | "qfor" | "qall" | "qeven" | "qodd"
+            | "qinteger" | "qand" | "qor" | "qas" | "qin" => {
+                let lead = if starred(self) { "" } else { "\\quad" };
+                let word = if name == "qcc" { "c.c." } else { &name[1..] };
+                format!("{lead}\\text{{{word}}}\\quad ")
+            }
+            // the variation δ, written like the differential \dd
+            "var" | "variation" => {
+                let order = self.raw_optional();
+                let power = order.map(|n| format!("^{{{n}}}")).unwrap_or_default();
+                let x = self.optional_braced()?.unwrap_or_default();
+                format!("\\mathop{{}}\\!\\delta{power} {x} ")
+            }
+            "pv" | "principalvalue" | "PV" => {
+                let symbol = if name == "PV" { "\\mathrm{P.V.}" } else { "\\mathcal{P}" };
+                let x = self.optional_braced()?.map(|x| format!("{{{x}}}")).unwrap_or_default();
+                format!("{symbol}{x}")
+            }
+            "op" => "\\dyad".into(),
+            // the vacuum expectation value ⟨0|x|0⟩
+            "vev" => format!("\\expval{{{}}}{{0}}", self.raw_text()?),
+            // the same flat fraction as \dv* (#157)
+            "flatfrac" => {
+                let a = self.raw_text()?;
+                let b = self.raw_text()?;
+                physics_fraction(true, a, b)
+            }
+            "Trace" => "\\operatorname{Tr}".into(),
+            "Residue" => "\\operatorname{Res}".into(),
+            "asin" | "acos" | "atan" | "acsc" | "asec" | "acot" => format!("\\operatorname{{{name}}}"),
+            "asine" | "acosine" | "atangent" | "acosecant" | "asecant" | "acotangent" => format!("\\operatorname{{a{}}}", physics_long_name(&name[1..]).unwrap_or_default()),
+            // physics' bold nabla (its default, bolddel), as \grad draws it
+            "vnabla" | "gradientnabla" => "\\unicode{x1D6C1} ".into(),
+            // the upright d of the package's default (uprightdiff)
+            "diffd" => "\\mathrm{d}".into(),
+            // physics' \real and \imaginary are LaTeX's \Re and \Im (ℜ, ℑ), kept by the package when it
+            // redefines those two as the operators Re and Im, which mathra does not do
+            "real" => "\\Re ".into(),
+            "imaginary" => "\\Im ".into(),
+            // a long name (\sine): what is left once the names in `PHYSICS` have their arms
+            long => return Ok(physics_long_name(long).map(|short| format!("\\{short} "))),
+        }))
+    }
+
+    /// The number of rows or columns of a generated physics matrix.
+    fn matrix_size(&mut self, name: &str, col: usize) -> R<usize> {
+        let raw = self.raw_text()?;
+        self.size_of(name, &raw, col)
+    }
+
+    fn size_of(&self, name: &str, raw: &str, col: usize) -> R<usize> {
+        match raw.trim().parse::<usize>() {
+            Ok(n) if (1..=64).contains(&n) => Ok(n),
+            _ => self.error(col, format!("\\{name} needs a size from 1 to 64, not {:?}", raw.trim())),
+        }
     }
 }
 
@@ -3950,15 +5781,9 @@ impl Reader<'_> {
         if self.strict {
             return self.error(col, format!("unsupported command: \\{name}"));
         }
-        // \nfoo where \foo is a relation: an amssymb-style negation mathra lacks, not a JSON \n. Reading it as a
-        // line break would draw \foo itself, the opposite of what was written
-        if let Some(remainder) = name.strip_prefix('n').filter(|r| symbols::command(r).is_some_and(|s| s.class == Class::Rel)) {
-            self.tolerate(rules::E_REC_1, col, format!("unsupported command: \\{name}"), &format!("read as \\not\\{remainder}"))?;
-            self.inject(start, &format!("\\not\\{remainder} "), col)?;
-            return Ok(None);
-        }
-        if let Some(remainder) = name.strip_prefix('n').or_else(|| name.strip_prefix('r')).or_else(|| name.strip_prefix('t').filter(|_| name.len() <= 2)) {
-            self.tolerate(rules::E_REC_2, col, format!("\\{name}"), "JSON '\\n' read as a line break")?;
+        if let Some((escape, remainder)) = self.json_escape(name) {
+            let read = if escape == 't' { "a space" } else { "a line break" };
+            self.tolerate(rules::E_REC_2, col, format!("\\{name}"), &format!("JSON '\\{escape}' read as {read}"))?;
             self.inject(start, &format!(" {remainder}"), col)?;
             return Ok(None);
         }
@@ -3971,15 +5796,10 @@ impl Reader<'_> {
                 return Ok(None);
             }
         }
-        // \vertA, \alphax: a space forgotten after a known command
-        // ASCII names only: a character like '∠' after the backslash has no prefix to cut
-        for cut in (2..if name.is_ascii() { name.len() } else { 0 }).rev() {
-            let (prefix, remainder) = name.split_at(cut);
-            if known(prefix) {
-                self.tolerate(rules::E_REC_1, col, format!("unsupported command: \\{name}"), &format!("read as \\{prefix} {remainder}"))?;
-                self.inject(start, &format!("\\{prefix} {remainder}"), col)?;
-                return Ok(None);
-            }
+        if let Some(accent) = self.text_accent_in_math(name) {
+            self.tolerate(rules::E_REC_1, col, format!("text accent '\\{name}' in math"), &format!("read as \\{accent}"))?;
+            self.inject(start, &format!("\\{accent} "), col)?;
+            return Ok(None);
         }
         if name.chars().count() == 1 && !name.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
             self.tolerate(rules::E_REC_1, col, format!("'\\{name}'"), "backslash before a symbol ignored")?;
@@ -3995,7 +5815,113 @@ impl Reader<'_> {
     }
 }
 
-/// Does mathra know this command? Used to recover `\vertA` as `\vert A`.
+/// physics' brackets around `parts`, separated by `\middle{middle}`. Unstarred, `\left…\right` sizes them
+/// to the content; starred, they keep the text size: the parts are smashed and a `\vphantom` keeps their
+/// height, as the package's `\braces` does.
+fn physics_fence(star: bool, open: &str, middle: &str, close: &str, parts: &[&str]) -> String {
+    let separator = format!(" \\middle{middle} ");
+    if star {
+        let smashed: Vec<String> = parts.iter().map(|p| format!("\\smash{{{p}}}")).collect();
+        format!("\\vphantom{{{}}}\\left{open} {} \\right{close}", parts.join(" "), smashed.join(&separator))
+    } else {
+        format!("\\left{open} {} \\right{close}", parts.join(&separator))
+    }
+}
+
+/// A physics derivative: `\frac`, or starred, physics' `\flatfrac`, `\left.a\middle/b\right.`: a slash at
+/// the text size between the two (TeX keeps the slash at its size around letters and their exponents).
+fn physics_fraction(flat: bool, numerator: String, denominator: String) -> String {
+    if flat {
+        format!("{{{numerator}}}/{{{denominator}}}")
+    } else {
+        format!("\\frac{{{numerator}}}{{{denominator}}}")
+    }
+}
+
+impl Reader<'_> {
+    /// #213: a text accent (`\'`, `` \` ``, `\^`, `\"`, `\~`, `\=`, `\.`) before a letter in math, an error
+    /// in TeX: the math accent KaTeX reads it as (`\'e` is `\acute e`).
+    #[inline(never)]
+    fn text_accent_in_math(&self, name: &str) -> Option<&'static str> {
+        let accent = match name {
+            "'" => "acute",
+            "`" => "grave",
+            "^" => "hat",
+            "\"" => "ddot",
+            "~" => "tilde",
+            "=" => "bar",
+            "." => "dot",
+            _ => return None,
+        };
+        let next = self.c[self.pos..].iter().find(|c| !matches!(c, ' ' | '{'))?;
+        next.is_alphabetic().then_some(accent)
+    }
+}
+
+/// LaTeX text commands of one or two letters after an n, r or t: never a JSON escape (`\th` is þ).
+const SHORT_TEXT_COMMANDS: [&str; 3] = ["th", "ng", "rq"];
+
+impl Reader<'_> {
+    /// E-REC-2: an unknown command `\n…`, `\r…` or `\t…` that is really a JSON escape left in the text (the
+    /// escape and the letters after it), as `spec/tolerance.md` defines it: the letter alone (`x\n2`), never
+    /// a command; letters after it (`x\nb`, `a\tx`, `\nwhere`) only when the input shows another sign of
+    /// JSON (#253, [`json_evidence`]), and not when the name is a LaTeX text command (`\th`). Otherwise the
+    /// name is a command mathra does not know (`\nm`, `\real`, `\rowcolor`): E-REC-1.
+    #[inline(never)]
+    fn json_escape<'n>(&self, name: &'n str) -> Option<(char, &'n str)> {
+        let escape = name.chars().next().filter(|c| matches!(c, 'n' | 'r' | 't'))?;
+        let remainder = &name[1..];
+        let signs = self.macros.json_text?;
+        let json = match remainder.chars().count() {
+            0 => true,
+            1 | 2 => signs && !SHORT_TEXT_COMMANDS.contains(&name),
+            _ => signs,
+        };
+        json.then_some((escape, remainder))
+    }
+}
+
+/// Does the input (`original`, as it came) show a sign of JSON ([`json_evidence`])? `None` when the text
+/// read (`c`) has a real tab or line break: a JSON string never has one, so the text is not JSON and shows
+/// no escape (#208).
+fn json_signs(original: &str, c: &[char]) -> Option<bool> {
+    if c.iter().any(|x| matches!(x, '\t' | '\r' | '\n')) {
+        return None;
+    }
+    Some(json_evidence(&original.chars().collect::<Vec<_>>()))
+}
+
+/// #253: does the text show a sign of JSON that hand-written LaTeX never has? A control character JSON
+/// makes of a backslash and a letter that no one types (form feed from `\frac`, backspace from `\beta`,
+/// vertical tab from `\vec`, bell from `\alpha`), `\"`, or `\u` and four hexadecimal digits. A tab or a
+/// line break is not one (an author types them), nor is `\n`, `\r` or `\t` itself: a lost backslash is
+/// rebuilt from them only when the input shows one of these.
+fn json_evidence(c: &[char]) -> bool {
+    if c.iter().any(|x| matches!(x, '\u{0C}' | '\u{08}' | '\u{0B}' | '\u{07}')) {
+        return true;
+    }
+    let mut i = 0;
+    while i + 1 < c.len() {
+        if c[i] != '\\' {
+            i += 1;
+            continue;
+        }
+        let next = c[i + 1];
+        let escape = match next {
+            '"' => true,
+            'u' => c.len() >= i + 6 && c[i + 2..i + 6].iter().all(char::is_ascii_hexdigit),
+            _ => false,
+        };
+        if escape {
+            return true;
+        }
+        // a doubled backslash is one token (a line break, or an escaped backslash)
+        i += if next == '\\' { 2 } else { 1 };
+    }
+    false
+}
+
+/// Does mathra know this command? Used to rebuild a command whose backslash JSON ate (`repair_controls`).
 fn known(name: &str) -> bool {
     symbols::command(name).is_some()
         || symbols::greek(name).is_some()
@@ -4014,6 +5940,7 @@ fn known(name: &str) -> bool {
                 | "textrm"
                 | "mathit"
                 | "boldsymbol"
+                | "mathbold"
                 | "bmatrix"
                 | "pmatrix"
                 | "vmatrix"
@@ -4111,8 +6038,11 @@ pub fn undo_doubled_backslashes(s: &str) -> Option<String> {
 }
 
 /// `\frac` stored in JSON without escaping the backslash becomes form feed + "rac"; `\begin` becomes backspace + "egin";
-/// `\times`, `\right`, `\neq` become tab, CR and line feed. Rebuilds the command when the following
-/// letters form a known command; otherwise the control character becomes a space.
+/// `\times`, `\right`, `\neq` become tab, CR and line feed. Rebuilds the command when the letters that follow
+/// it make a known command (KaTeX's texvc aliases aside: a tab before `h` is not `\th`); otherwise the control
+/// character becomes a space. A tab or a line break is whitespace, as in TeX, unless the input looks
+/// JSON-decoded ([`json_decoded`]) and shows another sign of JSON ([`json_evidence`], #253); the other
+/// control characters are never the author's whitespace.
 fn repair_controls(s: &str) -> Option<String> {
     let letter_of = |c: char| match c {
         '\u{0C}' => Some('f'),
@@ -4128,16 +6058,19 @@ fn repair_controls(s: &str) -> Option<String> {
         return None;
     }
     let c: Vec<char> = s.chars().collect();
+    let whitespace_rebuilt = json_decoded(&c) && json_evidence(&c);
     let mut output = String::with_capacity(s.len() + 8);
     let mut changed = false;
     for (i, ch) in c.iter().enumerate() {
-        let Some(letter) = letter_of(*ch) else {
+        let letter = letter_of(*ch).filter(|_| whitespace_rebuilt || !matches!(ch, '\t' | '\r' | '\n'));
+        let Some(letter) = letter else {
             output.push(*ch);
             continue;
         };
         let following: String = c[i + 1..].iter().take_while(|x| x.is_ascii_alphabetic()).collect();
         let name = format!("{letter}{following}");
-        let rebuild = (1..=name.len()).rev().any(|n| known(&name[..n]) && n > 1);
+        // the whole run of letters, as TeX reads a command: "and" + line break + "exhaust" is not \ne xhaust
+        let rebuild = name.len() > 1 && known(&name) && !TEXVC_ALIASES.contains(&name.as_str());
         if rebuild {
             output.push('\\');
             output.push(letter);
@@ -4147,4 +6080,228 @@ fn repair_controls(s: &str) -> Option<String> {
         }
     }
     changed.then_some(output)
+}
+
+/// KaTeX's texvc aliases a lost backslash could rebuild (#172): short names that ordinary text after a tab
+/// or a line break also makes (`\th` from a tab and `h`).
+const TEXVC_ALIASES: [&str; 9] = ["alef", "alefsym", "arcctg", "bull", "rang", "rarr", "rArr", "real", "th"];
+
+/// Does the text look JSON-decoded with its backslashes lost (#208)? Only when every tab and line break
+/// stands where a lost backslash would, right before a letter (none ends a line, makes a blank line or
+/// indents the next one; the whitespace that ends the input aside), and no command starting with `n`, `r`
+/// or `t` kept its backslash: JSON would have eaten that one too (`\to` becomes tab + "o").
+fn json_decoded(c: &[char]) -> bool {
+    let end = c.iter().rposition(|x| !x.is_whitespace()).map_or(0, |e| e + 1);
+    let c = &c[..end];
+    let mut i = 0;
+    while i < c.len() {
+        let next = c.get(i + 1).copied();
+        match c[i] {
+            '\t' | '\r' | '\n' if !next.is_some_and(|n| n.is_ascii_alphabetic()) => return false,
+            '\\' if matches!(next, Some('n' | 'r' | 't')) => return false,
+            // a doubled backslash is one token (a line break, or an escaped backslash)
+            '\\' if next == Some('\\') => i += 1,
+            _ => {}
+        }
+        i += 1;
+    }
+    true
+}
+
+/// The input without the whitespace around it, except the space of a control space that ends it (#254):
+/// `a\ ` keeps its `\ `, which would otherwise be a lone backslash.
+#[inline(never)]
+fn trim_keeping_control_space(s: &str) -> String {
+    let trimmed = s.trim();
+    let backslashes = trimmed.chars().rev().take_while(|c| *c == '\\').count();
+    if backslashes % 2 == 1 && s.trim_start().len() > trimmed.len() {
+        format!("{trimmed} ")
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// #211: a backslash before a line break or a tab is a control space, `\ `, as in plain TeX (`\\` before
+/// a line break is a line break and then whitespace).
+#[inline(never)]
+fn control_spaces(s: &mut String) {
+    if !s.contains(['\n', '\r', '\t']) {
+        return;
+    }
+    let mut backslashes = 0;
+    *s = s
+        .chars()
+        .map(|c| {
+            let odd = backslashes % 2 == 1;
+            backslashes = if c == '\\' { backslashes + 1 } else { 0 };
+            if odd && matches!(c, '\n' | '\r' | '\t') {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect();
+}
+
+/// The plain character of a Unicode superscript or subscript: every character whose Unicode
+/// decomposition is `<super>` or `<sub>` of a Latin or Greek letter, a digit, `+ − = ( )`. The
+/// ordinal indicators `ª` and `º` are left out: they stand for other things (`º` for a degree).
+fn plain_script_char(c: char) -> Option<char> {
+    Some(match c {
+        '⁰' | '₀' => '0',
+        '¹' | '₁' => '1',
+        '²' | '₂' => '2',
+        '³' | '₃' => '3',
+        '⁴' | '₄' => '4',
+        '⁵' | '₅' => '5',
+        '⁶' | '₆' => '6',
+        '⁷' | '₇' => '7',
+        '⁸' | '₈' => '8',
+        '⁹' | '₉' => '9',
+        '⁺' | '₊' => '+',
+        '⁻' | '₋' => '-',
+        '⁼' | '₌' => '=',
+        '⁽' | '₍' => '(',
+        '⁾' | '₎' => ')',
+        'ᵃ' | 'ₐ' => 'a',
+        'ᵇ' => 'b',
+        'ᶜ' => 'c',
+        'ᵈ' => 'd',
+        'ᵉ' | 'ₑ' => 'e',
+        'ᶠ' => 'f',
+        'ᵍ' => 'g',
+        'ʰ' | 'ₕ' => 'h',
+        'ⁱ' | 'ᵢ' => 'i',
+        'ʲ' | 'ⱼ' => 'j',
+        'ᵏ' | 'ₖ' => 'k',
+        'ˡ' | 'ₗ' => 'l',
+        'ᵐ' | 'ₘ' => 'm',
+        'ⁿ' | 'ₙ' => 'n',
+        'ᵒ' | 'ₒ' => 'o',
+        'ᵖ' | 'ₚ' => 'p',
+        '𐞥' => 'q',
+        'ʳ' | 'ᵣ' => 'r',
+        'ˢ' | 'ₛ' => 's',
+        'ᵗ' | 'ₜ' => 't',
+        'ᵘ' | 'ᵤ' => 'u',
+        'ᵛ' | 'ᵥ' => 'v',
+        'ʷ' => 'w',
+        'ˣ' | 'ₓ' => 'x',
+        'ʸ' => 'y',
+        'ᶻ' => 'z',
+        'ᴬ' => 'A',
+        'ᴮ' => 'B',
+        'ꟲ' => 'C',
+        'ᴰ' => 'D',
+        'ᴱ' => 'E',
+        'ꟳ' => 'F',
+        'ᴳ' => 'G',
+        'ᴴ' => 'H',
+        'ᴵ' => 'I',
+        'ᴶ' => 'J',
+        'ᴷ' => 'K',
+        'ᴸ' => 'L',
+        'ᴹ' => 'M',
+        'ᴺ' => 'N',
+        'ᴼ' => 'O',
+        'ᴾ' => 'P',
+        'ꟴ' => 'Q',
+        'ᴿ' => 'R',
+        'ᵀ' => 'T',
+        'ᵁ' => 'U',
+        'ⱽ' => 'V',
+        'ᵂ' => 'W',
+        'ᵝ' | 'ᵦ' => 'β',
+        'ᵞ' | 'ᵧ' => 'γ',
+        'ᵟ' => 'δ',
+        'ᶿ' => 'θ',
+        'ᵨ' => 'ρ',
+        'ᵠ' | 'ᵩ' => 'φ',
+        'ᵡ' | 'ᵪ' => 'χ',
+        _ => return None,
+    })
+}
+
+/// The characters of [`plain_script_char`] that are subscripts (the rest are superscripts).
+fn is_subscript_char(c: char) -> bool {
+    matches!(c, '\u{2080}'..='\u{209C}' | '\u{1D62}'..='\u{1D6A}' | '\u{2C7C}')
+}
+
+/// TeX's comments: an unescaped `%` drops the rest of its line, the line break and the spaces that
+/// start the next line. Returns the text without them and the column (1-based, in `s`) of each `%`.
+/// The verbatim arguments of `\verb`, `\url` and `\href` keep their `%`, as in TeX.
+fn comments(s: &str) -> (String, Vec<usize>) {
+    let c: Vec<char> = s.chars().collect();
+    let mut output = String::with_capacity(s.len());
+    let mut starts = Vec::new();
+    let mut i = 0;
+    while i < c.len() {
+        match c[i] {
+            '\\' => {
+                let start = i;
+                i += 1;
+                while c.get(i).is_some_and(char::is_ascii_alphabetic) {
+                    i += 1;
+                }
+                if i == start + 1 && i < c.len() {
+                    i += 1;
+                }
+                let name: String = c[start + 1..i].iter().collect();
+                output.extend(&c[start..i]);
+                match name.as_str() {
+                    "verb" => {
+                        if c.get(i) == Some(&'*') {
+                            output.push('*');
+                            i += 1;
+                        }
+                        if let Some(&delim) = c.get(i) {
+                            let end = c[i + 1..].iter().position(|&x| x == delim).map_or(c.len(), |p| p + i + 2);
+                            output.extend(&c[i..end]);
+                            i = end;
+                        }
+                    }
+                    "url" | "href" | "htmlStyle" | "style" => {
+                        while c.get(i).is_some_and(|x| x.is_whitespace()) {
+                            output.push(c[i]);
+                            i += 1;
+                        }
+                        if c.get(i) == Some(&'{') {
+                            let end = (group_end(&c, i + 1) + 1).min(c.len());
+                            output.extend(&c[i..end]);
+                            i = end;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            '%' => {
+                starts.push(i + 1);
+                while i < c.len() && c[i] != '\n' {
+                    i += 1;
+                }
+                i += 1;
+                while c.get(i).is_some_and(|x| *x == ' ' || *x == '\t') {
+                    i += 1;
+                }
+            }
+            other => {
+                output.push(other);
+                i += 1;
+            }
+        }
+    }
+    (output, starts)
+}
+
+/// #204: the code point of `\unicode{…}`, as MathJax reads it: decimal (`8918`), hexadecimal after `x` or
+/// `0x` (`x22D6`, `0x22D6`); `U+22D6` and `#22D6` stay hexadecimal, as mathra read them before.
+#[inline(never)]
+fn unicode_code_point(raw: &str) -> Option<char> {
+    let code = raw.trim();
+    let hex = ["0x", "0X", "x", "X", "U+", "u+", "#"].iter().find_map(|p| code.strip_prefix(p));
+    match hex {
+        Some(h) => u32::from_str_radix(h, 16).ok(),
+        None => code.parse::<u32>().ok(),
+    }
+    .and_then(char::from_u32)
 }

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.vsix
+# copied from the repository by build.mjs, for the package
+mathra.wasm
+resvg.wasm
+LICENSE-MIT
+LICENSE-APACHE
+OFL-STIXTwoMath.txt

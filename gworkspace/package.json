@@ -1,0 +1,18 @@
+{
+  "name": "mathra-gworkspace",
+  "private": true,
+  "version": "0.1.0",
+  "description": "mathra for Google Docs and Slides: an add-on whose sidebar builds an equation with mathra's editor and inserts it as an image, with what a screen reader says as its alt text.",
+  "scripts": {
+    "build": "node build.mjs",
+    "preview": "node preview/serve.mjs",
+    "test": "node --test \"test/*.test.mts\"",
+    "coverage": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 \"test/*.test.mts\" && node --no-warnings test/sidebar.mjs --fail-under 100",
+    "push": "node build.mjs && npx --yes @google/clasp@3.4.1 push --force"
+  },
+  "devDependencies": {
+    "@mathlabs/mathra": "file:../npm/pkg",
+    "@mathlabs/mathra-editor": "file:../editor",
+    "playwright-core": "1.64.1"
+  }
+}

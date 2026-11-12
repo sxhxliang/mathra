@@ -10,7 +10,7 @@ Open an issue with:
 - what mathra produced (the SVG, the warning or the error) and what you expected;
 - the version (`mathra --version`, or the crate, npm or PyPI version) and how you called it: CLI, Rust, Python or JavaScript.
 
-`mathra --explain` shows which rules applied; paste its output when the result looks wrong. Security problems go through [the security policy](SECURITY.md), not issues.
+`mathra --explain` shows which rules applied; paste its output when the result looks wrong. The issue templates ask for all of this. A problem with the speech, the braille or the site for someone using assistive technology has its own template; see [ACCESSIBILITY.md](ACCESSIBILITY.md). Security problems go through [the security policy](SECURITY.md), not issues.
 
 ## Changing behavior
 

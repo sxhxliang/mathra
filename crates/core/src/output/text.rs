@@ -7,7 +7,8 @@ use crate::tree::*;
 pub fn linear(node: &Node, loc: Locale) -> String {
     let mut s = String::new();
     write_node(node, loc, &mut s);
-    s.split_whitespace().collect::<Vec<_>>().join(" ")
+    // #176: a symbol drawn by composition, as the closest text Unicode has
+    crate::composite::spell(&s).split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn alone(node: &Node) -> bool {
@@ -33,7 +34,7 @@ fn group(node: &Node, loc: Locale, s: &mut String) {
 
 fn write_node(node: &Node, loc: Locale, s: &mut String) {
     match node {
-        Node::Number { value, thousands, .. } => s.push_str(&super::written_number(value, *thousands, loc)),
+        Node::Number { value, thousands, variant, .. } => s.extend(super::written_number(value, *thousands, loc).chars().map(|c| crate::layout::alphabet::character(c, *variant))),
         Node::Identifier { name, variant } => {
             let mapped: String = name.chars().map(|c| crate::layout::alphabet::character(c, *variant)).collect();
             s.push_str(if matches!(variant, Variant::Italic | Variant::Upright) { name } else { &mapped });
@@ -94,8 +95,9 @@ fn write_node(node: &Node, loc: Locale, s: &mut String) {
         Node::Scripts { base, sup, sub } => {
             // sin²x, log₂x, ∑_(i = 1)^n i: the scripts stick to the function name or the large
             // operator, and the space goes after them
-            let spaced = matches!(base.as_ref(), Node::Function { .. } | Node::LargeOperator { .. });
-            match base.as_ref() {
+            let base = base.operator_core();
+            let spaced = matches!(base, Node::Function { .. } | Node::LargeOperator { .. });
+            match base {
                 Node::Function { name, .. } => s.push_str(&loc.function_name(name)),
                 Node::LargeOperator { symbol, .. } => s.push(*symbol),
                 other => write_node(other, loc, s),
@@ -221,12 +223,17 @@ fn write_node(node: &Node, loc: Locale, s: &mut String) {
                 write_node(b, loc, s);
             }
         }
+        // the Feynman slash as Unicode writes an overstruck slash: D̸, with the combining long solidus
         Node::Canceled { base, shape: Cancel::Slash } => {
-            s.push_str("slashed(");
             write_node(base, loc, s);
-            s.push(')');
+            s.push('\u{0338}');
         }
-        Node::Canceled { base, .. } | Node::Colored { base, .. } | Node::ForcedClass { base, .. } | Node::Style { base, .. } | Node::Unit { base, .. } => write_node(base, loc, s),
+        Node::Canceled { base, .. }
+        | Node::Colored { base, .. }
+        | Node::Attributed { base, .. }
+        | Node::ForcedClass { base, .. }
+        | Node::Style { base, .. }
+        | Node::Unit { base, .. } => write_node(base, loc, s),
         Node::Framed { base, shape, .. } => {
             match shape {
                 Frame::Circle => {
@@ -267,6 +274,7 @@ fn write_node(node: &Node, loc: Locale, s: &mut String) {
         | Node::Rotated { base, .. }
         | Node::Reflected { base }
         | Node::Overlapped { base, .. } => write_node(base, loc, s),
+        Node::VdotsWithin { .. } => write_node(&Node::VDOTS, loc, s),
         Node::Rule { .. } => {}
         Node::VerticalArrow { symbol, .. } => {
             s.push(' ');

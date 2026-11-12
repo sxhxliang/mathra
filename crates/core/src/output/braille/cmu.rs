@@ -126,9 +126,10 @@ impl Writer {
                 }
             }
             // the 2006 code has no sign for striking out or framing an expression
-            Node::Canceled { base, .. } => {
+            Node::Canceled { base, shape } => {
                 self.node(base);
-                self.missing('╱');
+                // the Feynman slash (\slashed) is the overlay of the slash, not a cancellation
+                self.missing(if *shape == Cancel::Slash { '\u{0338}' } else { '╱' });
             }
             Node::Framed { base, shape: Frame::Rectangle, .. } => {
                 self.node(base);
@@ -146,6 +147,7 @@ impl Writer {
             }
             Node::Framed { base, .. }
             | Node::Colored { base, .. }
+            | Node::Attributed { base, .. }
             | Node::ForcedClass { base, .. }
             | Node::Style { base, .. }
             | Node::Multicolumn { base, .. }
@@ -159,6 +161,7 @@ impl Writer {
             | Node::Overlapped { base, .. }
             | Node::Unit { base, .. }
             | Node::Quantity { unit: base, .. } => self.node(base),
+            Node::VdotsWithin { .. } => self.node(&Node::VDOTS),
             Node::Space { .. } | Node::Phantom { .. } | Node::Rule { .. } => {}
             Node::VerticalArrow { symbol, .. } => self.missing(*symbol),
             #[cfg(feature = "chem")]
@@ -233,8 +236,8 @@ impl Writer {
                 }
             }
             // a mixed number: the whole part, then the fraction (§3.2.2: 2 3/4 = ⠼⠃⠼⠒⠙)
-            if let (Node::Number { value, thousands, .. }, Some(f @ Node::Fraction { .. })) = (&children[i], children.get(i + 1)) {
-                if numeric_fraction(f).is_some() && !value.contains('.') {
+            if let (Node::Number { value, thousands, .. }, Some(f @ Node::Fraction { num, den, rule, .. })) = (&children[i], children.get(i + 1)) {
+                if numeric_fraction(num, den, *rule).is_some() && !value.contains('.') {
                     self.number(value, thousands.is_some());
                     self.node(f);
                     i += 2;
@@ -277,6 +280,11 @@ impl Writer {
     }
 
     fn identifier(&mut self, name: &str, variant: Variant) {
+        // the double-struck one (\mathbb{1}, 𝟙): the digit, as before it was a symbol; its typeform is an
+        // open question for a transcriber (docs/braille-review.md)
+        if name.len() == 1 && name.as_bytes()[0].is_ascii_digit() {
+            return self.number(name, false);
+        }
         let mut chars = name.chars();
         let (Some(c), None) = (chars.next(), chars.next()) else {
             if matches!(variant, Variant::Italic | Variant::Upright) {
@@ -411,6 +419,8 @@ impl Writer {
     }
 
     fn symbol(&mut self, c: char) {
+        // #176: a symbol drawn by composition that is another one drawn another way (a short arrow)
+        let c = crate::composite::get(c).and_then(|k| k.meaning).unwrap_or(c);
         if self.letter_cells(c).is_some() && !c.is_ascii() {
             let l = self.letter_cells(c).unwrap_or_default();
             self.push(&l);
@@ -453,7 +463,7 @@ impl Writer {
         }
         // §3.2.2: a numeric fraction, the numerator in the lower part of the cell after ⠼, the
         // denominator in the upper part without ⠼: 3/4 = ⠼⠒⠙
-        if let Some((n, d)) = numeric_fraction(&Node::Fraction { num: Box::new(num.clone()), den: Box::new(den.clone()), style: FractionStyle::Auto, rule, thickness: None }) {
+        if let Some((n, d)) = numeric_fraction(num, den, rule) {
             let lower: String = n.chars().map(|c| cells(lower_digit(c))).collect();
             let upper: String = d.chars().map(|c| cells(upper_digit(c))).collect();
             self.push(&format!("⠼{lower}{upper}"));
@@ -467,6 +477,7 @@ impl Writer {
     }
 
     fn scripts(&mut self, base: &Node, sup: Option<&Node>, sub: Option<&Node>) {
+        let base = base.operator_core();
         match base {
             Node::LargeOperator { symbol, .. } => return self.large_operator(*symbol, sub, sup),
             Node::Function { name, .. } if name == "lim" => {
@@ -563,12 +574,13 @@ impl Writer {
     /// arc ⠈⠒, a dot ⠈ (with ⠐ before a Latin letter); more than one symbol goes in ⠢…⠔.
     fn mark(&mut self, base: &Node, accent: char, below: bool) {
         let dots = match (accent, below) {
-            ('\u{0304}', false) => "4 14",
-            ('\u{0304}', true) => "6 36",
+            // the line segment with a tick at each end (KaTeX's \overlinesegment) as the bar of a segment
+            ('\u{0304}' | '\u{20E9}', false) => "4 14",
+            ('\u{0304}' | '\u{20E9}', true) => "6 36",
             ('\u{20D7}' | '→', false) => "25 2",
             ('←', false) => "5 25",
             ('\u{0303}', false) => "5 26",
-            ('⏜', false) => "4 25",
+            ('⏜' | '⏠', false) => "4 25",
             ('\u{0307}', false) => "4",
             ('\u{0308}', false) => "4 4",
             (other, _) => {
@@ -626,27 +638,45 @@ fn simple(n: &Node) -> bool {
     match n {
         Node::Number { .. } | Node::Identifier { .. } | Node::Operator { .. } | Node::Root { .. } | Node::Function { .. } => true,
         Node::Delimited { open: Some(_), close: Some(_), .. } => true,
-        Node::Fraction { .. } => numeric_fraction(n).is_some(),
+        Node::Fraction { num, den, rule, .. } => numeric_fraction(num, den, *rule).is_some(),
         Node::Scripts { base, sup, sub } => simple(base) && sup.as_deref().is_none_or(simple) && sub.as_deref().is_none_or(simple),
         Node::Accent { base, .. } | Node::Bar { base, .. } => simple(base),
-        Node::Colored { base, .. } | Node::ForcedClass { base, .. } | Node::Style { base, .. } | Node::Unit { base, .. } => simple(base),
+        Node::Colored { base, .. } | Node::Attributed { base, .. } | Node::ForcedClass { base, .. } | Node::Style { base, .. } | Node::Unit { base, .. } => simple(base),
         // a signed term: x⁻¹ = ⠭⠡⠤⠼⠁ (§5.2)
         Node::Row { children } => match children.as_slice() {
             [one] => simple(one),
             [Node::Operator { symbol: '−' | '+', .. }, one] => simple(one),
-            _ => false,
+            _ => bracketed(children),
         },
         _ => false,
     }
 }
 
-/// The digits of a fraction of two whole numbers.
-fn numeric_fraction(n: &Node) -> Option<(String, String)> {
-    match n {
-        Node::Fraction { num, den, rule: true, .. } => match (num.as_ref(), den.as_ref()) {
-            (Node::Number { value: a, .. }, Node::Number { value: b, .. }) if !a.contains('.') && !b.contains('.') => Some((a.clone(), b.clone())),
-            _ => None,
-        },
+/// A row that is one group in ( ), [ ] or { }, as `(a+b)` arrives: the opening sign first, its closing
+/// sign last, and the group closed nowhere before it (`(a)+(b)` is two terms). Already in grouping signs (§1.3).
+fn bracketed(children: &[Node]) -> bool {
+    let sign = |n: &Node| match n {
+        Node::Operator { symbol: '(' | '[' | '{', .. } => 1,
+        Node::Operator { symbol: ')' | ']' | '}', .. } => -1,
+        _ => 0,
+    };
+    let pair = matches!(
+        (children.first(), children.last()),
+        (Some(Node::Operator { symbol: '(', .. }), Some(Node::Operator { symbol: ')', .. }))
+            | (Some(Node::Operator { symbol: '[', .. }), Some(Node::Operator { symbol: ']', .. }))
+            | (Some(Node::Operator { symbol: '{', .. }), Some(Node::Operator { symbol: '}', .. }))
+    );
+    let mut depth = 0;
+    pair && children.iter().enumerate().all(|(i, n)| {
+        depth += sign(n);
+        (depth == 0) == (i + 1 == children.len())
+    })
+}
+
+/// The digits of a fraction (its numerator, its denominator, whether it has a rule) of two whole numbers.
+fn numeric_fraction(num: &Node, den: &Node, rule: bool) -> Option<(String, String)> {
+    match (num, den) {
+        (Node::Number { value: a, .. }, Node::Number { value: b, .. }) if rule && !a.contains('.') && !b.contains('.') => Some((a.clone(), b.clone())),
         _ => None,
     }
 }

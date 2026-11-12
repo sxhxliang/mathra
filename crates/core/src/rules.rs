@@ -36,8 +36,13 @@ pub const E_REC_9: &str = "E-REC-9";
 pub const E_REC_10: &str = "E-REC-10";
 // Output in braille (spec/braille.md)
 pub const S_BRL_1: &str = "S-BRL-1";
+// Output in MathML (spec/mathml.md)
+pub const S_MML_1: &str = "S-MML-1";
 pub const L_CONTA_1: &str = "L-CONTA-1";
 pub const L_CONTA_2: &str = "L-CONTA-2";
+// Automatic line breaking (spec/rules.md)
+pub const L_BRK_1: &str = "L-BRK-1";
+pub const L_BRK_2: &str = "L-BRK-2";
 
 /// A rule that acted on this equation, with the affected snippet.
 #[derive(Debug, Clone, PartialEq)]

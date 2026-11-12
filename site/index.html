@@ -23,6 +23,7 @@
     <nav aria-label="Site">
       <a href="#playground">Playground</a>
       <a href="gallery.html">Gallery</a>
+      <a href="editor.html">Editor <span class="new">New</span></a>
       <a href="changelog.html">Evolution</a>
       <a href="docs.html">Docs</a>
       <a href="reference.html">Reference</a>
@@ -41,8 +42,10 @@
       <div class="derivation" id="derivation" aria-hidden="true"></div>
     </div>
     <p class="sub">mathra reads the equation (LaTeX, MathML or AsciiMath, chemistry and commutative diagrams included), builds a tree of meaning and draws it with numbered, tested rules. Every SVG says the equation out loud to screen readers and carries it in braille.</p>
+    <a class="announce" href="editor.html"><span class="new">New</span> The mathra editor: build a formula in a box, with palettes, chemistry and diagrams <span aria-hidden="true">→</span></a>
     <div class="cta">
       <a class="button solid" href="#playground">Try it now</a>
+      <a class="button" href="editor.html">Open the editor</a>
       <a class="button" href="#demo">Watch the demo</a>
       <a class="button" href="gallery.html">See the gallery</a>
       <a class="button" href="#benchmark">See the benchmark</a>
@@ -87,6 +90,14 @@
           </select>
         </label>
         <input type="file" id="font-file" accept=".otf,.ttf,font/otf,font/ttf" hidden>
+        <label class="lang">Max width
+          <select id="max-width" title="Break lines wider than this, after a relation or an operator (L-BRK-1)">
+            <option value="">off</option>
+            <option value="20">20em</option>
+            <option value="30">30em</option>
+            <option value="40">40em</option>
+          </select>
+        </label>
         <label><input type="checkbox" id="inline"> Inline</label>
         <label><input type="checkbox" id="strict"> Strict</label>
       </div>
@@ -110,6 +121,7 @@
         <button class="button" id="pen" type="button" title="A pen writes the equation: each glyph's outline, then its fill">✎ Pen</button>
         <button class="button" id="download-pen" type="button">Pen SVG</button>
         <button class="button" id="download" type="button">Download SVG</button>
+        <button class="button" id="download-png" type="button" title="50 px per em (300 dpi over a 12pt body), transparent, ink #111: what mathra … -o x.png writes">Download PNG</button>
         <button class="button" id="download-animated" type="button">Animated SVG</button>
         <button class="button" id="download-gif" type="button">Download GIF</button>
         <button class="button" id="download-video" type="button" hidden>Download video</button>
@@ -128,6 +140,7 @@
       <button role="tab" data-tab="rules" aria-selected="false">Rules</button>
       <button role="tab" data-tab="tree" aria-selected="false">Tree</button>
       <button role="tab" data-tab="svg" aria-selected="false">SVG source</button>
+      <button role="tab" data-tab="mathml" aria-selected="false">MathML</button>
     </div>
     <div class="panel" id="panel" role="tabpanel"></div>
   </div>
@@ -156,7 +169,7 @@
         <p>From Português to 日本語. The language changes how numbers are read and written (in pt-BR, <code>3,14</code> is one number and <code>\sin</code> is <em>sen</em>) and the language of the speech.</p>
       </div>
       <div class="card feature">
-        <div class="eq" data-tex="\vertA\vert = C_{16,2}"></div>
+        <div class="eq" data-tex="\vert A\vert = C_{16,2"></div>
         <h3>It forgives broken input</h3>
         <p>Typos and editor leftovers are fixed and reported as numbered warnings. <em>Strict</em> refuses them, like TeX.</p>
       </div>
@@ -215,7 +228,7 @@
       <ul>
         <li><strong>KaTeX is faster and lighter to ship.</strong> It writes HTML that depends on its stylesheet and web fonts, so its output is not a standalone image: it cannot go into an email, a README, a slide or a PDF as is. That is why its output looks smallest.</li>
         <li><strong>MathJax's SVG output is the closest equivalent</strong> to mathra's: one standalone SVG per equation. Here mathra is about 4× faster, with output of similar size.</li>
-        <li><strong>Almost half of mathra's download is its font</strong>: 356 of the 782 KB are STIX Two Math, embedded so the output never depends on what is installed, and cut down to the glyphs mathra draws; the 16 languages add 35 KB and structural chemistry about 50 KB. Outside the browser (CLI, Rust, Python) nothing is downloaded at all, and a native conversion takes <strong>17.9 µs</strong> on average.</li>
+        <li><strong>Almost half of mathra's download is its font</strong>: 356 of the 782 KB are STIX Two Math, embedded so the output never depends on what is installed, and cut down to the glyphs mathra draws; the 16 languages add 35 KB and structural chemistry about 50 KB. Noto Emoji, which the terminal and Python embed, is not part of it: the playground downloads it (756 KB) only for an equation with a character the math font lacks, such as an emoji. Outside the browser (CLI, Rust, Python) nothing is downloaded at all, and a native conversion takes <strong>17.9 µs</strong> on average.</li>
         <li><strong>The corpus favors mathra</strong>: its 116 constructions were written while building it, and include pt-BR and mathra-only commands. The playground's 18 examples are standard LaTeX except three that only mathra reads (<code>\SI</code>, <code>\sen</code>, <code>\divchave</code>).</li>
         <li>“Converted cleanly” means no error and no command drawn in red. MathJax runs with all its TeX packages except <code>noundefined</code>; KaTeX with <code>throwOnError</code> and mhchem.</li>
         <li>Snapshot: Node 24, Apple M5, 50 conversions per equation after a warm-up; times, counts and sizes from one run of the current code. The script is in <a href="https://github.com/matheusmota-dev-br/mathra/tree/main/bench"><code>bench/</code></a>: <code>cd bench &amp;&amp; npm install &amp;&amp; npm run compare</code>.</li>
@@ -256,7 +269,7 @@ mathra.render("x^2", locale="pt-BR")["braille"]  # '⠭⠡⠼⠃'</pre>
 <pre data-lang="sh">mathra 'x \le 2.75' -o inequality.svg
 mathra '3,14 + \sin x' --locale pt-BR
 mathra 'x = -1' --speech
-mathra '\vertA\vert' --explain
+mathra '\vert A\vert = C_{16,2' --explain
 mathra 'sum_(i=1)^n i' --from asciimath
 mathra '\frac{3}{4}' -l pt-BR --braille</pre>
       </div>
@@ -275,7 +288,7 @@ println!("{}", r.speech);</pre>
 
   <footer>
     <span>mathra · MIT or Apache-2.0 · STIX Two Math font under OFL-1.1</span>
-    <span><a href="https://github.com/sponsors/matheusmota-dev-br">Sponsor mathra</a> · <a href="https://github.com/matheusmota-dev-br/mathra">github.com/matheusmota-dev-br/mathra</a></span>
+    <span><a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="https://github.com/sponsors/matheusmota-dev-br">Sponsor mathra</a> · <a href="https://github.com/matheusmota-dev-br/mathra">github.com/matheusmota-dev-br/mathra</a></span>
   </footer>
 </div>
 
@@ -342,14 +355,44 @@ println!("{}", r.speech);</pre>
 
   const escape = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-  function convert(src, loc, display, strictMode, inp = "latex", braille = null, animate = false, steps = false, font = null) {
-    return JSON.parse(render(src, loc, display, strictMode, inp, braille, animate, steps, font));
+  function convert(src, loc, display, strictMode, inp = "latex", braille = null, animate = false, steps = false, font = null, width = null, fallbacks = null) {
+    return JSON.parse(render(src, loc, display, strictMode, inp, braille, animate, steps, font, width, fallbacks));
   }
   // the equation as now on screen, again with its steps numbered or animated
-  const again = (animate, steps) => convert(tex.value, locale, !inline.checked, strict.checked, input, brailleCode(), animate, steps, fontId()).svg;
+  const again = (animate, steps) => convert(tex.value, locale, !inline.checked, strict.checked, input, brailleCode(), animate, steps, fontId(), maxWidth(), fallbacks()).svg;
   const brailleCode = () => $("braille").value || null;
   // the font of the playground: STIX Two Math, or the id of one the visitor loaded
   const fontId = () => { const v = $("font").value; return v === "" || v === "load" ? null : Number(v); };
+  // lines wider than this many em are broken (L-BRK-1); none, one line
+  const maxWidth = () => Number($("max-width").value) || null;
+
+  // Noto Emoji for the characters the math font lacks: the npm package leaves it out (some 760 KB),
+  // so the playground downloads it from this site, once, the first time an equation needs it
+  const EMOJI_FONT = "pkg/fonts/NotoEmoji-Regular-subset.ttf";
+  let emoji = null, emojiLoading = null;
+  const fallbacks = () => (emoji === null ? null : Int32Array.of(emoji.id));
+  // a box drawn for a missing character (E-REC-8) or, in strict mode, the refusal
+  const lacksGlyph = (result, error) => (result ? result.warnings.some((w) => w.rule === "E-REC-8") : /the math font has no '/.test(String(error?.message ?? error)));
+  function loadEmoji() {
+    emojiLoading ??= emojiBytes()
+      .then((bytes) => {
+        emoji = { ...JSON.parse(wasm_bindgen.loadFallbackFont(bytes)), size: bytes.length };
+        update();
+      })
+      .catch(() => { /* the boxes and E-REC-8 stay, as without the font */ });
+  }
+  function emojiBytes() {
+    if (location.protocol === "file:") {
+      return new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = "pkg/fonts/noto_emoji_bytes.js";
+        s.onload = () => resolve(Uint8Array.from(atob(MATHRA_EMOJI_BASE64), (c) => c.charCodeAt(0)));
+        s.onerror = () => reject(new Error(`${s.src} not found`));
+        document.head.append(s);
+      });
+    }
+    return fetch(EMOJI_FONT).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`${EMOJI_FONT}: ${r.status}`)))).then((b) => new Uint8Array(b));
+  }
 
   // the wordmark, drawn by mathra
   function drawLogo() {
@@ -380,6 +423,8 @@ println!("{}", r.speech);</pre>
     setLocale(p.get("locale") || "en");
     setInput(p.get("input") || "latex");
     $("braille").value = p.get("braille") || "";
+    $("max-width").value = p.get("width") || "";
+    if ($("max-width").selectedIndex < 0) $("max-width").value = "";
     inline.checked = p.get("inline") === "1";
     strict.checked = p.get("strict") === "1";
   }
@@ -389,6 +434,7 @@ println!("{}", r.speech);</pre>
     if (locale !== "en") p.set("locale", locale);
     if (input !== "latex") p.set("input", input);
     if (brailleCode()) p.set("braille", brailleCode());
+    if (maxWidth()) p.set("width", String(maxWidth()));
     if (inline.checked) p.set("inline", "1");
     if (strict.checked) p.set("strict", "1");
     return `${location.href.split("#")[0]}#${p}`;
@@ -510,7 +556,7 @@ println!("{}", r.speech);</pre>
   }
   async function measure() {
     if (!last) return;
-    const args = [tex.value, locale, !inline.checked, strict.checked, input, brailleCode(), false, false, fontId()];
+    const args = [tex.value, locale, !inline.checked, strict.checked, input, brailleCode(), false, false, fontId(), maxWidth(), fallbacks()];
     let runs = 0;
     const start = performance.now();
     while (runs < 400 && performance.now() - start < 30) { render(...args); runs++; }
@@ -532,7 +578,8 @@ println!("{}", r.speech);</pre>
     messages.replaceChildren();
     stopAnimation();
     try {
-      last = convert(tex.value, locale, !inline.checked, strict.checked, input, brailleCode(), false, false, fontId());
+      last = convert(tex.value, locale, !inline.checked, strict.checked, input, brailleCode(), false, false, fontId(), maxWidth(), fallbacks());
+      if (emoji === null && lacksGlyph(last)) loadEmoji();
       preview.innerHTML = tex.value.trim() ? last.svg : `<span class="status">Type some ${INPUT_NAMES[input]} on the left.</span>`;
       fit();
       scheduleStats();
@@ -550,6 +597,10 @@ println!("{}", r.speech);</pre>
       el.className = "msg err";
       el.textContent = String(e.message ?? e);
       messages.append(el);
+      if (emoji === null && lacksGlyph(null, e)) loadEmoji();
+    }
+    if (emoji !== null && /\p{Extended_Pictographic}/u.test(tex.value)) {
+      note(`Noto Emoji (${kb(emoji.size)}) was downloaded once, from this site, for the characters the math font lacks.`, "emoji", ["pkg/fonts/OFL-NotoEmoji.txt", "SIL Open Font License"]);
     }
     if (location.protocol !== "file:" || location.hash) history.replaceState(null, "", link());
     showTab();
@@ -571,6 +622,16 @@ println!("{}", r.speech);</pre>
         : '<p class="empty">No rule changed this equation.</p>';
       return;
     }
+    if (tab === "mathml") {
+      // the same render() call's MathML, to paste into Word, LibreOffice or Google Docs; a <semantics>
+      // with the source as an annotation when MathML cannot draw part of it (S-MML-1)
+      const fallback = last.applied.find((r) => r.rule === "S-MML-1");
+      panel.innerHTML = `<pre>${colorCode(last.mathml, "xml")}</pre>` +
+        `<div class="panel-foot"><button class="button" id="copy-mathml" type="button">Copy MathML</button>` +
+        (fallback ? `<p class="panel-note"><code>S-MML-1</code> ${escape(fallback.description)}.</p>` : "") + "</div>";
+      $("copy-mathml").onclick = async (e) => { await navigator.clipboard.writeText(last.mathml); flash(e.target, "Copied"); };
+      return;
+    }
     const text = { text: last.text, tree: JSON.stringify(last.tree, null, 2), svg: last.svg }[tab];
     panel.innerHTML = `<pre>${colorCode(text, { tree: "json", svg: "xml" }[tab])}</pre>`;
   }
@@ -580,6 +641,20 @@ println!("{}", r.speech);</pre>
     setLocale(loc);
     setInput(inp);
     update();
+  }
+
+  // a line under the preview that is neither a warning nor an error
+  function note(text, cls = "", [href, label] = []) {
+    const el = document.createElement("div");
+    el.className = `msg note ${cls}`.trim();
+    el.textContent = text;
+    if (href) {
+      const a = document.createElement("a");
+      a.href = href;
+      a.textContent = label;
+      el.append(" ", a);
+    }
+    messages.append(el);
   }
 
   function flash(button, label) {
@@ -733,6 +808,7 @@ println!("{}", r.speech);</pre>
   }
   $("locale").addEventListener("change", (e) => { setLocale(e.target.value); update(); });
   $("braille").addEventListener("change", update);
+  $("max-width").addEventListener("change", update);
   // a font of the visitor's own: read in the browser, nothing is sent anywhere
   let fontChoice = "";
   $("font").addEventListener("change", () => {
@@ -817,6 +893,42 @@ println!("{}", r.speech);</pre>
     setTimeout(() => URL.revokeObjectURL(a.href), 0);
   }
   $("download").onclick = () => { if (last) save(new Blob([last.svg], { type: "image/svg+xml" }), "equation.svg"); };
+  // the PNG of `mathra … -o x.png`, drawn by the browser from the same SVG: 50 px per em (300 dpi over
+  // a 12pt body), each side rounded up to a whole pixel, a transparent background and the #111 ink;
+  // the SVG's CSS (its standalone color, the animation) is left out, as the command line does
+  const PNG_PX_PER_EM = 50, PNG_MAX_SIDE = 32768, PNG_MAX_PIXELS = 2 ** 26;
+  async function png(svg) {
+    const em = (name) => Number(new RegExp(`^<svg[^>]*? ${name}="([\\d.]+)em"`).exec(svg)?.[1] ?? 0);
+    const [w, h] = [em("width"), em("height")];
+    const px = (v) => Math.max(1, Math.ceil(v * PNG_PX_PER_EM - 1e-3));
+    const canvas = document.createElement("canvas");
+    [canvas.width, canvas.height] = [px(w), px(h)];
+    if (canvas.width > PNG_MAX_SIDE || canvas.height > PNG_MAX_SIDE || canvas.width * canvas.height > PNG_MAX_PIXELS) {
+      throw new Error(`${canvas.width} × ${canvas.height} pixels is too large for a PNG`);
+    }
+    // an empty equation (0em × 0em) is one blank pixel
+    if (w > 0 && h > 0) {
+      const ink = svg.replace(/<style>[\s\S]*?<\/style>/g, "")
+        .replace(/^<svg([^>]*?) width="[\d.]+em" height="[\d.]+em"/, `<svg$1 width="${w * PNG_PX_PER_EM}" height="${h * PNG_PX_PER_EM}" color="#111"`);
+      const img = new Image();
+      img.src = URL.createObjectURL(new Blob([ink], { type: "image/svg+xml" }));
+      try {
+        await img.decode();
+        canvas.getContext("2d").drawImage(img, 0, 0, w * PNG_PX_PER_EM, h * PNG_PX_PER_EM);
+      } finally {
+        URL.revokeObjectURL(img.src);
+      }
+    }
+    return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("the browser made no PNG"))), "image/png"));
+  }
+  $("download-png").onclick = async () => {
+    if (!last || !tex.value.trim()) return;
+    try {
+      save(await png(last.svg), "equation.png");
+    } catch (e) {
+      alert(`Could not make the PNG: ${String(e.message ?? e)}`);
+    }
+  };
   // the equation writing itself, over and over, as a GIF plays
   $("animate").onclick = () => {
     if (stopLoop) return stopAnimation();
@@ -828,7 +940,12 @@ println!("{}", r.speech);</pre>
   };
   // the equation written by a pen: mathra's SMIL plays by itself, in a loop
   let penOn = false;
-  const penSvg = () => pen(tex.value, locale, !inline.checked, input, null, fontId());
+  const penSvg = () => { notePenLines(); return pen(tex.value, locale, !inline.checked, input, null, fontId(), fallbacks()); };
+  // mathra's pen does not break lines yet: say so, once, when the drawing is broken and the pen is not
+  function notePenLines() {
+    if (!last?.applied.some((r) => r.rule === "L-BRK-1") || messages.querySelector(".pen-lines")) return;
+    note("The pen writes the equation on one line: max width does not reach it yet.", "pen-lines");
+  }
   function stopPen() {
     if (!penOn) return;
     penOn = false;

@@ -2,6 +2,8 @@
 
 # mathra
 
+[![coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fmatheusmota-dev-br.github.io%2Fmathra%2Fcoverage%2Fbadge.json)](https://matheusmota-dev-br.github.io/mathra/coverage/html/)
+
 Accessible SVG equations from LaTeX, chemistry included, without a TeX install, for **JavaScript, Python, Rust and the terminal**. **[Try it in the browser](https://matheusmota-dev-br.github.io/mathra/)**, or **[watch the 60-second demo](https://youtu.be/Bbz_nwre2BQ)**.
 
 <p align="center"><a href="https://youtu.be/Bbz_nwre2BQ"><img src="https://img.youtube.com/vi/Bbz_nwre2BQ/maxresdefault.jpg" alt="mathra in 60 seconds: watch the demo on YouTube" width="720"></a></p>
@@ -93,23 +95,33 @@ Each SVG carries the equation as speech in its `<title>`:
 | `\chemfig{H_3C-*6(=-=-=-)}` | structure of C7 H8, with 1 aromatic ring |
 | `\schemestart \ce{N2 + 3H2} \arrow{<=>[Fe]} \ce{2NH3} \schemestop` | N sub 2 plus 3 H sub 2 in equilibrium with (Fe over the arrow) 2 N H sub 3 |
 
+What mathra promises for accessibility, what is still open and how to report a barrier are in [ACCESSIBILITY.md](https://github.com/matheusmota-dev-br/mathra/blob/main/.github/ACCESSIBILITY.md).
+
 ## Broken LaTeX
 
 By default mathra draws what it can and returns **warnings** for what it had to fix (`E-REC-1` to `E-REC-10`, in `spec/tolerance.md`): unknown commands, unbalanced braces, double scripts, leftover JSON escapes such as `\n` or `\u00b2`, unknown MathML elements. Warnings show up in `--explain`, on stderr, in `Output::warnings` and in the SVG's `<metadata>`. With `--strict`, mathra refuses invalid input instead, like TeX.
 
 ```console
-$ mathra '\vertA\vert = C_{16,2}' --text
-mathra: warning E-REC-1: column 1: unsupported command: \vertA; read as \vert A
+$ mathra '\vert A\vert = C_{16,2' --text
+mathra: warning E-REC-4: column 18: '{' without a matching '}'; closed at the end
 |A| = C_(16, 2)
 ```
 
 ## LaTeX, MathML and AsciiMath
 
-LaTeX is the default. MathML (what Word, Google Docs, MathType and MathJax export) and AsciiMath (`sum_(i=1)^n i^2`) are read into the same tree of meaning, so they come out with the same drawing and the same speech. MathML passed as LaTeX, starting with `<math`, is recognized on its own. What each notation covers is in [`spec/input.md`](https://github.com/matheusmota-dev-br/mathra/blob/main/spec/input.md), and the [reference page](https://matheusmota-dev-br.github.io/mathra/reference.html) shows every construction, in AsciiMath (the tables of asciimath.org), LaTeX (by topic, as Overleaf's Mathematics articles), the science packages and MathML, each drawn and in braille, live in the browser.
+LaTeX is the default. MathML (what Word, Google Docs, MathType and MathJax export, and the content MathML of Maple and other CAS) and AsciiMath (`sum_(i=1)^n i^2`) are read into the same tree of meaning, so they come out with the same drawing and the same speech. MathML passed as LaTeX, starting with `<math`, is recognized on its own. What each notation covers is in [`spec/input.md`](https://github.com/matheusmota-dev-br/mathra/blob/main/spec/input.md), and the [reference page](https://matheusmota-dev-br.github.io/mathra/reference.html) shows every construction, in AsciiMath (the tables of asciimath.org), LaTeX (by topic, as Overleaf's Mathematics articles), the science packages and MathML, each drawn and in braille, live in the browser.
 
 ```console
 $ mathra 'sum_(i=1)^n i^2 = (n(n+1)(2n+1))/6' --from asciimath -o sum.svg
 $ mathra '<math><msqrt><mi>x</mi></msqrt></math>' --speech      # square root of x
+```
+
+## Labels and citations
+
+An equation converted alone cannot know the numbers of the document around it. Give them as `labels` and `citations` (`Options::labels` in Rust, `{ labels, citations }` in JavaScript, keyword arguments in Python, `--label` and `--cite` in the terminal), and `\eqref`, `\ref` and `\cite` show them. An unknown key is `(??)`, `??` or `[?]`, as on LaTeX's first run, with a warning (an error with `--strict`). In `--batch`, a `\label` with a `\tag` on its line numbers the label for the lines after it. Equations are not numbered on their own: `\tag` gives the number.
+
+```console
+$ mathra '\text{by } \eqref{eq:a} \cite{knuth}' --label eq:a=3 --cite knuth=1 --text   # by (3)[1]
 ```
 
 ## Braille
@@ -130,12 +142,41 @@ $ mathra 'x^2 + 1' --braille --braille-code cmu                  # ⠭⠡⠼⠃�
 
 Besides the outlines, every SVG follows the contract in `spec/svg.md`: speech for screen readers, the source equation, the tree and the braille in `<metadata>`, color inherited from the page, reused glyphs, a text layer for selection and unique ids per equation. The same input always produces the same bytes.
 
+### MathML
+
+Every conversion also gives the equation as presentation MathML (`--mathml`, `result.mathml` in JavaScript, `result["mathml"]` in Python, `Output::mathml` in Rust), for Word, LibreOffice and Google Docs, which paste it as an editable equation, and for browsers, which draw it with no wasm. It uses only the elements of MathML Core, with an `intent` where the tree knows what the drawing does not say (in pt-BR, `sen` is `intent="sine"` and `]a, b[` an `open-interval`); what MathML cannot draw (chemfig, commutative diagrams, `\cancel`, `\boxed`) becomes a `<semantics>` with the source as an annotation. Read back with `--from mathml`, it gives the same tree. The details are in [`spec/mathml.md`](https://github.com/matheusmota-dev-br/mathra/blob/main/spec/mathml.md).
+
+```console
+$ mathra '\frac{-b \pm \sqrt{b^2-4ac}}{2a}' --mathml
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mfrac><mrow><mo>−</mo><mi>b</mi>…</mfrac></math>
+```
+
 ### The equation writes itself
 
 With `--animate` (`{ animate: true }` in JavaScript, `animate=True` in Python, `animate: true` in Rust) the SVG writes itself in the browser, with CSS alone: each glyph fades in, each rule grows along its length and each line is drawn, in the order the layout set them, in about three seconds. `--steps` numbers each element (`data-step`) with no CSS, for a page that walks through the equation; nothing moves with `prefers-reduced-motion`, and without either option the SVG is unchanged byte for byte (S-SVG-10). The [playground](https://matheusmota-dev-br.github.io/mathra/) walks through an equation step by step and downloads the animation as a GIF, a video or an animated SVG with its own play bar; every equation of the [gallery](https://matheusmota-dev-br.github.io/mathra/gallery.html) animates too.
 
 ```console
 $ mathra 'x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}' --animate -o quadratic.svg
+```
+
+### PNG
+
+Where SVG is not accepted (e-mail, some editors and LMSs), the terminal and the Python package write a PNG of the same drawing, rasterized in Rust with [resvg](https://github.com/linebender/resvg): `-o file.png` or `--png` in the terminal, `mathra.tex_to_png(tex)` in Python (bytes), `Output::png` in Rust with the `png` feature. The size is `--dpi` (`dpi=`, 300 by default) over a 12pt body, so an em is dpi × 12 / 72 pixels (50 at 300 dpi), and each side is the SVG's size in em times that, rounded up to a whole pixel. The background is transparent and the ink `#111`, as in a standalone SVG; `--background` and `--color` (`background=`, `color=` in Python) take any CSS color, and colors set in the equation keep their own. A PNG is only the drawing, with no speech, source or text layer: give it the speech as its alt text. The npm package leaves it out, since a browser draws the SVG on a canvas itself.
+
+```console
+$ mathra 'e^{i\pi} + 1 = 0' -o euler.png
+$ mathra 'e^{i\pi} + 1 = 0' --png --dpi 600 --background white > euler.png
+$ mathra --batch --png -o out/ < equations.txt      # 1.png, 2.png…
+```
+
+The `png` feature adds about 1.2 MB to the terminal's release binary (3.2 MB without it, 4.4 MB with it; 2.9 and 3.9 MB stripped) and 0.5 MB to the Python wheel (1.6 MB to 2.2 MB; its module from 3.3 to 4.5 MB), measured on macOS arm64. It is off by default in the Rust crate, on in `mathra-cli`; `cargo install mathra-cli --no-default-features` builds a terminal without it, which refuses a `.png` file instead of writing an SVG into it.
+
+### Long equations break into lines
+
+With `--max-width 30em` (`{ maxWidth: 30 }` in JavaScript, `max_width=30` in Python, `max_width: Some(30.0)` in Rust) an equation wider than that is broken into lines, in display and inline style: after a relation (`=`, `≤`, `→`…) first, and only when relations alone are not enough, after `+` and `−` too, as TeX and MathJax do, without repeating the operator. Only the top level of the equation breaks: never a fraction, a root, `\left…\right`, scripts, a group or a table (`align`, `array` and matrices stay whole). Continuation lines start under the right-hand side of the first relation, or 2 em in. Each line is a `<g data-line="k">` of the SVG (S-SVG-12); speech, text and braille do not change, and without the option the SVG is unchanged byte for byte (L-BRK-1). What cannot be broken is drawn as it is, with an `L-BRK-2` note in `applied`.
+
+```console
+$ mathra 'f(x) = a_0 + a_1 x + a_2 x^2 + a_3 x^3 + a_4 x^4 + a_5 x^5' --max-width 12em -o poly.svg
 ```
 
 What changed in each release is in [`CHANGELOG.md`](CHANGELOG.md), and on the site's [evolution page](https://matheusmota-dev-br.github.io/mathra/changelog.html) with the equations drawn live.
@@ -161,6 +202,7 @@ const svg = texToSvg("3,14", { locale: "pt-BR" });
 const { speech, warnings } = render(String.raw`\frac{3}{4}`, { locale: "fr" });   // "trois quarts"
 render("sqrt(x)/2", { input: "asciimath" });                     // also "mathml"
 render("x^2", { locale: "pt-BR" }).braille;                      // "⠭⠡⠼⠃" (CMU); { braille: "nemeth" } forces the code
+render(String.raw`\sqrt{x}`).mathml;                             // "<math …><msqrt><mi>x</mi></msqrt></math>"
 ```
 
 ### Python
@@ -169,11 +211,12 @@ render("x^2", { locale: "pt-BR" }).braille;                      // "⠭⠡⠼�
 import mathra
 
 svg = mathra.tex_to_svg(r"\sin x = 0.5")                 # <title>…sine of x equals 0.5</title>
-r = mathra.render(r"\frac{3}{4}", locale="fr")            # dict: svg, speech, text, braille, braille_code, tree, applied, warnings
+r = mathra.render(r"\frac{3}{4}", locale="fr")            # dict: svg, speech, text, braille, braille_code, mathml, tree, applied, warnings, boxes
 r["speech"]                                               # 'trois quarts'
 mathra.tex_to_svg(r"\vertA\vert", strict=True)            # ValueError, like TeX
 mathra.render("sqrt(x)/2", input="asciimath")             # also input="mathml"
 mathra.render("x^2", locale="pt-BR")["braille"]           # '⠭⠡⠼⠃' (CMU); braille="nemeth" forces the code
+png = mathra.tex_to_png(r"e^{i\pi} + 1 = 0", dpi=300)       # bytes; background=None (transparent), color="#111"
 ```
 
 Types included; more on [PyPI](https://pypi.org/project/mathra/).
@@ -182,11 +225,13 @@ Types included; more on [PyPI](https://pypi.org/project/mathra/).
 
 ```console
 $ mathra 'x \le 2.75; y \ge 1' -o inequality.svg
+$ mathra 'e^{i\pi} + 1 = 0' -o euler.png --background white
 $ mathra '3,14 + \sin x' --locale pt-BR
 $ mathra 'x = -1' --speech        # x equals negative 1
 $ echo 'a + b' | mathra --tree
 $ mathra 'a/b + sqrt(c)' --from asciimath
 $ mathra '\frac{3}{4}' --locale pt-BR --braille   # ⠼⠒⠙
+$ mathra '\sqrt{x}' --mathml                      # <math …><msqrt><mi>x</mi></msqrt></math>
 $ mathra --batch -o out/ < equations.txt
 ```
 
@@ -212,13 +257,21 @@ Insert the fragment into a Word paragraph. To create a complete example DOCX, ru
 `cargo run -p mathra --example omml_docx -- target/equations.docx`.
 See [OMML support and limits](spec/omml.md); unsupported structures return an error.
 
-Structural chemistry is the `chem` feature, on by default; `mathra = { version = "…", default-features = false }` leaves it out of a build that only needs equations.
+Structural chemistry is the `chem` feature, on by default; `mathra = { version = "…", default-features = false }` leaves it out of a build that only needs equations. PNG output is the `png` feature, off by default:
+
+```rust
+// mathra = { version = "…", features = ["png"] }
+let png: Vec<u8> = r.png(&mathra::PngOptions { dpi: 300.0, background: Some("white".into()), ..Default::default() })?;
+```
+
+Text can be kerned as TeX kerns it, for SVGs that should match a document set by TeX (Rust only; none by default): `Options { text_kerning: mathra::layout::kerning::TextKerning::Ot1, ..Default::default() }` takes Computer Modern's pairs, `TextKerning::T1` Latin Modern's with `\usepackage[T1]{fontenc}`. It applies to upright text (`\text{…}`), not to math letters.
 
 ## What it converts
 
 Layout follows the parameters of the font's MATH table. The font is STIX Two Math; with the
 `latin-modern` feature, `convert_in_font` and `typeset_in_font` can also set an equation in Latin
 Modern Math, the OpenType Computer Modern of TeX's own documents (about 430 KB more in the binary).
+With the `emoji` feature, on in the CLI and the Python package and off in the crate and the npm package, Noto Emoji (the monochrome one) is the default fallback font, so emoji are drawn rather than boxed (about 780 KB more in the binary: 778 KB on the macOS CLI, 537 KB more in the Python wheel).
 
 Any other OpenType math font works too: an `.otf` or `.ttf` with a MATH table, such as Libertinus Math, Fira Math or the TeX Gyre math fonts. Load it from its bytes and set it as `Options::font`. Fonts without a MATH table are refused, because they have no fraction, radical or tall delimiter metrics. A font is kept for as long as the program runs, and the same bytes give the same font. The SVG carries the font's outlines, so check that its license allows that.
 
@@ -231,26 +284,40 @@ The same in each package: `--font file.otf` in the terminal, `loadFont(bytes)` a
 
 To find one, [mathfonts](https://matheusmota-dev-br.github.io/mathfonts/) is a catalog of 30 math fonts that are free to share, each one checked with mathra and shown in it. The JavaScript and Python packages load one by its name, and the playground lists them all: `await loadFontFromCatalog("euler-math")` in JavaScript, `mathra.load_font_from_catalog("euler-math")` in Python (kept in `~/.cache/mathra`). A font is downloaded only when asked for, and only if it matches the catalog's sha256, so the same name always gives the same SVG. The Rust crate and the terminal do not download anything: download the file from the catalog and pass it as above.
 
-- Fractions (`\frac`, `\dfrac`, `\tfrac`, `\cfrac`, `\over`), binomials, roots with an index
-- Scripts, primes (`f'`), limits (`\lim`, `\sum`, `\prod`, `\int` and family, `\limits`)
+A character the math font lacks (an emoji, Chinese in `\text{…}`) is looked up in the fallback fonts, in order, and its outline goes in the SVG like every other glyph, scaled to the math font's em, on the baseline, in the text color (S-SVG-5). A fallback font is any `.otf` or `.ttf` with outlines; it needs no MATH table, and color layers are not read. A character no font has is a box (E-REC-8), or refused in strict mode.
+
+```rust
+let cjk = mathra::font::FallbackFont::load(std::fs::read("NotoSansSC-Regular.otf")?)?;
+let mut options = mathra::Options::default();
+options.fallback_fonts.insert(0, cjk); // before Noto Emoji, with the `emoji` feature
+let svg = mathra::convert(r"\text{面积} = \pi r^2", &options)?.svg;
+```
+
+In each package: `--fallback-font file.otf` (repeatable) in the terminal, `loadFallbackFont(bytes)` and `{ fallbackFonts: [font] }` in JavaScript, `mathra.load_fallback_font(path)` and `fallback_fonts=[font]` in Python; a math font loaded as above can be a fallback too. The terminal and Python try yours first, then the embedded Noto Emoji; the npm package embeds no emoji font, so pass one there.
+
+- Fractions (`\frac`, `\dfrac`, `\tfrac`, `\cfrac` with its `[l]`/`[r]`, `\over`), binomials, roots with an index
+- Scripts, primes (`f'`), limits (`\lim`, `\sum`, `\prod`, `\int` and family (esint's `\ointclockwise`, `\varointctrclockwise`, `\dotsint`, `\sqint` and `\fint` too; not `\sqiint`, `\landupint` and `\landdownint`, which have no character), `\limits`)
 - `\left … \middle … \right`, `\big` and family, delimiters assembled from parts
-- Matrices (`matrix`, `pmatrix`, `bmatrix`, `Bmatrix`, `vmatrix`, `Vmatrix`, `smallmatrix`), `cases`, `rcases`, `aligned`, `align`, `gathered`, `split`, `array` with `|`, `@{}`, `\hline`, `\cline`, arydshln's dashed `:`, `\hdashline` and `\cdashline`, and `\arraystretch`
-- What LaTeX's own packages add to the KaTeX list: the colons of mathtools and colonequals (`\coloneqq`, `\Colonsim`…), `\varGamma` and family, `\injlim`, `\intop`, `\lgroup`, `\char`, `\xtwoheadrightarrow` and family, text symbols (`\AE`, `\H{o}`, `\textdollar`), `\url` and `\href`; TeX's `\mathchoice`, `\vcenter` and `\above`, and graphicx's `\reflectbox`
-- Proof trees (`prooftree`, a bussproofs subset): axioms, unary through quinary inferences, labels, solid/dashed/omitted rules and top/bottom roots; [commands and limits](spec/proofs.md)
-- RaTeX presentation commands: Feynman `\slashed`, `\mathsfit`, `\frak`, `\ctg`/`\arcctg`, group and line-segment accents, `\Overrightarrow`, `\xrightleftarrows`, explicit LaTeX sizes and the supported drawing properties of `\htmlStyle`; [scope and tests](spec/ratex-compatibility.md)
-- Accents (`\hat`, `\vec`, `\bar`, `\dot`, `\widehat`, `\overrightarrow`, `\arc`…), `\underrightarrow` and family, `\overline`, `\underline`, `\overbrace`/`\underbrace` and `\overbracket`/`\underbracket` with labels, `\xrightarrow` and family, `\overset`, `\underset`, `\stackrel`
-- The amssymb symbols, negations included (`\nleq`, `\nsim`, `\nRightarrow`, `\lneqq`…), and integrals up to `\iiiint`, `\idotsint` and `\varoiint`
-- `\text` with `$…$`, `\color` and `\textcolor`, math environments (`align*`) and old-style accents (`\'e`, `\c{c}`), `\textsc`, alphabets (`\mathbb`, `\mathcal`, `\mathfrak`, `\mathbf`, `\boldsymbol`, `\mathsf`, `\mathtt`), old `\bf`/`\rm`/`\tt`
-- `\cancel`, `\boxed`, `\textcircled`, `\phase` (steinmetz), `\angl` (actuarialangle), `\color`, `\colorbox`, `\fcolorbox`, `\phantom`, `\pmod`, `\operatorname`, spaces (`\,` `\quad` `\hspace`)
-- siunitx (`\SI`, `\qty`, `\si`, `\num`, `\ang` with minutes and seconds, ranges, lists and products), HTML entities coming from editors
-- structural chemistry (chemfig, the `chem` feature, on by default): `\chemfig{…}` with labels split into atoms, single, double and triple bonds, wedges and hashes, angles (`[2]`, `[:30]`, `[::60]`), branches, rings (aromatic, fused), distant bonds (`?`), Lewis marks (`\lewis`); reaction schemes (`\schemestart`, `\arrow{->[above][below]}` with every chemfig arrow and any angle, `\+`, `\chemname`); mechanisms (`\chemmove` with curved arrows and fishhooks between `@{hooks}`). Speech and text give each structure's molecular formula, counted from the graph with its implicit hydrogens
-- mhchem (`\ce`, `\pu`): formulas, charges, radicals, isotopes, hydrates, bonds, decimal and fractional coefficients, arrows with labels (`->[\Delta]`, `<=>[K_w]`), `\frac` with formulas
+- KaTeX's texvc aliases, which equations pasted from Wikipedia carry (`\R`, `\N`, `\cnums`, `\Rarr`, `\isin`, `\hearts`, `\sh`, `\bold`…); a `\newcommand` of the same name wins
+- Matrices (`matrix`, `pmatrix`, `bmatrix`, `Bmatrix`, `vmatrix`, `Vmatrix`, `smallmatrix`, and their starred forms with a column alignment, `pmatrix*[r]`, `smallmatrix*[r]`), `cases`, `rcases`, mathtools' `cases*`, `dcases*`, `rcases*` and `drcases*` (the second column in text, `$…$` for math), `aligned`, `align`, `gathered`, `split`, `multline` (with `\shoveleft` and `\shoveright`), `array` with `|`, `@{}`, `\hline`, `\cline`, arydshln's dashed `:`, `\hdashline` and `\cdashline`, `\arraystretch` and `\setlength{\arraycolsep}{…}`
+- What LaTeX's own packages add to the KaTeX list: the colons of mathtools and colonequals (`\coloneqq`, `\Colonsim`…), `\varGamma` and family, upgreek's capitals and var forms (`\Updelta`, `\upvarphi`), `\injlim`, `\intop`, `\lgroup`, `\char`, `\xtwoheadrightarrow` and family, text symbols (`\AE`, `\H{o}`, `\textdollar`), `\url` and `\href`; TeX's `\mathchoice`, `\vcenter`, `\above`, `\atopwithdelims` and family, `\root…\of`, `\buildrel` and `\skew`; amsmath's `\leftroot` and `\uproot`, `xalignat`, `xxalignat` and `\vline`; KaTeX's `\overunderset` and `darray`; the corners `\ulcorner`… as `\left`/`\right` delimiters (in their one size); and graphicx's `\reflectbox`; LaTeX's `\lefteqn`; `\linebreak` (a break hint, as `\allowbreak`) and amsthm's `\qedhere`, read and drawing nothing
+- Accents (`\hat`, `\vec`, `\bar`, `\dot`, `\widehat`, `\overrightarrow`, `\arc`…), `\overparen`/`\underparen` and `\overgroup`/`\undergroup`, `\underrightarrow` and family, `\overline`, `\underline`, `\overbrace`/`\underbrace` and `\overbracket`/`\underbracket` with labels, `\xrightarrow` and family, `\overset`, `\underset`, `\stackrel`, `\stackbin`; `\vv` (esvect), `\accentset` and `\underaccent` (accents), mathabx's `\widebar`, `\widering` and `\undertilde`, KaTeX's `\Overrightarrow`, `\overlinesegment` and `\underlinesegment`
+- The amssymb symbols, negations included (`\nleq`, `\nsim`, `\nRightarrow`, `\lneqq`…), and integrals up to `\iiiint`, `\idotsint` and `\varoiint`; stmaryrd's (`\lightning`, `\Mapsto`, `\boxast`, `\obar`, `\fatsemi`, `\Lbag`, `\llparenthesis`, `\minuso`, `\bigsqcap`, `\leftarrowtriangle`…), the mathabx ones Unicode has (`\ndivides`, `\leftsquigarrow`, `\Sun`, `\curvearrowbotright`), and the ones it has no character for, drawn by composition from the font's glyphs (`\llceil`, `\rrfloor`, `\varotimes`, `\varovee`, `\Yleft`, `\shortrightarrow`, `\nnearrow`, `\arrownot`, `\inplus`, `\trianglelefteqslant`, `\bigbox`, `\bigparallel`, `\bignplus`, `\bigcurlyvee`, `\bigboxplus`, `\bigominus`…; not `\curlyveedownarrow`, spec/rules.md) and a few of marvosym and wasysym (`\Lightning`, `\invneg`, `\checked`, `\diameter`)
+- `\text` with `$…$`, `\color` and `\textcolor`, math environments (`align*`) and old-style accents (`\'e`, `\c{c}`), `\textsc`, alphabets (`\mathbb`, `\mathcal`, `\mathfrak`, `\mathbf`, `\boldsymbol` (also on ∇, the bold 𝛁 of physics' `\grad`), `\mathbold`, `\mathsf`, `\mathtt`, `\mathds` and `\mathbbm`; `\mathbb{1}` is 𝟙), old `\bf`/`\rm`/`\tt` and plain TeX's `\sevenrm`, `\fiverm`, `\sevenbf`, `\fivebf`
+- `\cancel`, `\slashed` (slashed, the Feynman slash; `\declareslashed` is read and not applied), `\boxed`, `\textcircled` (and, with `\sout`, inside `\text`), braket's `\Ketbra`, the archaic Greek letters (`\koppa`, `\stigma`, `\sampi`…), `\smiley`, `\openone`, `\lAngle`/`\rAngle`, MathJax's `\Newextarrow`, `\phase` (steinmetz), `\angl` (actuarialangle), `\color`, `\colorbox`, `\fcolorbox`, MathJax's `\bbox[yellow,5px,border:2px solid red]` and `\enclose{circle}` (the `menclose` notations), `\phantom`, `\pmod`, `\operatorname`, spaces (`\,` `\quad` `\hspace`)
+- siunitx (`\SI`, `\qty`, `\si`, `\num`, `\tablenum` (as `\num`, without the alignment of an `S` column), `\ang` with minutes and seconds, ranges, lists and products, `\complexnum` and `\complexqty`, the units based on constants (`\planckbar`, `\clight`…), `\highlight`, `\DeclareSIUnit` and `\sisetup` for the rest of the equation), HTML entities coming from editors
+- textcomp's and gensymb's symbols (`\textcelsius`, `\textohm`, `\textonehalf`, `\textnumero`, `\texttrademark`, `\perthousand`…), in math as MathJax sets them and in `\text`
+- structural chemistry (chemfig, the `chem` feature, on by default): `\chemfig{…}` with labels split into atoms, single, double and triple bonds, wedges and hashes, angles (`[2]`, `[:30]`, `[::60]`), branches, rings (aromatic, fused), distant bonds (`?`), branches with defaults of their own (`B([:60]-D-E)`), the space a bond leaves (`-#(,0pt)`), aromatic circles drawn as arcs (`**[30,330]5(…)`), Lewis marks (`\lewis`), charges (`\charge`), the structure's default bond values (`[:20,1.5]`), `\chemskipalign`; reaction schemes (`\schemestart`, `\arrow{->[above][below]}` with every chemfig arrow (`-U>` too) and any angle, `\+`, `\chemname`, `\chemleft`/`\chemright`, `\chemup`/`\chemdown`, named compounds and branches `\arrow(@a--b)`, `\merge`); mechanisms (`\chemmove` with curved arrows and fishhooks between `@{hooks}` on atoms and on bonds, `-[@{db}]`); submolecules (`\definesubmol`, `!{name}`), compounds moved by their style (`\arrow(--[yshift=5mm])`). Speech and text give each structure's molecular formula, counted from the graph with its implicit hydrogens
+- mhchem (`\ce`, `\pu`): formulas, charges, radicals, isotopes, hydrates, bonds (`\bond{…}` with every mhchem kind: dashed `~`, `~-`, `~=`, `-~-`, four dots `....`), decimal and fractional coefficients, arrows with labels (`->[\Delta]`, `<=>[K_w]`, text between braces `->[{text above}]`), `$…$` as math anywhere (`_{$\frac{6}{2}$}`), `\frac` with formulas, words as text (`\ce{Hydrogen + Oxygen -> Water}`), and `&` and `\\` passed to the alignment around `\ce`
+- HTML attributes on part of an equation, for a page to style or animate it: MathJax's `\class`, `\cssId`, `\style` and KaTeX's `\htmlClass`, `\htmlId`, `\htmlStyle`, `\htmlData`, kept only when safe (`spec/svg.md`, S-SVG-11)
+- Proof trees (`prooftree`, a bussproofs subset): [commands and limits](spec/proofs.md)
+- RaTeX presentation commands: [scope and tests](spec/ratex-compatibility.md)
 - Substitution macros: `\newcommand`, `\renewcommand`, `\def`, `\let`, `\DeclareMathOperator`, `\DeclarePairedDelimiter`, `\newenvironment`
-- Packages: physics (derivatives, `\dd`, `\eval`, `\expval`, `\mel`, `\comm`, `\grad`, `\curl`, `\laplacian`, `\vb`, `\vu`, `\order`, `\Tr`, `\qty`), braket (`\ket`, `\braket`, `\Set`), tensor (`\tensor`, `\indices`), mathtools (`\prescript`, `rcases`, `\overbracket`), xfrac, units, `\genfrac`, `\substack`, `\sideset`, `\smash`, `\mathclap`, `\multicolumn`, `\intertext`, `\hdotsfor`, `\raisebox`, `\scalebox`, `\rule`, `\verb`; old syntax `\cases`, `\matrix`, `\eqalign`
-- commutative diagrams: amscd (`\begin{CD}`), tikz-cd (`\begin{tikzcd}`, `\arrow[dr, "f"', dashed, bend left]`) and xymatrix (`\xymatrix{A \ar[r]^f & B}`): arrows in any direction, bent or shifted, with labels beside or on them, dashed, dotted, double, squiggly, hooked, two-headed, maps-to; pullback corners (`\lrcorner`)
+- Packages: unicode-math's alphabets (`\mathbfcal`, `\mathbffrak`, `\mathsfit`, `\mathbfsfit`, `\symcal`, `\symup`…), xcolor (`\definecolor` and `\colorlet` for the rest of the equation, the models `HTML`, `rgb`, `RGB`, `gray`, `cmyk`, mixes such as `red!40!blue`), physics (derivatives, `\dd`, `\eval`, `\expval`, `\mel`, `\comm`, `\grad`, `\curl`, `\laplacian`, `\vb`, `\vu`, `\order`, `\Tr`, `\qty`, the starred forms and `\sin[2](x)`, the matrices `\mqty`, `\pmqty`, `\imat`, `\pmat`…, the spaced text `\qq`, `\qand`…, `\var`, `\pv`, `\vev` and the long names `\sine`…; `\div`, `\Re`, `\Im` stay ÷, ℜ, ℑ), braket (`\ket`, `\braket`, `\Set`), tensor (`\tensor`, `\indices`), mathtools (`\prescript`, `rcases`, `\overbracket`, `\vdotswithin`, `\shortvdotswithin`, `\splitfrac`, `\adjustlimits`, `\MoveEqLeft`, `\Aboxed`, `\ArrowBetweenLines`, the cramped commands, `\mathmakebox`, `\DeclarePairedDelimiterX`, `\refeq`, `\bigtimes`, `psmallmatrix` and its kin, `multlined`, `lgathered`, `rgathered`, `spreadlines`; `\newtagform` and `\usetagform` read and ignored), extarrows (`\xlongrightarrow` and its kin), xfrac, units, `\genfrac`, `\substack`, `\sideset`, `\smash`, `\mathclap`, `\multicolumn`, `\intertext`, `\hdotsfor`, `\raisebox`, `\scalebox`, `\rule`, `\verb`; old syntax `\cases`, `\matrix`, `\eqalign`
+- commutative diagrams: amscd (`\begin{CD}`), tikz-cd (`\begin{tikzcd}`, `\arrow[dr, "f"', dashed, bend left]`) and xymatrix (`\xymatrix{A \ar[r]^f & B}`, paths through entries `\ar'[d][dd]`, curves and loops by their directions `\ar@(ul,ur)[]`, `\hole`, 2-cells `\rtwocell^f_g{\alpha}`): arrows in any direction, bent or shifted, with labels beside or on them, dashed, dotted, double, squiggly, hooked, two-headed, maps-to; pullback corners (`\lrcorner`)
 - mathra extensions: `\divchave{247}{5}` (long division, Brazilian layout) and `\contaarmada{+}{347}{285}` (column arithmetic), both computed
 
-Out of scope, by the rule in `spec/boundary.md` (mathra is for equations): TikZ and TeX programming (`\ifx`, `\catcode`). Not yet: automatic line breaking, MathML and PNG output (MathML input is supported), content MathML, mhchem's text mode (`\ce{Hydrogen + Oxygen -> Water}` is read as formulas).
+Out of scope, by the rule in `spec/boundary.md` (mathra is for equations): TikZ and TeX programming (`\ifx`, `\catcode`).
 
 ## Benchmark
 
@@ -287,7 +354,7 @@ KaTeX is faster and lighter to ship, but its output is HTML that needs its style
 ```
 crates/core          tree, rules, layout, embedded fonts, outputs
 crates/core/src/input     readers: LaTeX, MathML, AsciiMath (spec/input.md)
-crates/core/src/output    SVG, speech, text and braille (CMU and Nemeth, spec/braille.md)
+crates/core/src/output    SVG, speech, text, braille (CMU and Nemeth, spec/braille.md), MathML (spec/mathml.md) and PNG (`png` feature)
 crates/core/src/locales   the 16 languages, one JSON file each (spec/locales.md)
 crates/core/src/chem      structural chemistry: chemfig, schemes, mechanisms (spec/chemistry.md, `chem` feature)
 crates/core/examples bench (the benchmark above) and banner (the image above)
@@ -297,7 +364,7 @@ crates/wasm          WebAssembly bindings (wasm-bindgen), used by npm/ and site/
 npm/                 the npm package: JavaScript API, types, build and tests
 site/                the playground and docs on GitHub Pages
 bench/               mathra next to KaTeX and MathJax
-spec/                numbered rules (rules.md), the SVG contract (svg.md), inputs, braille, languages
+spec/                numbered rules (rules.md), the SVG contract (svg.md), inputs, braille, MathML output, languages
 corpus/              hand-written constructions used by the benchmark and the reference page
 tools/braille-compare  mathra's braille next to MathCAT's (docs/braille-review.md)
 tools/fonts          the original fonts and subset.sh, which writes the embedded ones in crates/core/fonts
@@ -333,4 +400,4 @@ mathra is free and open source. If it is useful to you, you can support its work
 
 ## Licenses
 
-Code: your choice of [MIT](https://github.com/matheusmota-dev-br/mathra/blob/main/LICENSE-MIT) or [Apache-2.0](https://github.com/matheusmota-dev-br/mathra/blob/main/LICENSE-APACHE), as is common in the Rust ecosystem. Embedded font: STIX Two Math, SIL Open Font License 1.1 (`crates/core/fonts/OFL-STIXTwoMath.txt`). With the `latin-modern` feature, also Latin Modern Math, GUST Font License (`crates/core/fonts/GUST-FONT-LICENSE-LatinModernMath.txt`).
+Code: your choice of [MIT](https://github.com/matheusmota-dev-br/mathra/blob/main/LICENSE-MIT) or [Apache-2.0](https://github.com/matheusmota-dev-br/mathra/blob/main/LICENSE-APACHE), as is common in the Rust ecosystem. Embedded font: STIX Two Math, SIL Open Font License 1.1 (`crates/core/fonts/OFL-STIXTwoMath.txt`). With the `latin-modern` feature, also Latin Modern Math, GUST Font License (`crates/core/fonts/GUST-FONT-LICENSE-LatinModernMath.txt`). With the `emoji` feature (the CLI and the Python package), also Noto Emoji, SIL Open Font License 1.1 (`crates/core/fonts/OFL-NotoEmoji.txt`).

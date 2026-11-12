@@ -123,7 +123,8 @@ What mathra does now is in brackets.
 2. A word in bold or double-struck letters (`\mathbf{AB}`): [a typeform indicator before each letter]. §7 also has single-word typeform indicators.
 3. Bold italic Greek (`\boldsymbol\alpha`): [⠸⠨⠁]. MathCAT writes ⠸⠨⠨⠁.
 4. The signs inferred from a rule (⊗, ⪯ ⪰, \ddot, \boxed, ∭), listed in `spec/braille.md`.
-5. Chemistry: H₂O as ⠠⠓⠆⠠⠕ (a numeric subscript of an upright letter, no indicator) and bonds ⠸⠇ (≡) spaced as comparison signs. Is the transcription of chemistry in Nemeth the right model, or should it follow the BANA chemistry guidelines?
+5. The double-struck one of the indicator function (`\mathbb{1}`, 𝟙): [the digit ⠼⠂, without a typeform]. Should it take the double-struck typeform ⠠⠸, and how does a typeform combine with the numeric indicator? The same holds for bold, sans-serif and typewriter digits (`\mathbf{1}` 𝟏, `\mathsf{1}` 𝟣, `\mathtt{1}` 𝟷), which are drawn in their alphabet since #203 and written as the plain number [⠼⠂].
+6. Chemistry: H₂O as ⠠⠓⠆⠠⠕ (a numeric subscript of an upright letter, no indicator) and bonds ⠸⠇ (≡) spaced as comparison signs. Is the transcription of chemistry in Nemeth the right model, or should it follow the BANA chemistry guidelines?
 
 **CMU**
 1. The signs the 2006 edition does not have and mathra writes as ⠿: hat, cancellation, framed expression, horizontal braces, floor and ceiling, ≅, ↑ ↓, ≺ ≻, labeled arrows. Is there a Brazilian practice for them? Should mathra take the CIB 2024 signs?
@@ -133,3 +134,30 @@ What mathra does now is in brackets.
 5. The evaluation bar `|ₓ₌₀`: [⠸, a blank, then the subscript]. Is the blank right before an index?
 6. Nabla: [⠈⠻]. Does the `ï` of the 2006 text mean 12456?
 7. Do variant letters inside a word (`\mathbb{AaBbCc}`) each take ⠠ or ⠰ [yes]? Is a double-struck C inside a word still ℂ ⠸⠉ [it is, today]?
+8. The double-struck one of the indicator function (`\mathbb{1}`, 𝟙): [the digit ⠼⠁, without a variant prefix]. Is there a sign for it? Likewise bold, sans-serif and typewriter digits (`\mathbf{1}` 𝟏, `\mathsf{1}` 𝟣, `\mathtt{1}` 𝟷, #203): [the plain number ⠼⠁].
+
+**Symbols with no sign in either code (S-BRL-1)**
+
+These come out as the full cell ⠿, with an S-BRL-1 note that names the command. For each: the input, what mathra writes today, and the question.
+
+| Input | Nemeth today | CMU today |
+|---|---|---|
+| `\slashed{p} = \gamma^\mu p_\mu` | ⠏⠿⠀⠨⠅⠀⠨⠛⠘⠨⠍⠐⠏⠰⠨⠍ | ⠏⠿⠶⠈⠛⠡⠈⠍⠏⠌⠈⠍ |
+| `\slashed{\partial}` | ⠈⠙⠿ | ⠸⠙⠿ |
+| `\llceil x \rrceil` | ⠿⠭⠿ | ⠿⠭⠿ |
+| `\llfloor x \rrfloor` | ⠿⠭⠿ | ⠿⠭⠿ |
+| `\varolessthan`, `\varogreaterthan`, `\varocircle`, `\varovee`, `\varowedge` | ⠿ | ⠿ |
+| `\Ydown`, `\Yleft`, `\Yright` | ⠿ | ⠿ |
+| `\nnearrow`, `\mapsfromchar`, `\trianglelefteqslant`, `\inplus` | ⠿ | ⠿ |
+| `\arrownot\rightarrow` | ⠿⠀⠫⠕ | ⠿⠒⠂ |
+| `\shortuparrow` | ⠫⠣⠒⠒⠕ | ⠿ |
+| `\bigbox_{i} A_i` | ⠐⠿⠩⠊⠻⠠⠁⠰⠊ | ⠿⠨⠁⠌⠊ |
+| `\bigparallel`, `\bignplus`, `\bigcurlyvee`, `\bigcurlywedge`, `\bigboxplus`, `\bigominus`, `\bigoslash` | ⠿ | ⠿ |
+| `\Overrightarrow{AB}` | ⠠⠁⠠⠃⠿ | ⠨⠁⠨⠃⠿ |
+| `\varrho`, `\upvarrho` (ϱ), `\varpi` (ϖ), `\varkappa` (ϰ) | ⠿ | ⠿ |
+
+1. `\slashed` (Feynman slash notation, slashed.sty): [the letter, then ⠿ for the slash over it]. Is there a sign for a letter struck through by a slash, or should it be written as the letter with a modifier, as the negated relations are?
+2. The stmaryrd and mathabx symbols drawn by composition (#176): [⠿ for each; the short arrows are written as the arrows where the code has a sign for them]. The doubled ceilings and floors could be two ceilings or floors; the circled operators could take the circle sign of each code. Which ones have a practice?
+3. `\Overrightarrow{AB}` (a double arrow over the letters, esvect and MathJax): [the letters, then ⠿]. `\overrightarrow{AB}` takes the code's arrow over [Nemeth ⠐⠠⠁⠠⠃⠣⠫⠕⠻, CMU ⠒⠂⠢⠨⠁⠨⠃⠔]; should the double arrow be written the same way with the double arrow's sign?
+4. The variant Greek letters ϱ, ϖ and ϰ (`\varrho`, `\varpi`, `\varkappa`; `\upvarrho` is ϱ since #202): [⠿]. Nemeth writes ϑ and ς with its alternative-form indicator (⠨⠈⠎ for ς); do ϱ, ϖ and ϰ take it too? CMU writes ϑ as θ and ς as σ; should ϱ, ϖ and ϰ be ρ, π and κ?
+5. The double-struck one 𝟙 and the bold, sans-serif and typewriter digits: Nemeth question 5 and CMU question 8 above.

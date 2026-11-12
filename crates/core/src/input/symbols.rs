@@ -3,7 +3,18 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use crate::tree::Class;
+use crate::composite;
+use crate::tree::{Class, Variant};
+
+/// The 118 element symbols, and D and T (hydrogen's isotopes, written as elements): what mhchem's
+/// formulas and chemfig's labels are made of.
+pub(crate) const ELEMENTS: &[&str] = &[
+    "H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne", "Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar", "K", "Ca", "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn", "Ga",
+    "Ge", "As", "Se", "Br", "Kr", "Rb", "Sr", "Y", "Zr", "Nb", "Mo", "Tc", "Ru", "Rh", "Pd", "Ag", "Cd", "In", "Sn", "Sb", "Te", "I", "Xe", "Cs", "Ba", "La", "Ce", "Pr", "Nd",
+    "Pm", "Sm", "Eu", "Gd", "Tb", "Dy", "Ho", "Er", "Tm", "Yb", "Lu", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg", "Tl", "Pb", "Bi", "Po", "At", "Rn", "Fr", "Ra", "Ac",
+    "Th", "Pa", "U", "Np", "Pu", "Am", "Cm", "Bk", "Cf", "Es", "Fm", "Md", "No", "Lr", "Rf", "Db", "Sg", "Bh", "Hs", "Mt", "Ds", "Rg", "Cn", "Nh", "Fl", "Mc", "Lv", "Ts", "Og",
+    "D", "T",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Symbol {
@@ -307,11 +318,13 @@ const COMMANDS: &[(&str, char, Class)] = {
         ("leftarrow", '←', Rel),
         ("leftrightarrow", '↔', Rel),
         ("Rightarrow", '⇒', Rel),
-        ("implies", '⇒', Rel),
+        // #250: amsmath's \implies, \impliedby and \iff are the long arrows (\;\Longrightarrow\;): the
+        // thick space on each side is added where they are read (`Reader::long_implication`)
+        ("implies", '⟹', Rel),
         ("Leftarrow", '⇐', Rel),
-        ("impliedby", '⇐', Rel),
+        ("impliedby", '⟸', Rel),
         ("Leftrightarrow", '⇔', Rel),
-        ("iff", '⇔', Rel),
+        ("iff", '⟺', Rel),
         ("longrightarrow", '⟶', Rel),
         ("longleftarrow", '⟵', Rel),
         ("longleftrightarrow", '⟷', Rel),
@@ -516,6 +529,98 @@ const COMMANDS: &[(&str, char, Class)] = {
         ("ss", 'ß', Ord),
         ("l", 'ł', Ord),
         ("smallint", '∫', Op),
+        // #174: textcomp's symbols, in math as MathJax's textcomp sets them (each as its character typed in
+        // math: × a binary operator, → a relation) and in \text. The characters are LaTeX's own (the TS1
+        // lines of utf8ienc.dtx) or, for the names LaTeX does not map, MathJax's (its TextcompMappings.ts).
+        // The text symbols of the kernel that worked only in \text come first
+        ("textasciicircum", '^', Ord),
+        ("textasciitilde", '~', Ord),
+        ("textbar", '|', Ord),
+        ("textbardbl", '‖', Ord),
+        ("textbraceleft", '{', Open),
+        ("textbraceright", '}', Close),
+        ("textbullet", '•', Ord),
+        ("textdagger", '†', Ord),
+        ("textdaggerdbl", '‡', Ord),
+        ("textdollar", '$', Ord),
+        ("textellipsis", '…', Ord),
+        ("textemdash", '—', Ord),
+        ("textendash", '–', Ord),
+        ("textexclamdown", '¡', Ord),
+        ("textordfeminine", 'ª', Ord),
+        ("textordmasculine", 'º', Ord),
+        ("textparagraph", '¶', Ord),
+        ("textperiodcentered", '·', Bin),
+        ("textquestiondown", '¿', Ord),
+        ("textquotedblleft", '“', Ord),
+        ("textquotedblright", '”', Ord),
+        ("textquoteleft", '‘', Ord),
+        ("textquoteright", '’', Ord),
+        ("textsection", '§', Ord),
+        ("textunderscore", '_', Ord),
+        ("textvisiblespace", '␣', Ord),
+        // diacritics
+        ("textacutedbl", '˝', Ord),
+        ("textasciiacute", '´', Ord),
+        ("textasciibreve", '˘', Ord),
+        ("textasciicaron", 'ˇ', Ord),
+        ("textasciidieresis", '¨', Ord),
+        ("textasciimacron", '¯', Ord),
+        ("texttildelow", '˷', Ord),
+        // currency
+        ("textcurrency", '¤', Ord),
+        ("textdong", '₫', Ord),
+        ("textflorin", 'ƒ', Ord),
+        ("textlira", '₤', Ord),
+        ("textyen", '¥', Ord),
+        // legal
+        ("textcircledP", '℗', Ord),
+        ("textservicemark", '℠', Ord),
+        ("texttrademark", '™', Ord),
+        // miscellaneous
+        ("textbigcircle", '◯', Ord),
+        ("textblank", '␢', Ord),
+        ("textbrokenbar", '¦', Ord),
+        ("textdiscount", '⁒', Ord),
+        ("textestimated", '℮', Ord),
+        ("textmusicalnote", '♪', Ord),
+        ("textnumero", '№', Ord),
+        ("textopenbullet", '◦', Ord),
+        ("textpertenthousand", '‱', Ord),
+        ("textrecipe", '℞', Ord),
+        ("textreferencemark", '※', Ord),
+        // delimiters (LaTeX maps U+2329, U+3008 and U+27E8 to \textlangle: the one of \langle)
+        ("textlangle", '⟨', Open),
+        ("textrangle", '⟩', Close),
+        ("textlbrackdbl", '⟦', Open),
+        ("textrbrackdbl", '⟧', Close),
+        // math and science
+        ("textcelsius", '℃', Ord),
+        ("textdiv", '÷', Bin),
+        ("textdownarrow", '↓', Rel),
+        ("textfractionsolidus", '⁄', Ord),
+        ("textleftarrow", '←', Rel),
+        ("textlnot", '¬', Ord),
+        ("textmho", '℧', Ord),
+        ("textminus", '−', Bin),
+        ("textohm", '\u{2126}', Ord),
+        ("textonehalf", '½', Ord),
+        ("textonequarter", '¼', Ord),
+        ("textonesuperior", '¹', Ord),
+        ("textpm", '±', Bin),
+        ("textrightarrow", '→', Rel),
+        ("textsurd", '√', Ord),
+        ("textthreequarters", '¾', Ord),
+        ("textthreesuperior", '³', Ord),
+        ("texttimes", '×', Bin),
+        ("texttwosuperior", '²', Ord),
+        ("textuparrow", '↑', Rel),
+        // genealogy
+        ("textdied", '†', Ord),
+        ("textmarried", '⚭', Ord),
+        ("textdivorced", '⚮', Ord),
+        // gensymb's \perthousand (its \ohm, \degree, \celsius and \micro are above)
+        ("perthousand", '‰', Ord),
         // the LaTeX kernel
         ("mathellipsis", '…', Inner),
         ("mathsterling", '£', Ord),
@@ -546,11 +651,164 @@ const COMMANDS: &[(&str, char, Class)] = {
         ("lBrace", '⦃', Open),
         ("rBrace", '⦄', Close),
         ("mapsfrom", '↤', Rel),
+        ("lightning", '↯', Ord),
+        ("Mapsto", '⤇', Rel),
+        ("Mapsfrom", '⤆', Rel),
+        ("Longmapsto", '⟾', Rel),
+        ("Longmapsfrom", '⟽', Rel),
+        ("longmapsfrom", '⟻', Rel),
+        ("boxbox", '⧈', Bin),
+        ("boxslash", '⧄', Bin),
+        ("boxbslash", '⧅', Bin),
+        ("boxast", '⧆', Bin),
+        ("boxcircle", '⧇', Bin),
+        ("obar", '⦶', Bin),
+        ("obslash", '⦸', Bin),
+        ("olessthan", '⧀', Bin),
+        ("ogreaterthan", '⧁', Bin),
+        ("fatsemi", '⨟', Bin),
+        ("interleave", '⫴', Bin),
+        ("talloblong", '⫾', Bin),
+        ("sslash", '⫽', Bin),
+        ("Lbag", '⟅', Open),
+        ("Rbag", '⟆', Close),
+        ("llparenthesis", '⦇', Open),
+        ("rrparenthesis", '⦈', Close),
+        // #176: the rest of stmaryrd that Unicode has a character for, in the class stmaryrd.dtx declares;
+        // the characters from unicode-math-table.tex (same names), unimathsymbols.txt (Günter Milde) or,
+        // for \minuso, KaTeX's macros.ts
+        ("minuso", '⦵', Bin),
+        ("Yup", '⅄', Bin),
+        ("boxbar", '◫', Bin),
+        ("leftslice", '⪦', Bin),
+        ("rightslice", '⪧', Bin),
+        ("binampersand", '&', Open),
+        ("bindnasrepma", '⅋', Close),
+        ("subsetplus", '⪿', Rel),
+        ("supsetplus", '⫀', Rel),
+        ("leftarrowtriangle", '⇽', Rel),
+        ("rightarrowtriangle", '⇾', Rel),
+        ("leftrightarrowtriangle", '⇿', Rel),
+        // and of mathabx (mathabx.dcl: \notdivides, aliased \ndivides, is the negated \divides)
+        ("ndivides", '∤', Rel),
+        ("notdivides", '∤', Rel),
+        ("leftsquigarrow", '⇜', Rel),
+        ("Sun", '☉', Ord),
+        // mathabx.dcl's \curvearrowbotright: the curved arrow under, to the right, which is Unicode's
+        // BOTTOM ARC ANTICLOCKWISE ARROW (mathtest.pdf and STIX Two Math draw the same arc and head)
+        ("curvearrowbotright", '⤻', Rel),
+        // #176: stmaryrd's \varo… forms are its circle operators drawn circular and with the rule's pen
+        // (stmaryjg.mf's begincircle) where Computer Modern's are hairline; STIX Two Math and Latin
+        // Modern Math already draw these circular, at their rule thickness, with the same inner stroke
+        ("varotimes", '⊗', Bin),
+        ("varoplus", '⊕', Bin),
+        ("varominus", '⊖', Bin),
+        ("varodot", '⊙', Bin),
+        ("varoslash", '⊘', Bin),
+        ("varobslash", '⦸', Bin),
+        ("varobar", '⦶', Bin),
+        ("varoast", '⊛', Bin),
+        ("varbigcirc", '◯', Bin),
+        // and the ones Unicode has no character for, drawn by composition (composite.rs)
+        ("llceil", composite::LLCEIL, Open),
+        ("rrceil", composite::RRCEIL, Close),
+        ("llfloor", composite::LLFLOOR, Open),
+        ("rrfloor", composite::RRFLOOR, Close),
+        ("varocircle", composite::VAROCIRCLE, Bin),
+        ("varolessthan", composite::VAROLESSTHAN, Bin),
+        ("varogreaterthan", composite::VAROGREATERTHAN, Bin),
+        ("varovee", composite::VAROVEE, Bin),
+        ("varowedge", composite::VAROWEDGE, Bin),
+        ("Ydown", composite::YDOWN, Bin),
+        ("Yleft", composite::YLEFT, Bin),
+        ("Yright", composite::YRIGHT, Bin),
+        ("shortleftarrow", composite::SHORTLEFTARROW, Rel),
+        ("shortrightarrow", composite::SHORTRIGHTARROW, Rel),
+        ("shortuparrow", composite::SHORTUPARROW, Rel),
+        ("shortdownarrow", composite::SHORTDOWNARROW, Rel),
+        ("nnearrow", composite::NNEARROW, Rel),
+        ("arrownot", composite::ARROWNOT, Rel),
+        ("mapsfromchar", composite::MAPSFROMCHAR, Rel),
+        ("trianglelefteqslant", composite::TRIANGLELEFTEQSLANT, Rel),
+        ("inplus", composite::INPLUS, Rel),
+        // marvosym: its lightning, for a contradiction as stmaryrd's
+        ("Lightning", '↯', Ord),
+        // wasysym
+        ("invneg", '⌐', Rel),
+        ("checked", '✓', Ord),
+        ("diameter", '⌀', Ord),
+        // #177: wasysym's \smiley; revtex's \openone, the identity drawn as a double-struck one (revsymb
+        // overprints two 1s); unicode-math's \lAngle, \rAngle and \wedgeq, which is mathabx's \corresponds
+        ("smiley", '☺', Ord),
+        ("openone", '𝟙', Ord),
+        ("lAngle", '⟪', Open),
+        ("rAngle", '⟫', Close),
+        ("wedgeq", '≙', Rel),
+        ("corresponds", '≙', Rel),
         // unicode-math
         ("imageof", '⊷', Rel),
         ("origof", '⊶', Rel),
+        // #172: KaTeX's texvc aliases (its macros.ts, "texvc.sty"), the ones that are one symbol, each as
+        // the command KaTeX expands it to; the rest are in `texvc_macro`
+        ("alef", 'ℵ', Ord),
+        ("alefsym", 'ℵ', Ord),
+        ("bull", '•', Bin),
+        ("clubs", '♣', Ord),
+        ("diamonds", '♢', Ord),
+        ("hearts", '♡', Ord),
+        ("spades", '♠', Ord),
+        ("Dagger", '‡', Bin),
+        ("empty", '∅', Ord),
+        ("exist", '∃', Ord),
+        ("image", 'ℑ', Ord),
+        ("infin", '∞', Ord),
+        ("isin", '∈', Rel),
+        ("plusmn", '±', Bin),
+        ("real", 'ℜ', Ord),
+        ("sdot", '·', Bin),
+        ("sect", '§', Ord),
+        ("sub", '⊂', Rel),
+        ("sube", '⊆', Rel),
+        ("supe", '⊇', Rel),
+        ("weierp", '℘', Ord),
+        ("lang", '⟨', Open),
+        ("rang", '⟩', Close),
+        ("darr", '↓', Rel),
+        ("dArr", '⇓', Rel),
+        ("Darr", '⇓', Rel),
+        ("uarr", '↑', Rel),
+        ("uArr", '⇑', Rel),
+        ("Uarr", '⇑', Rel),
+        ("larr", '←', Rel),
+        ("lArr", '⇐', Rel),
+        ("Larr", '⇐', Rel),
+        ("rarr", '→', Rel),
+        ("rArr", '⇒', Rel),
+        ("Rarr", '⇒', Rel),
+        ("harr", '↔', Rel),
+        ("hArr", '⇔', Rel),
+        ("Harr", '⇔', Rel),
+        ("lrarr", '↔', Rel),
+        ("lrArr", '⇔', Rel),
+        ("Lrarr", '⇔', Rel),
     ]
 };
+
+/// #172: KaTeX's texvc aliases that are more than one symbol, as KaTeX expands them (its macros.ts and,
+/// for `\bold` and `\frak`, font.ts). An author's `\newcommand` or `\def` of the same name comes first.
+/// The operators (`\sh`, `\ctg`, `\plim`…) are in [`function`].
+pub fn texvc_macro(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "N" | "natnums" => "\\mathbb{N}",
+        "R" | "Reals" | "reals" => "\\mathbb{R}",
+        "Z" => "\\mathbb{Z}",
+        "cnums" | "Complex" => "\\mathbb{C}",
+        "thetasym" => "\\vartheta ",
+        "bold" => "\\mathbf ",
+        "frak" => "\\mathfrak ",
+        _ => return None,
+    })
+}
 
 /// The commands by name, and the class of each character.
 type Table = (HashMap<&'static str, Symbol>, HashMap<char, Class>);
@@ -657,10 +915,42 @@ pub fn greek(name: &str) -> Option<char> {
         "Rho" => 'Ρ',
         "Tau" => 'Τ',
         "Chi" => 'Χ',
+        // #177: the archaic letters, as texvc (LaTeXML's texvc.sty.ltxml) and arevmath (unimathsymbols.txt)
+        // map them: \Coppa is the archaic koppa Ϙ, \Koppa the numeral one Ϟ
+        "Coppa" => 'Ϙ',
+        "coppa" => 'ϙ',
+        "Koppa" => 'Ϟ',
+        "koppa" => 'ϟ',
+        "Stigma" => 'Ϛ',
+        "stigma" => 'ϛ',
+        "Sampi" => 'Ϡ',
+        "sampi" => 'ϡ',
         "upgamma" => 'γ',
         "digamma" => 'ϝ',
         "Digamma" => 'Ϝ',
         "varkappa" => 'ϰ',
+        // #168: upgreek's capitals and var forms (upgreek.dtx), upright like the rest of `\up…`.
+        // #202: `\upvarrho` and `\upvarsigma` are ϱ and ς, as MathJax's upgreek extension draws them (the
+        // package itself `\let`s them to `\uprho` and `\upsigma`, having no upright ϱ or ς).
+        // `\upomicron` is MathJax's (its upgreek extension), not the package's
+        "Upgamma" => 'Γ',
+        "Updelta" => 'Δ',
+        "Uptheta" => 'Θ',
+        "Uplambda" => 'Λ',
+        "Upxi" => 'Ξ',
+        "Uppi" => 'Π',
+        "Upsigma" => 'Σ',
+        "Upupsilon" => 'Υ',
+        "Upphi" => 'Φ',
+        "Uppsi" => 'Ψ',
+        "Upomega" => 'Ω',
+        "upvarepsilon" => 'ε',
+        "upvartheta" => 'ϑ',
+        "upvarpi" => 'ϖ',
+        "upvarrho" => 'ϱ',
+        "upvarsigma" => 'ς',
+        "upvarphi" => 'φ',
+        "upomicron" => 'ο',
         _ => return None,
     })
 }
@@ -668,6 +958,28 @@ pub fn greek(name: &str) -> Option<char> {
 /// Upright Greek (`\upmu`) takes no italic.
 pub fn greek_upright(name: &str) -> bool {
     name.starts_with("up") || name.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+}
+
+/// #173: unicode-math's alphabet commands (its manual, "Maths style commands": `\mathbfcal`, `\mathsfit`,
+/// `\symcal`…) and bbm's sans-serif and typewriter blackboard bold, which Unicode has no letters for
+/// and are drawn as the double-struck ones. `\mathbfcal` and `\mathbfscr` are the one bold script.
+pub fn unicode_math_alphabet(name: &str) -> Option<Variant> {
+    Some(match name {
+        "mathbfup" => Variant::Bold,
+        "mathsfup" | "symsf" => Variant::SansSerif,
+        "mathbfsf" | "mathbfsfup" => Variant::BoldSansSerif,
+        "mathsfit" => Variant::SansSerifItalic,
+        "mathbfsfit" => Variant::SansSerifBoldItalic,
+        "mathbfcal" | "mathbfscr" => Variant::BoldScript,
+        "mathbffrak" => Variant::BoldFraktur,
+        "symup" => Variant::Upright,
+        "symnormal" => Variant::Italic,
+        "symcal" | "symscr" => Variant::Calligraphic,
+        "symfrak" => Variant::Fraktur,
+        "symtt" => Variant::Monospace,
+        "symbb" | "mathbbmss" | "mathbbmtt" => Variant::DoubleStruck,
+        _ => return None,
+    })
 }
 
 /// Named functions: (canonical name, limits below in display style). Accepts the Brazilian names.
@@ -713,8 +1025,21 @@ pub fn function(name: &str) -> Option<(&'static str, bool)> {
         "Pr" => ("Pr", true),
         "argmax" => ("arg max", true),
         "argmin" => ("arg min", true),
+        // #172: KaTeX's texvc operators, read as the functions they name, as \cotg and \senh are;
+        // \plim is statmath's (KaTeX: \mathop{\operatorname{plim}}\limits)
+        "sh" => ("sinh", false),
+        "ch" => ("cosh", false),
+        "th" => ("tanh", false),
+        "cth" => ("coth", false),
+        "plim" => ("plim", true),
         _ => return None,
     })
+}
+
+/// A large operator that takes its limits under and over in display style when nothing says otherwise
+/// (∑, ⋃), as [`large_operator`] gives them; the integrals take them at the side.
+pub fn limits_by_default(c: char) -> bool {
+    matches!(c, '∑' | '∏' | '∐' | '⋃' | '⋂' | '⨁' | '⨂' | '⨀' | '⋁' | '⋀' | '⨆' | '⨄' | '⨅' | '⫼' | '⨉') || composite::get(c).is_some_and(|k| k.class == Class::Op)
 }
 
 /// Large operators and whether, by default, they take limits below and above in display style.
@@ -732,6 +1057,8 @@ pub fn large_operator(name: &str) -> Option<(char, bool)> {
         "bigwedge" => ('⋀', true),
         "bigsqcup" => ('⨆', true),
         "biguplus" => ('⨄', true),
+        // mathtools
+        "bigtimes" => ('⨉', true),
         "int" => ('∫', false),
         // plain TeX's \intop and \ointop: the integral that takes limits
         "intop" => ('∫', true),
@@ -743,10 +1070,23 @@ pub fn large_operator(name: &str) -> Option<(char, bool)> {
         "oiint" | "varoiint" => ('∯', false),
         "oiiint" => ('∰', false),
         "intclockwise" => ('∱', false),
-        "varointclockwise" => ('∲', false),
-        "ointctrclockwise" => ('∳', false),
+        // esint draws two of each, with the arrow on either side of the loop; Unicode has one
+        "ointclockwise" | "varointclockwise" => ('∲', false),
+        "ointctrclockwise" | "varointctrclockwise" => ('∳', false),
         "fint" => ('⨏', false),
         "sqint" => ('⨖', false),
+        // #176: stmaryrd's (unicode-math-table.tex: \bigsqcap, \biginterleave)
+        "bigsqcap" => ('⨅', true),
+        "biginterleave" => ('⫼', true),
+        // drawn by composition (composite.rs): stmaryrd's and mathabx's
+        "bigbox" => (composite::BIGBOX, true),
+        "bigparallel" => (composite::BIGPARALLEL, true),
+        "bignplus" => (composite::BIGNPLUS, true),
+        "bigcurlyvee" => (composite::BIGCURLYVEE, true),
+        "bigcurlywedge" => (composite::BIGCURLYWEDGE, true),
+        "bigboxplus" => (composite::BIGBOXPLUS, true),
+        "bigominus" => (composite::BIGOMINUS, true),
+        "bigoslash" => (composite::BIGOSLASH, true),
         _ => return None,
     })
 }
@@ -779,6 +1119,20 @@ pub fn delimiter_command(name: &str) -> Option<Option<char>> {
         "rparen" => ')',
         "lBrace" => '⦃',
         "rBrace" => '⦄',
+        // stmaryrd
+        "Lbag" => '⟅',
+        "Rbag" => '⟆',
+        "llparenthesis" => '⦇',
+        "rrparenthesis" => '⦈',
+        // #176: stmaryrd declares its doubled ceilings and floors as symbols, not delimiters; grown here
+        // as two of the single ones, as \Lbag and \llparenthesis are
+        "llceil" => composite::LLCEIL,
+        "rrceil" => composite::RRCEIL,
+        "llfloor" => composite::LLFLOOR,
+        "rrfloor" => composite::RRFLOOR,
+        // #177: unicode-math's double angle brackets
+        "lAngle" => '⟪',
+        "rAngle" => '⟫',
         "rgroup" => '⟯',
         "lmoustache" => '⎰',
         "rmoustache" => '⎱',
@@ -786,6 +1140,18 @@ pub fn delimiter_command(name: &str) -> Option<Option<char>> {
         "Arrowvert" => '‖',
         "bracevert" => '⎪',
         "backslash" => '\\',
+        // #172: KaTeX's texvc aliases of delimiters (KaTeX expands them before \left reads one)
+        "lang" => '⟨',
+        "rang" => '⟩',
+        "uarr" => '↑',
+        "darr" => '↓',
+        "uArr" | "Uarr" => '⇑',
+        "dArr" | "Darr" => '⇓',
+        // amssymb's corners (U+231C–231F), which STIX draws in one size
+        "ulcorner" => '⌜',
+        "urcorner" => '⌝',
+        "llcorner" => '⌞',
+        "lrcorner" => '⌟',
         _ => return None,
     }))
 }
@@ -827,8 +1193,6 @@ pub fn accent(name: &str) -> Option<(char, bool)> {
         "Dot" => ('\u{0307}', false),
         "Ddot" => ('\u{0308}', false),
         "vec" => ('\u{20D7}', false),
-        "Overrightarrow" => ('⇒', true),
-        "overgroup" => ('⏠', true),
         "r" => ('\u{030A}', false),
         "overrightarrow" => ('→', true),
         "overleftarrow" => ('←', true),
@@ -838,6 +1202,17 @@ pub fn accent(name: &str) -> Option<(char, bool)> {
         "overrightharpoon" => ('⇀', true),
         "overarc" | "wideparen" | "overparen" | "arc" => ('⏜', true),
         "underparen" => ('⏝', true),
+        // KaTeX's group accents (MnSymbol, yhmath): a wide arc with corners over or under the base
+        "overgroup" => ('⏠', true),
+        "undergroup" => ('⏡', true),
+        // esvect's vector arrow, which stretches as \overrightarrow does (\vv* is in latex.rs)
+        "vv" => ('→', true),
+        // KaTeX's double arrow and line segment (a line with a tick at each end, drawn by the layout;
+        // U+20E9, the combining wide bridge, stands for it in the tree and the MathML)
+        "Overrightarrow" => ('⇒', true),
+        "overlinesegment" => ('\u{20E9}', true),
+        // mathabx's bar that widens with its base
+        "widebar" => ('\u{0304}', true),
         _ => return None,
     })
 }
@@ -868,6 +1243,27 @@ pub fn text_combining(mark: char) -> Option<char> {
         'b' => '\u{0331}',
         'd' => '\u{0323}',
         't' => '\u{0361}',
+        _ => return None,
+    })
+}
+
+/// L-TXT-6: the accent alone, for a text accent with an empty argument (`\^{}`): its spacing character.
+/// `\b`, `\d` and `\t` have none.
+pub fn text_spacing(mark: char) -> Option<char> {
+    Some(match mark {
+        '\'' => '\u{00B4}',
+        '`' => '`',
+        '^' => '\u{02C6}',
+        '~' => '\u{02DC}',
+        '"' => '\u{00A8}',
+        'c' => '\u{00B8}',
+        '=' => '\u{00AF}',
+        '.' => '\u{02D9}',
+        'u' => '\u{02D8}',
+        'v' => '\u{02C7}',
+        'H' => '\u{02DD}',
+        'r' => '\u{02DA}',
+        'k' => '\u{02DB}',
         _ => return None,
     })
 }

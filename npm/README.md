@@ -70,11 +70,11 @@ Without a bundler, from a CDN:
 |---|---|
 | `init(input?)` | Loads the wasm. Needed once in browsers and bundlers; does nothing in Node. `input` overrides where the wasm comes from (a URL, a `Response`, bytes or a `WebAssembly.Module`). |
 | `texToSvg(tex, options?)` | The SVG as a string. |
-| `render(tex, options?)` | `{ svg, speech, text, braille, braille_code, tree, applied, warnings }`. |
+| `render(tex, options?)` | `{ svg, speech, text, braille, braille_code, mathml, tree, applied, warnings, boxes }`. `mathml` is the equation as MathML Core (`display` decides `display="block"` or `"inline"`), with `intent` where it adds meaning, and a `<semantics>` with the source for what MathML cannot draw ([spec/mathml.md](https://github.com/matheusmota-dev-br/mathra/blob/main/spec/mathml.md)). `boxes` has the box of each group marked with `\htmlData`, `\htmlId` or `\class`, in the SVG's coordinates: what an editor needs to place a cursor. |
 | `locales()` | `[{ code: "en", name: "English" }, …]`. |
 | `version` | The version of mathra's core inside the package (the npm package has its own version). |
 
-Options: `locale` (`"en"` by default, `"pt-BR"`, `"es"`, `"fr"`, `"de"`, `"it"`, `"ru"`, `"zh"`, `"ja"`, `"ko"`, `"hi"`, `"ar"`, `"id"`, `"tr"`, `"nl"`, `"pl"`), `display` (`true` by default; `false` for inline style) `strict` (`false` by default: broken LaTeX is drawn with warnings instead of throwing) and `input` (`"latex"` by default, `"mathml"` or `"asciimath"`; MathML passed as LaTeX, starting with `<math`, is recognized on its own) and `braille` (`"cmu"` or `"nemeth"`; by default the locale's: CMU in pt-BR and es, Nemeth elsewhere), `animate` (`false` by default; `true` makes the SVG write itself in the browser) and `steps` (`false` by default; `true` numbers each element by its step, `data-step`, with no animation). A plain string as the second argument is read as the locale.
+Options: `locale` (`"en"` by default, `"pt-BR"`, `"es"`, `"fr"`, `"de"`, `"it"`, `"ru"`, `"zh"`, `"ja"`, `"ko"`, `"hi"`, `"ar"`, `"id"`, `"tr"`, `"nl"`, `"pl"`), `display` (`true` by default; `false` for inline style) `strict` (`false` by default: broken LaTeX is drawn with warnings instead of throwing) and `input` (`"latex"` by default, `"mathml"` or `"asciimath"`; MathML passed as LaTeX, starting with `<math`, is recognized on its own) and `braille` (`"cmu"` or `"nemeth"`; by default the locale's: CMU in pt-BR and es, Nemeth elsewhere), `animate` (`false` by default; `true` makes the SVG write itself in the browser) `steps` (`false` by default; `true` numbers each element by its step, `data-step`, with no animation) and `maxWidth` (in em, none by default: a wider equation is broken into lines after a relation, or also after `+` and `−` when relations alone are not enough, only at its top level, each line a `<g data-line>` of the SVG; speech, text and braille do not change), `labels` and `citations` (objects from a key to its number, for the cross-references an equation converted alone cannot know: with `{ labels: { "eq:a": 3 }, citations: { knuth: 1 } }`, `\eqref{eq:a}` shows `(3)`, `\ref{eq:a}` shows `3` and `\cite{knuth}` shows `[1]`; an unknown key is `(??)`, `??` or `[?]`, as on LaTeX's first run, with a warning, or an error with `strict`). A plain string as the second argument is read as the locale.
 
 ## Chemistry and diagrams
 
@@ -117,9 +117,20 @@ texToSvg(String.raw`e^{i\pi} + 1 = 0`, { font });
 
 All the fonts of the catalog are under licenses that let the SVG carry their outlines (OFL, GUST, Apache-2.0, MIT).
 
+## Emoji and other characters the math font lacks
+
+A character the math font does not have is drawn as a box, with the warning E-REC-8 (or refused with `strict`). Fallback fonts fill the gap: they are tried in order, and the glyph's outline goes in the SVG like any other, in the text color. Any `.otf` or `.ttf` with outlines works, MATH table or not, such as [Noto Emoji](https://fonts.google.com/noto/specimen/Noto+Emoji) (the monochrome one) or a CJK font for `\text{…}`. A math font from `loadFont` or `loadFontFromCatalog` can be one too.
+
+```js
+const emoji = loadFallbackFont(await readFile("NotoEmoji-Regular.ttf")); // { id, name, fallback: true }
+texToSvg("E = mc^2 😀", { fallbackFonts: [emoji] });
+```
+
+The npm package embeds no emoji font, to keep the download small; the Python package and the terminal embed Noto Emoji, so emoji are drawn there without asking, and give a box here unless you pass a font.
+
 ## Also for Python, Rust and the terminal
 
-The same core is a Python module, a Rust crate and a command-line tool, and every one gives the same SVG, byte for byte. How to install each: [github.com/matheusmota-dev-br/mathra](https://github.com/matheusmota-dev-br/mathra#install-and-use). Rules, languages and the full list of supported commands are there too.
+The same core is a Python module, a Rust crate and a command-line tool, and every one gives the same SVG, byte for byte (emoji aside: see above). How to install each: [github.com/matheusmota-dev-br/mathra](https://github.com/matheusmota-dev-br/mathra#install-and-use). Rules, languages and the full list of supported commands are there too.
 
 ## License
 

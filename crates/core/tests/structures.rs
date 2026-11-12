@@ -3,7 +3,7 @@
 
 use mathra::layout::{compose, Context, Item, MathBox, Style};
 use mathra::rules::Registry;
-use mathra::tree::{Node, TableKind};
+use mathra::tree::{Node, TableKind, Variant};
 use mathra::{convert, Locale, Options};
 
 fn pt(tex: &str) -> mathra::Output {
@@ -13,7 +13,7 @@ fn pt(tex: &str) -> mathra::Output {
 fn math_box(tex: &str) -> MathBox {
     let mut registry = Registry::default();
     let tree = mathra::input::latex::read(tex, Locale::PtBr, &mut registry).unwrap();
-    let mut ctx = Context { locale: Locale::PtBr, registry: &mut registry, strict: true, kerning: Default::default() };
+    let mut ctx = Context { locale: Locale::PtBr, registry: &mut registry, strict: true, kerning: Default::default(), fallbacks: &[] };
     compose(&tree, Style::display(), &mut ctx).unwrap()
 }
 
@@ -31,7 +31,7 @@ fn l_num_3_thousands_dot_in_pt_br_is_kept() {
     let r = pt(r"5,3 \times 1.000");
     assert_eq!(r.text, "5,3 × 1.000");
     assert!(rules(&r).contains(&"L-NUM-3"));
-    assert_eq!(pt("12.345,67").tree.children(), &[Node::Number { value: "12345.67".into(), group: false, thousands: Some('.') }]);
+    assert_eq!(pt("12.345,67").tree.children(), &[Node::Number { value: "12345.67".into(), group: false, thousands: Some('.'), variant: Variant::Upright }]);
     // a dot followed by two digits stays decimal
     assert_eq!(pt("3.14").text, "3,14");
 }

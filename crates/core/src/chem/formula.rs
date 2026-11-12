@@ -4,16 +4,8 @@
 
 use std::collections::BTreeMap;
 
-use super::model::{Atom, Molecule};
-
-/// The 118 element symbols.
-const ELEMENTS: &[&str] = &[
-    "H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne", "Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar", "K", "Ca", "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn", "Ga",
-    "Ge", "As", "Se", "Br", "Kr", "Rb", "Sr", "Y", "Zr", "Nb", "Mo", "Tc", "Ru", "Rh", "Pd", "Ag", "Cd", "In", "Sn", "Sb", "Te", "I", "Xe", "Cs", "Ba", "La", "Ce", "Pr", "Nd",
-    "Pm", "Sm", "Eu", "Gd", "Tb", "Dy", "Ho", "Er", "Tm", "Yb", "Lu", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg", "Tl", "Pb", "Bi", "Po", "At", "Rn", "Fr", "Ra", "Ac",
-    "Th", "Pa", "U", "Np", "Pu", "Am", "Cm", "Bk", "Cf", "Es", "Fm", "Md", "No", "Lr", "Rf", "Db", "Sg", "Bh", "Hs", "Mt", "Ds", "Rg", "Cn", "Nh", "Fl", "Mc", "Lv", "Ts", "Og",
-    "D", "T",
-];
+use super::model::{Atom, ChargeContent, Molecule};
+use crate::input::symbols::ELEMENTS;
 
 /// Group abbreviations of organic chemistry and what they stand for. They take precedence over
 /// element symbols they look like (`Ac` is acetyl in a structure, not actinium; `Ts` is tosyl).
@@ -156,8 +148,31 @@ pub fn of(molecule: &Molecule) -> Formula {
         } else {
             label(atom, &mut f);
         }
+        // a \charge that writes a formal charge, ⊕ or ⊖ (a δ+ is not one)
+        for charge in &atom.charges {
+            if let ChargeContent::Text { tex } = &charge.content {
+                f.charge += formal_charge(tex);
+            }
+        }
     }
     f
+}
+
+/// The formal charge a `\charge` writes: `$\oplus$`, `$+$`, `$\scriptstyle\ominus$`, `$2-$`; 0 for
+/// anything else.
+fn formal_charge(tex: &str) -> i32 {
+    let mut t = tex.replace(['$', '{', '}', ' '], "");
+    for style in ["\\scriptscriptstyle", "\\scriptstyle", "\\textstyle", "\\small", "\\scriptsize", "\\tiny"] {
+        t = t.replace(style, "");
+    }
+    let t = t.trim_start_matches('^').replace("\\oplus", "+").replace("\\ominus", "-");
+    let (digits, sign) = t.split_at(t.find(['+', '-']).unwrap_or(t.len()));
+    let n: i32 = if digits.is_empty() { 1 } else { digits.parse().unwrap_or(0) };
+    match sign {
+        "+" => n,
+        "-" => -n,
+        _ => 0,
+    }
 }
 
 /// Counts what a label says: `CH_2OH` is C, H₂, O, H; `(CH_2)_3` repeats; `NH_3^+` adds a charge.
@@ -176,14 +191,16 @@ fn label(atom: &Atom, f: &mut Formula) {
         if ch == ')' {
             i += 1;
             let n = number(&c, &mut i).unwrap_or(1);
-            let inner = stack.pop().unwrap_or_default();
-            let top = stack.last_mut().expect("the outer level is never popped");
+            // a ')' with no '(' before it (the reader warned about it) counts nothing (#210)
+            let [.., top, inner] = stack.as_mut_slice() else { continue };
+            let inner = std::mem::take(inner);
             for (e, k) in inner.counts {
                 top.add(&e, k * n);
             }
             for _ in 0..n {
                 top.unknown.extend(inner.unknown.iter().cloned());
             }
+            stack.pop();
             continue;
         }
         if ch == '^' {
@@ -199,7 +216,8 @@ fn label(atom: &Atom, f: &mut Formula) {
                 let two: String = c[i..].iter().take(2).collect();
                 if two.len() == 2 && c[i + 1].is_ascii_lowercase() && ELEMENTS.contains(&two.as_str()) {
                     Some((2, None, ""))
-                } else if ELEMENTS.contains(&ch.to_string().as_str()) {
+                } else if ELEMENTS.contains(&ch.to_string().as_str()) && !c.get(i + 1).is_some_and(char::is_ascii_lowercase) {
+                    // a capital followed by a lowercase letter is one symbol: Nu is not N and a lost u
                     Some((1, None, ""))
                 } else {
                     None
@@ -292,6 +310,7 @@ fn charge(c: &[char], i: &mut usize) -> (i32, u32) {
 
 #[cfg(test)]
 mod tests {
+    use super::super::model::{Charge, Ring};
     use super::*;
 
     fn atom(label: &str) -> Formula {
@@ -302,6 +321,24 @@ mod tests {
 
     fn label_into(text: &str, f: &mut Formula) {
         label(&Atom { label: text.to_string(), ..Atom::default() }, f);
+    }
+
+    fn charged(label: &str, tex: &str) -> Atom {
+        let charge = Charge { angle: 0.0, offset: 0.0, piece: 0, anchor: None, content: ChargeContent::Text { tex: tex.to_string() } };
+        Atom { label: label.to_string(), charges: vec![charge], ..Atom::default() }
+    }
+
+    #[test]
+    fn a_molecule_counts_its_vertices_labels_and_formal_charges() {
+        // a lone vertex of an aromatic ring: a carbon, its shared delocalized bond and three hydrogens
+        let ring = Ring { size: 1, atoms: vec![0], aromatic: true, arc: None, dashed: false };
+        let molecule = Molecule { atoms: vec![Atom::default(), charged("N", "$\\oplus$")], rings: vec![ring], ..Molecule::default() };
+        let f = of(&molecule);
+        assert_eq!(f.written(), "CH₃N⁺");
+        // a δ+ is no formal charge; the sizes and styles around a sign are not read
+        assert_eq!(of(&Molecule { atoms: vec![charged("O", "$\\delta^+$")], ..Molecule::default() }).charge, 0);
+        assert_eq!(formal_charge("$\\scriptstyle 2-$"), -2);
+        assert_eq!(formal_charge("{x+}"), 0);
     }
 
     #[test]
@@ -319,6 +356,10 @@ mod tests {
         assert_eq!(atom("Cl").written(), "Cl");
         assert_eq!(atom("R'").written(), "R'");
         assert_eq!(atom("\\mathrm{Br}").written(), "Br");
+        // a capital and a lowercase letter that are no element are kept whole, not read as the capital
+        assert_eq!(atom("Nu").written(), "Nu");
+        assert_eq!(atom("CNu").written(), "CNu");
+        assert_eq!(atom("Cy").written(), "Cy");
     }
 
     #[test]

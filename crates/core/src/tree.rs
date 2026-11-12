@@ -16,6 +16,10 @@ pub enum Node {
         /// L-NUM-3: thousands separator the author wrote (`1.000` in pt-BR), kept in the drawing.
         #[serde(skip_serializing_if = "Option::is_none")]
         thousands: Option<char>,
+        /// #203: the alphabet of its digits (`\mathbf{1}` is 𝟏): bold, sans-serif, bold sans-serif or
+        /// monospace, the ones Unicode has digits for; upright otherwise.
+        #[serde(skip_serializing_if = "Variant::is_upright")]
+        variant: Variant,
     },
     /// Single-letter variable or constant: "x".
     Identifier {
@@ -32,17 +36,20 @@ pub enum Node {
     },
     /// Operator, relation, punctuation or delimiter.
     Operator {
+        #[serde(serialize_with = "composite_json::symbol")]
         symbol: char,
         class: Class,
     },
     /// Fixed-size delimiter: `\big(`, `\Bigg]`. Size from 1 to 4.
     FixedDelimiter {
+        #[serde(serialize_with = "composite_json::symbol")]
         symbol: char,
         class: Class,
         size: u8,
     },
     /// Sum, product, integral. `limits`: None lets the style decide.
     LargeOperator {
+        #[serde(serialize_with = "composite_json::symbol")]
         symbol: char,
         #[serde(skip_serializing_if = "Option::is_none")]
         limits: Option<bool>,
@@ -66,6 +73,9 @@ pub enum Node {
         /// The rule's thickness in em when the input gives one (`\above`, `\genfrac`); the font's otherwise.
         #[serde(skip_serializing_if = "Option::is_none")]
         thickness: Option<f32>,
+        /// `\cfrac[l]`, `\cfrac[r]`: the numerator at the left (`'l'`) or the right (`'r'`); centered otherwise.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        numerator_align: Option<char>,
     },
     Root {
         radicand: Box<Node>,
@@ -82,12 +92,12 @@ pub enum Node {
     },
     /// `\left( … \middle| … \right)`: delimiters that follow the height of the content.
     Delimited {
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(skip_serializing_if = "Option::is_none", serialize_with = "composite_json::optional")]
         open: Option<char>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(skip_serializing_if = "Option::is_none", serialize_with = "composite_json::optional")]
         close: Option<char>,
         parts: Vec<Node>,
-        #[serde(skip_serializing_if = "Vec::is_empty")]
+        #[serde(skip_serializing_if = "Vec::is_empty", serialize_with = "composite_json::list")]
         middles: Vec<char>,
     },
     /// Matrices, cases, alignments and `array`.
@@ -114,6 +124,11 @@ pub enum Node {
         /// `\arraystretch`: how much taller each row's strut is (1 by default).
         #[serde(skip_serializing_if = "is_one")]
         stretch: f32,
+        /// `\arraycolsep`: half the space between two columns of an array or a matrix, in thousandths of
+        /// an em (500, 5pt, by default; `\setlength{\arraycolsep}{…}` changes it). A `u16` keeps the node
+        /// at 176 bytes; the JSON writes it in em.
+        #[serde(skip_serializing_if = "is_default_colsep", serialize_with = "milli_em")]
+        colsep: u16,
     },
     /// Accent over the base: hat, bar, vector, tilde, dot. `below`: under the base (`\underrightarrow`).
     Accent {
@@ -159,6 +174,13 @@ pub enum Node {
         /// `\fcolorbox`: color of the frame line.
         #[serde(skip_serializing_if = "Option::is_none")]
         border: Option<String>,
+        /// Space between the content and the frame, in em, when the input gives one (`\bbox[5px]`);
+        /// the `\fboxsep` of LaTeX otherwise.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        padding: Option<f32>,
+        /// Thickness of the frame line, in em, when the input gives one (`\bbox[border:2px solid]`).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        thickness: Option<f32>,
     },
     /// Arrow that stretches to fit its text: `\xrightarrow[below]{above}`.
     Arrow {
@@ -194,6 +216,14 @@ pub enum Node {
     },
     Colored {
         color: String,
+        base: Box<Node>,
+    },
+    /// HTML attributes for the content's group in the SVG (`class`, `id`, `style`, `data-*`), so a
+    /// page can style or animate it: `\class`, `\cssId`, `\style` (MathJax) and `\htmlClass`,
+    /// `\htmlId`, `\htmlStyle`, `\htmlData` (KaTeX). The reader keeps only safe names and values;
+    /// speech, text and braille ignore them.
+    Attributed {
+        attributes: Vec<(String, String)>,
         base: Box<Node>,
     },
     /// Quantity with a unit (`\SI`, `\qty`): value and unit in upright form.
@@ -277,6 +307,14 @@ pub enum Node {
         base: Box<Node>,
         height: bool,
         depth: bool,
+    },
+    /// mathtools' `\vdotswithin{=}`: ⋮ centered in a box as wide as `{}={}`, so that it sits under
+    /// the symbol of the line above. `short` (`\shortvdotswithin`): its table row is set close to
+    /// the rows around it, with no strut.
+    VdotsWithin {
+        symbol: Box<Node>,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        short: bool,
     },
     /// `\mathllap`, `\mathclap`, `\mathrlap`: draws without taking width. Side: 'l', 'c' or 'r'.
     Overlapped {
@@ -407,13 +445,36 @@ pub enum Variant {
     Calligraphic,
     Fraktur,
     SansSerif,
-    SansSerifItalic,
     Monospace,
+    // #173: the other alphabets of Unicode's Mathematical Alphanumeric Symbols, which unicode-math
+    // names (`\mathbfcal`, `\mathbffrak`, `\mathbfsf`, `\mathsfit`, `\mathbfsfit`)
+    BoldScript,
+    BoldFraktur,
+    BoldSansSerif,
+    SansSerifItalic,
+    SansSerifBoldItalic,
 }
 
 impl Variant {
     pub fn is_default(&self) -> bool {
         *self == Variant::Italic
+    }
+
+    pub fn is_upright(&self) -> bool {
+        *self == Variant::Upright
+    }
+
+    /// #203: the alphabet a digit takes in this one: the digits of bold, sans-serif, bold sans-serif and
+    /// monospace (U+1D7CE…), which the italic forms share; the others have none and leave it upright.
+    /// Double-struck digits are symbols (𝟙, #159), not numbers.
+    pub fn of_digits(self) -> Variant {
+        match self {
+            Variant::Bold | Variant::BoldItalic => Variant::Bold,
+            Variant::SansSerif | Variant::SansSerifItalic => Variant::SansSerif,
+            Variant::BoldSansSerif | Variant::SansSerifBoldItalic => Variant::BoldSansSerif,
+            Variant::Monospace => Variant::Monospace,
+            _ => Variant::Upright,
+        }
     }
 }
 
@@ -435,11 +496,14 @@ impl FractionStyle {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Cancel {
-    /// Feynman slash: a centered slash glyph, not a cancellation diagonal.
-    Slash,
     Bar,
     Backslash,
     X,
+    /// The Feynman slash of slashed.sty (`\slashed{D}`): a "/" over the base, which keeps its width.
+    /// Notation, not a cancellation.
+    Slash,
+    /// centernot's `\centernot`: the slash of `\not`, at its own size, over the middle of the base.
+    CenterNot,
 }
 
 /// Horizontal table rule before row `row`, covering columns `from..=to` (0-based).
@@ -455,6 +519,14 @@ pub struct TableRule {
 
 fn is_one(v: &f32) -> bool {
     *v == 1.0
+}
+
+fn is_default_colsep(v: &u16) -> bool {
+    *v == 500
+}
+
+fn milli_em<S: serde::Serializer>(v: &u16, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_f32(f32::from(*v) / 1000.0)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
@@ -500,6 +572,23 @@ pub struct DiagramArrow {
     /// Parallel offset in em, positive to the left of its direction (two arrows between the same cells).
     #[serde(skip_serializing_if = "is_zero_f32")]
     pub shift: f32,
+    /// xy-pic's 2-cell curves: a quadratic curve whose control point is the middle of the straight
+    /// path moved this many em to its left (negative: to its right). For an `across` arrow, how many em
+    /// it is moved along itself.
+    #[serde(skip_serializing_if = "is_zero_f32")]
+    pub sag: f32,
+    /// xy-pic's 2-cell Arrow (`\rtwocell`): not an arrow between the cells but a short one across the
+    /// middle of `from`–`to`, from its left side to its right (clockwise, looking from `from`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub across: bool,
+    /// Cells the path goes through on its way, in straight segments (xymatrix's `\ar'[d][dd]`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub via: Vec<(usize, usize)>,
+    /// xymatrix's `\ar@(d1,d2)` (xy-pic reference manual, note 24p): the directions, in degrees
+    /// counterclockwise from the right, the arrow leaves `from` in and enters `to` from. The arrow is
+    /// a curve; with `to` equal to `from`, a loop.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub directions: Option<(i16, i16)>,
 }
 
 impl DiagramArrow {
@@ -521,7 +610,13 @@ impl DiagramArrow {
             _ if self.head == ArrowHead::None => '—',
             _ => '→',
         };
-        let above = self.labels.first().map(|l| Box::new(l.node.clone()));
+        // a label that draws nothing (xymatrix's \hole) is not written
+        let invisible = |n: &Node| match n {
+            Node::Phantom { .. } => true,
+            Node::Row { children } => children.iter().all(|c| matches!(c, Node::Phantom { .. })),
+            _ => false,
+        };
+        let above = self.labels.iter().find(|l| !invisible(&l.node)).map(|l| Box::new(l.node.clone()));
         Node::row(vec![cell(self.from), Node::Arrow { symbol, above, below: None }, cell(self.to)])
     }
 }
@@ -542,6 +637,13 @@ pub struct ArrowLabel {
     /// Where along the arrow, from 0 (start) to 1 (end): tikz-cd's `near start`, xymatrix's `^<`.
     #[serde(skip_serializing_if = "is_middle")]
     pub position: f32,
+    /// On an arrow with waypoints (`via`), the straight segment it is on, from 0; `position` is along it.
+    #[serde(skip_serializing_if = "is_zero_usize")]
+    pub segment: usize,
+}
+
+fn is_zero_usize(v: &usize) -> bool {
+    *v == 0
 }
 
 fn is_middle(v: &f32) -> bool {
@@ -647,6 +749,9 @@ pub enum TableKind {
 }
 
 impl Node {
+    /// The ⋮ of `\vdotswithin`: what speech, text and braille read for it.
+    pub const VDOTS: Node = Node::Operator { symbol: '⋮', class: Class::Ord };
+
     pub fn children(&self) -> &[Node] {
         match self {
             Node::Row { children } => children,
@@ -670,6 +775,25 @@ impl Node {
         }
     }
 
+    /// The function or large operator a `\mathop{…}` holds, with phantoms beside it at most (as
+    /// mathtools' `\adjustlimits` writes it): what speech, text, braille and MathML take the limits
+    /// of. The node itself otherwise.
+    pub fn operator_core(&self) -> &Node {
+        let Node::ForcedClass { class: Class::Op, base } = self else { return self };
+        let mut kept = base.single();
+        if let Node::Row { children } = kept {
+            let mut operators = children.iter().filter(|c| !matches!(c, Node::Phantom { .. }));
+            match (operators.next(), operators.next()) {
+                (Some(only), None) => kept = only,
+                _ => return self,
+            }
+        }
+        match kept {
+            Node::Function { .. } | Node::LargeOperator { .. } => kept,
+            _ => self,
+        }
+    }
+
     /// A single node, without the surrounding Row when it has only one child.
     pub fn simplify(self) -> Node {
         match self {
@@ -677,5 +801,36 @@ impl Node {
             Node::Row { mut children } if children.len() == 1 => children.pop().unwrap().simplify(),
             other => other,
         }
+    }
+}
+
+/// #207: a symbol drawn by composition (#176) is kept in the tree as a private marker character
+/// (`crate::composite`), which means nothing outside mathra; the JSON of the tree (`--tree`,
+/// [`Node::to_json`], the SVG's metadata) names it by its command instead: `"symbol":"\\llceil"`.
+/// Every other symbol is its character.
+mod composite_json {
+    use serde::{Serialize, Serializer};
+
+    struct Symbol(char);
+
+    impl Serialize for Symbol {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            match crate::composite::get(self.0) {
+                Some(k) => s.collect_str(&format_args!("\\{}", k.command)),
+                None => s.serialize_char(self.0),
+            }
+        }
+    }
+
+    pub fn symbol<S: Serializer>(c: &char, s: S) -> Result<S::Ok, S::Error> {
+        Symbol(*c).serialize(s)
+    }
+
+    pub fn optional<S: Serializer>(c: &Option<char>, s: S) -> Result<S::Ok, S::Error> {
+        c.map(Symbol).serialize(s)
+    }
+
+    pub fn list<S: Serializer>(c: &[char], s: S) -> Result<S::Ok, S::Error> {
+        s.collect_seq(c.iter().map(|c| Symbol(*c)))
     }
 }

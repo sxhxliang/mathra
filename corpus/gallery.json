@@ -117,7 +117,7 @@
  {
   "id": "big",
   "title": "Big equations",
-  "intro": "Long, many-line and deeply nested: Navier–Stokes in components, the Riemann tensor, QED, a proof step by step.",
+  "intro": "Long, many-line and deeply nested: Navier–Stokes in components, the Riemann tensor, QED, the full Standard Model Lagrangian, a degree-10 polynomial broken into lines, a proof step by step.",
   "rows": [
    {
     "name": "navierstokes3d",
@@ -154,6 +154,24 @@
     "caption": "Vandermonde determinant",
     "locale": "en",
     "tex": "\\det \\begin{pmatrix} 1 & x_1 & x_1^2 & \\cdots & x_1^{n-1} \\\\ 1 & x_2 & x_2^2 & \\cdots & x_2^{n-1} \\\\ 1 & x_3 & x_3^2 & \\cdots & x_3^{n-1} \\\\ \\vdots & \\vdots & \\vdots & \\ddots & \\vdots \\\\ 1 & x_n & x_n^2 & \\cdots & x_n^{n-1} \\end{pmatrix} = \\prod_{1 \\le i < j \\le n} \\left( x_j - x_i \\right)"
+   },
+   {
+    "caption": "Polynomial of degree 10, broken into lines at maxWidth 20em after a relation or a + (one long line without it)",
+    "locale": "en",
+    "tex": "f(x) = \\sum_{k=0}^{10} a_k x^k = a_0 + a_1 x + a_2 x^2 + a_3 x^3 + a_4 x^4 + a_5 x^5 + a_6 x^6 + a_7 x^7 + a_8 x^8 + a_9 x^9 + a_{10} x^{10}",
+    "options": {
+     "maxWidth": 20
+    }
+   },
+   {
+    "caption": "Chebyshev polynomial of degree 10 (core LaTeX)",
+    "locale": "en",
+    "tex": "T_{10}(x) = 512 x^{10} - 1280 x^8 + 1120 x^6 - 400 x^4 + 50 x^2 - 1, \\qquad T_{10}(\\cos\\theta) = \\cos 10\\theta"
+   },
+   {
+    "caption": "The full Standard Model Lagrangian: gauge, fermion, Yukawa and Higgs terms, one per line (slashed \\slashed, amsmath aligned)",
+    "locale": "en",
+    "tex": "\\begin{aligned} \\mathcal{L}_\\text{SM} &= -\\frac{1}{4} G^a_{\\mu\\nu} G^{a\\mu\\nu} - \\frac{1}{4} W^i_{\\mu\\nu} W^{i\\mu\\nu} - \\frac{1}{4} B_{\\mu\\nu} B^{\\mu\\nu} \\\\ &\\quad + \\sum_{j=1}^{3} \\left( \\bar{Q}^j_L i \\slashed{D} Q^j_L + \\bar{u}^j_R i \\slashed{D} u^j_R + \\bar{d}^j_R i \\slashed{D} d^j_R + \\bar{L}^j_L i \\slashed{D} L^j_L + \\bar{e}^j_R i \\slashed{D} e^j_R \\right) \\\\ &\\quad - \\sum_{j,k=1}^{3} \\left( y^u_{jk} \\bar{Q}^j_L \\tilde{\\phi}\\, u^k_R + y^d_{jk} \\bar{Q}^j_L \\phi\\, d^k_R + y^e_{jk} \\bar{L}^j_L \\phi\\, e^k_R + \\text{h.c.} \\right) \\\\ &\\quad + \\left( D_\\mu \\phi \\right)^\\dagger \\left( D^\\mu \\phi \\right) - V(\\phi), \\qquad V(\\phi) = -\\mu^2 \\phi^\\dagger \\phi + \\lambda \\left( \\phi^\\dagger \\phi \\right)^2 \\\\ D_\\mu &= \\partial_\\mu - i g_s T^a G^a_\\mu - i g \\frac{\\sigma^i}{2} W^i_\\mu - i g' Y B_\\mu, \\qquad \\tilde{\\phi} = i \\sigma^2 \\phi^* \\end{aligned}"
    }
   ]
  },
@@ -195,9 +213,51 @@
   ]
  },
  {
+  "id": "matrices",
+  "title": "Matrices and determinants",
+  "intro": "A 3 × 3 determinant by cofactors, eigenvalues from the characteristic polynomial, a block matrix, Gaussian elimination on an augmented matrix, a product, an inverse and a rotation, with the physics package's matrices.",
+  "rows": [
+   {
+    "caption": "3 × 3 determinant expanded by cofactors along the first row (physics \\vmqty)",
+    "locale": "en",
+    "tex": "\\begin{aligned} \\vmqty{2 & 1 & 3 \\\\ 0 & -1 & 4 \\\\ 1 & 2 & 0} &= 2 \\vmqty{-1 & 4 \\\\ 2 & 0} - 1 \\vmqty{0 & 4 \\\\ 1 & 0} + 3 \\vmqty{0 & -1 \\\\ 1 & 2} \\\\ &= 2(0 - 8) - (0 - 4) + 3(0 + 1) \\\\ &= -9 \\end{aligned}"
+   },
+   {
+    "caption": "Eigenvalues from the characteristic polynomial (physics \\vmqty, \\mathbb{1} for the identity)",
+    "locale": "en",
+    "tex": "\\begin{aligned} \\det(A - \\lambda \\mathbb{1}) &= \\vmqty{2 - \\lambda & 0 & 0 \\\\ 0 & 3 - \\lambda & 4 \\\\ 0 & 4 & 9 - \\lambda} \\\\ &= (2 - \\lambda) \\left[ (3 - \\lambda)(9 - \\lambda) - 16 \\right] \\\\ &= (2 - \\lambda)(\\lambda^2 - 12 \\lambda + 11) \\\\ &= -(\\lambda - 1)(\\lambda - 2)(\\lambda - 11) = 0 \\\\ &\\quad \\Longrightarrow \\quad \\lambda \\in \\{1, 2, 11\\} \\end{aligned}"
+   },
+   {
+    "caption": "Block matrix and its determinant by the Schur complement (array with \\hline and a vertical rule)",
+    "locale": "en",
+    "tex": "M = \\left( \\begin{array}{c|c} A & B \\\\ \\hline C & D \\end{array} \\right), \\qquad \\det M = \\det A \\, \\det\\left( D - C A^{-1} B \\right)"
+   },
+   {
+    "caption": "Gaussian elimination on an augmented matrix, row operations on the arrows (array with a vertical rule, amsmath \\xrightarrow)",
+    "locale": "en",
+    "tex": "\\begin{aligned} & \\left( \\begin{array}{ccc|c} 1 & 2 & 1 & 8 \\\\ 2 & 3 & 1 & 11 \\\\ 1 & 1 & 2 & 9 \\end{array} \\right) \\xrightarrow[R_3 - R_1]{R_2 - 2 R_1} \\left( \\begin{array}{ccc|c} 1 & 2 & 1 & 8 \\\\ 0 & -1 & -1 & -5 \\\\ 0 & -1 & 1 & 1 \\end{array} \\right) \\\\ & \\xrightarrow{R_3 - R_2} \\left( \\begin{array}{ccc|c} 1 & 2 & 1 & 8 \\\\ 0 & -1 & -1 & -5 \\\\ 0 & 0 & 2 & 6 \\end{array} \\right) \\quad \\Longrightarrow \\quad (x, y, z) = (1, 2, 3) \\end{aligned}"
+   },
+   {
+    "caption": "A matrix product written out (physics \\bmqty)",
+    "locale": "en",
+    "tex": "\\bmqty{a & b \\\\ c & d} \\bmqty{e & f \\\\ g & h} = \\bmqty{a e + b g & a f + b h \\\\ c e + d g & c f + d h}"
+   },
+   {
+    "caption": "Inverse through the adjugate (physics \\pmqty, \\mdet)",
+    "locale": "en",
+    "tex": "A^{-1} = \\frac{1}{\\det A} \\operatorname{adj} A, \\qquad \\pmqty{a & b \\\\ c & d}^{-1} = \\frac{1}{\\mdet{a & b \\\\ c & d}} \\pmqty{d & -b \\\\ -c & a} = \\frac{1}{a d - b c} \\pmqty{d & -b \\\\ -c & a}"
+   },
+   {
+    "caption": "Rotation about the z axis, orthogonal with determinant 1 (physics \\bmqty, \\mathbb{1})",
+    "locale": "en",
+    "tex": "R_z(\\theta) = \\bmqty{\\cos\\theta & -\\sin\\theta & 0 \\\\ \\sin\\theta & \\cos\\theta & 0 \\\\ 0 & 0 & 1}, \\qquad R^\\mathsf{T} R = \\mathbb{1}, \\quad \\det R = 1"
+   }
+  ]
+ },
+ {
   "id": "science",
   "title": "Science packages",
-  "intro": "mhchem formulas and reactions, siunitx quantities, the physics package.",
+  "intro": "mhchem formulas and reactions, siunitx quantities, the physics package, mathtools' split fractions and stmaryrd's brackets.",
   "rows": [
    {
     "name": "chemistry",
@@ -220,13 +280,242 @@
     "caption": "Quantum mechanics (physics)",
     "locale": "en",
     "tex": "\\expval{H}{\\psi} = \\mel{\\psi}{H}{\\psi},\\quad \\comm{x}{p} = i\\hbar"
+   },
+   {
+    "caption": "Complex quantity (siunitx \\complexqty)",
+    "locale": "en",
+    "tex": "Z = \\complexqty{3+4i}{\\ohm}"
+   },
+   {
+    "caption": "Fraction split over two lines (mathtools \\splitfrac)",
+    "locale": "en",
+    "tex": "\\frac{\\splitfrac{a_1 + a_2 + a_3 + a_4}{+ a_5 + a_6 + a_7}}{n}"
+   },
+   {
+    "caption": "Double ceiling brackets (stmaryrd)",
+    "locale": "en",
+    "tex": "\\llceil x \\rrceil"
+   }
+  ]
+ },
+ {
+  "id": "physics",
+  "title": "Physics",
+  "intro": "The physics, slashed, esvect and siunitx packages: Dirac and the slashed derivative, covariant Maxwell, Einstein, a Lorentz boost, Schrödinger, commutators and expectation values, Navier–Stokes with vector operators, the path integral, Planck's law and measured constants with uncertainties.",
+  "rows": [
+   {
+    "caption": "Standard Model Lagrangian, with Feynman slashes (slashed)",
+    "locale": "en",
+    "tex": "\\mathcal{L} = -\\frac{1}{4} F_{\\mu\\nu} F^{\\mu\\nu} + i \\bar{\\psi} \\slashed{D} \\psi + \\bar{\\psi}_i y_{ij} \\psi_j \\phi + \\text{h.c.} + \\left| D_\\mu \\phi \\right|^2 - V(\\phi)"
+   },
+   {
+    "caption": "Pauli matrices (physics \\pmqty)",
+    "locale": "en",
+    "tex": "\\sigma_x = \\pmqty{0 & 1 \\\\ 1 & 0}, \\quad \\sigma_y = \\pmqty{0 & -i \\\\ i & 0}, \\quad \\sigma_z = \\pmqty{1 & 0 \\\\ 0 & -1}"
+   },
+   {
+    "caption": "Heat equation (physics \\pdv) and a flat derivative (\\dv*)",
+    "locale": "en",
+    "tex": "\\pdv{u}{t} = \\alpha \\left( \\pdv[2]{u}{x} + \\pdv[2]{u}{y} \\right), \\quad \\dv*{x}{t} = v"
+   },
+   {
+    "caption": "A qubit in bra-ket notation (physics)",
+    "locale": "en",
+    "tex": "\\ket{\\psi} = \\alpha \\ket{0} + \\beta \\ket{1}, \\quad \\braket{\\psi}{\\psi} = \\abs{\\alpha}^2 + \\abs{\\beta}^2 = 1"
+   },
+   {
+    "caption": "Dirac equation in Feynman slash notation (slashed \\slashed)",
+    "locale": "en",
+    "tex": "\\left( i \\slashed{\\partial} - m \\right) \\psi = 0, \\qquad \\slashed{\\partial} \\equiv \\gamma^\\mu \\partial_\\mu, \\qquad \\left\\{ \\gamma^\\mu, \\gamma^\\nu \\right\\} = 2 \\eta^{\\mu\\nu}"
+   },
+   {
+    "caption": "Maxwell's equations in covariant form, with the antisymmetrized index (core LaTeX)",
+    "locale": "en",
+    "tex": "\\partial_\\mu F^{\\mu\\nu} = J^\\nu, \\qquad \\partial_{[\\lambda} F_{\\mu\\nu]} = 0, \\qquad F_{\\mu\\nu} = \\partial_\\mu A_\\nu - \\partial_\\nu A_\\mu"
+   },
+   {
+    "caption": "Einstein field equations, trace-reversed (core LaTeX)",
+    "locale": "en",
+    "tex": "R_{\\mu\\nu} = \\frac{8\\pi G}{c^4} \\left( T_{\\mu\\nu} - \\frac{1}{2} T g_{\\mu\\nu} \\right) + \\Lambda g_{\\mu\\nu}"
+   },
+   {
+    "caption": "Lorentz boost along x (physics \\bmqty)",
+    "locale": "en",
+    "tex": "\\bmqty{c t' \\\\ x' \\\\ y' \\\\ z'} = \\bmqty{\\gamma & -\\gamma\\beta & 0 & 0 \\\\ -\\gamma\\beta & \\gamma & 0 & 0 \\\\ 0 & 0 & 1 & 0 \\\\ 0 & 0 & 0 & 1} \\bmqty{c t \\\\ x \\\\ y \\\\ z}, \\qquad \\gamma = \\frac{1}{\\sqrt{1 - \\beta^2}}, \\quad \\beta = \\frac{v}{c}"
+   },
+   {
+    "caption": "Time-dependent Schrödinger equation (physics \\pdv, \\ket)",
+    "locale": "en",
+    "tex": "i\\hbar \\pdv{t} \\ket{\\Psi(t)} = \\hat{H} \\ket{\\Psi(t)}, \\qquad \\hat{H} = \\frac{\\hat{p}^2}{2m} + V(\\hat{x})"
+   },
+   {
+    "caption": "Quantum harmonic oscillator: Hamiltonian and spectrum (core LaTeX)",
+    "locale": "en",
+    "tex": "\\hat{H} = \\frac{\\hat{p}^2}{2m} + \\frac{1}{2} m \\omega^2 \\hat{x}^2 = \\hbar\\omega \\left( \\hat{a}^\\dagger \\hat{a} + \\frac{1}{2} \\right), \\qquad E_n = \\hbar\\omega \\left( n + \\frac{1}{2} \\right)"
+   },
+   {
+    "caption": "Canonical commutator and Heisenberg's uncertainty (physics \\comm)",
+    "locale": "en",
+    "tex": "\\comm{\\hat{x}}{\\hat{p}} = i\\hbar \\quad \\Longrightarrow \\quad \\sigma_x \\sigma_p \\ge \\frac{\\hbar}{2}"
+   },
+   {
+    "caption": "Expectation value and Ehrenfest's theorem (physics \\expval, \\mel, \\dv)",
+    "locale": "en",
+    "tex": "\\expval{\\hat{x}} = \\mel{\\psi}{\\hat{x}}{\\psi} = \\int_{-\\infty}^{\\infty} \\psi^*(x)\\, x\\, \\psi(x) \\dd{x}, \\qquad \\dv{t} \\expval{\\hat{p}} = -\\expval{\\pdv{V}{x}}"
+   },
+   {
+    "caption": "Navier–Stokes with the physics package's vector operators (physics \\vb, \\vdot, \\grad, \\laplacian)",
+    "locale": "en",
+    "tex": "\\rho \\left( \\pdv{\\vb{u}}{t} + (\\vb{u} \\vdot \\grad) \\vb{u} \\right) = -\\grad p + \\mu \\laplacian \\vb{u} + \\rho \\vb{g}, \\qquad \\grad \\vdot \\vb{u} = 0"
+   },
+   {
+    "caption": "Least action and the Euler–Lagrange equations (physics \\dv, \\pdv, \\dd)",
+    "locale": "en",
+    "tex": "S[q] = \\int_{t_1}^{t_2} L(q, \\dot{q}, t) \\dd{t}, \\qquad \\delta S = 0 \\quad \\Longleftrightarrow \\quad \\dv{t} \\pdv{L}{\\dot{q}_i} - \\pdv{L}{q_i} = 0"
+   },
+   {
+    "caption": "Feynman path integral for the propagator (physics \\mel)",
+    "locale": "en",
+    "tex": "\\mel{x_f}{e^{-i \\hat{H} (t_f - t_i) / \\hbar}}{x_i} = \\int \\mathcal{D}[x(t)]\\, e^{i S[x] / \\hbar}"
+   },
+   {
+    "caption": "Planck's law and Wien's constant with exact SI values (siunitx 3 \\qty)",
+    "locale": "en",
+    "tex": "B_\\lambda(\\lambda, T) = \\frac{2 h c^2}{\\lambda^5} \\frac{1}{e^{h c / \\lambda k_\\mathrm{B} T} - 1}, \\qquad h = \\qty{6.62607015e-34}{\\joule\\second}, \\quad k_\\mathrm{B} = \\qty{1.380649e-23}{\\joule\\per\\kelvin}"
+   },
+   {
+    "caption": "Lorentz force and Newton's second law (esvect \\vv)",
+    "locale": "en",
+    "tex": "\\vv{F} = q \\left( \\vv{E} + \\vv{v} \\times \\vv{B} \\right) = \\dv{\\vv{p}}{t}"
+   },
+   {
+    "caption": "Cauchy momentum equation of a continuum, tensors in bold (unicode-math \\symbf)",
+    "locale": "en",
+    "tex": "\\rho \\dv{\\symbf{v}}{t} = \\grad \\vdot \\symbf{\\sigma} + \\rho \\symbf{b}, \\qquad \\symbf{\\sigma} = \\symbf{\\sigma}^\\mathsf{T}"
+   },
+   {
+    "caption": "Measured constants with uncertainty and a declared unit (siunitx 3: 1.23(4), \\DeclareSIUnit, \\sisetup)",
+    "locale": "en",
+    "tex": "\\sisetup{per-mode=power} \\DeclareSIUnit{\\parsec}{pc} G = \\qty{6.67430(15)e-11}{\\meter\\cubed\\per\\kilo\\gram\\per\\second\\squared}, \\qquad H_0 = \\qty{67.4(5)}{\\kilo\\meter\\per\\second\\per\\mega\\parsec}"
+   }
+  ]
+ },
+ {
+  "id": "derivations",
+  "title": "Calculations step by step",
+  "intro": "Derivations aligned on the equals sign: a pendulum's period, the work–energy theorem, the harmonic oscillator, escape velocity and a relativistic expansion, with mathtools' \\Aboxed, \\MoveEqLeft and \\shortvdotswithin.",
+  "rows": [
+   {
+    "caption": "Period of a pendulum for small angles, step by step (physics \\qq, \\abs, mathtools \\Aboxed)",
+    "locale": "en",
+    "tex": "\\begin{aligned} m L \\ddot{\\theta} &= -m g \\sin\\theta \\\\ \\ddot{\\theta} &\\approx -\\frac{g}{L}\\, \\theta \\qq{for} \\abs{\\theta} \\ll 1 \\\\ \\theta(t) &= \\theta_0 \\cos(\\omega t + \\varphi), \\qquad \\omega = \\sqrt{\\frac{g}{L}} \\\\ \\Aboxed{T &= \\frac{2\\pi}{\\omega} = 2\\pi \\sqrt{\\frac{L}{g}}} \\end{aligned}"
+   },
+   {
+    "caption": "Work–energy theorem by integrating F dx, the substituted term in color (xcolor \\definecolor, \\boxed)",
+    "locale": "en",
+    "tex": "\\definecolor{step}{HTML}{C2410C} \\begin{aligned} W &= \\int_{x_1}^{x_2} F \\dd{x} = \\int_{x_1}^{x_2} m \\dv{v}{t} \\, {\\color{step} \\dd{x}} \\\\ &= \\int_{t_1}^{t_2} m \\dv{v}{t} \\, {\\color{step} v \\dd{t}} = \\int_{v_1}^{v_2} m v \\dd{v} \\\\ &= \\boxed{\\frac{1}{2} m v_2^2 - \\frac{1}{2} m v_1^2} = \\Delta K \\end{aligned}"
+   },
+   {
+    "caption": "Free harmonic oscillator solved through its characteristic equation, Euler's formula between the last two lines (mathtools \\shortvdotswithin)",
+    "locale": "en",
+    "tex": "\\begin{aligned} m \\ddot{x} + k x &= 0, \\qquad x = e^{r t} \\\\ m r^2 + k &= 0 \\quad \\Longrightarrow \\quad r = \\pm i \\omega_0, \\quad \\omega_0 = \\sqrt{k / m} \\\\ x(t) &= C_1 e^{i \\omega_0 t} + C_2 e^{-i \\omega_0 t} \\\\ \\shortvdotswithin{=} &= A \\cos \\omega_0 t + B \\sin \\omega_0 t \\end{aligned}"
+   },
+   {
+    "caption": "Escape velocity from energy conservation, with a number (mathtools \\Aboxed, physics \\qq, siunitx \\qty)",
+    "locale": "en",
+    "tex": "\\begin{aligned} \\frac{1}{2} m v_e^2 - \\frac{G M m}{R} &= 0 \\\\ v_e^2 &= \\frac{2 G M}{R} \\\\ \\Aboxed{v_e &= \\sqrt{\\frac{2 G M}{R}}} \\\\ &\\approx \\qty{11.2}{\\kilo\\meter\\per\\second} \\qq{for the Earth} \\end{aligned}"
+   },
+   {
+    "caption": "Relativistic energy expanded at low speed (mathtools \\MoveEqLeft)",
+    "locale": "en",
+    "tex": "\\begin{aligned} \\MoveEqLeft E = \\gamma m c^2 = \\frac{m c^2}{\\sqrt{1 - v^2 / c^2}} \\\\ &= m c^2 \\left( 1 + \\frac{1}{2} \\frac{v^2}{c^2} + \\frac{3}{8} \\frac{v^4}{c^4} + \\cdots \\right) \\\\ &= m c^2 + \\frac{1}{2} m v^2 + \\frac{3}{8} \\frac{m v^4}{c^2} + \\cdots \\end{aligned}"
+   }
+  ]
+ },
+ {
+  "id": "reactions",
+  "title": "Chemical reactions",
+  "intro": "mhchem equations as a chemist writes them: combustion, equilibria with their constants, redox half-reactions, acid–base and pH, nuclear decay and a decay series, precipitates and gases, hydrates, and industrial sequences from Haber–Bosch to the contact process.",
+  "rows": [
+   {
+    "caption": "Combustion of propane, with its enthalpy (mhchem, siunitx \\qty)",
+    "locale": "en",
+    "tex": "\\ce{C3H8(g) + 5 O2(g) -> 3 CO2(g) + 4 H2O(l)}, \\qquad \\Delta_\\mathrm{c} H^\\circ = \\qty{-2220}{\\kilo\\joule\\per\\mole}"
+   },
+   {
+    "caption": "Photosynthesis, conditions over and under the arrow (mhchem)",
+    "locale": "en",
+    "tex": "\\ce{6 CO2 + 6 H2O ->[\\text{light}][\\text{chlorophyll}] C6H12O6 + 6 O2}"
+   },
+   {
+    "caption": "An equilibrium and its constant (mhchem <=>)",
+    "locale": "en",
+    "tex": "\\ce{2 NO2(g) <=> N2O4(g)}, \\qquad K_c = \\frac{[\\ce{N2O4}]}{[\\ce{NO2}]^2}"
+   },
+   {
+    "caption": "Redox: permanganate oxidizes iron(II), from half-reactions with electrons (mhchem)",
+    "locale": "en",
+    "tex": "\\begin{aligned} &\\ce{MnO4- + 8 H+ + 5 e- -> Mn^2+ + 4 H2O} \\\\ &\\ce{Fe^2+ -> Fe^3+ + e-} \\qquad (\\times 5) \\\\ &\\ce{MnO4- + 8 H+ + 5 Fe^2+ -> Mn^2+ + 5 Fe^3+ + 4 H2O} \\end{aligned}"
+   },
+   {
+    "caption": "Daniell cell: cell notation and standard potential (mhchem, siunitx)",
+    "locale": "en",
+    "tex": "\\ce{Zn(s) | Zn^2+(aq) || Cu^2+(aq) | Cu(s)}, \\qquad E^\\circ_\\text{cell} = E^\\circ_\\ce{Cu^2+/Cu} - E^\\circ_\\ce{Zn^2+/Zn} = \\qty{1.10}{\\volt}"
+   },
+   {
+    "caption": "Acid–base: acetic acid in water and the Henderson–Hasselbalch equation (mhchem)",
+    "locale": "en",
+    "tex": "\\ce{CH3COOH + H2O <=> CH3COO- + H3O+}, \\qquad \\mathrm{pH} = \\mathrm{p}K_\\mathrm{a} + \\log_{10} \\frac{[\\ce{CH3COO-}]}{[\\ce{CH3COOH}]}"
+   },
+   {
+    "caption": "Stepwise dissociation of phosphoric acid, the acidity constant over each arrow and the proton lost under it (mhchem)",
+    "locale": "en",
+    "tex": "\\ce{H3PO4 <=>[$K_\\mathrm{a1}$][$-\\mathrm{H}^+$] H2PO4- <=>[$K_\\mathrm{a2}$][$-\\mathrm{H}^+$] HPO4^2- <=>[$K_\\mathrm{a3}$][$-\\mathrm{H}^+$] PO4^3-}"
+   },
+   {
+    "caption": "Alpha decay of uranium-238, isotopes with mass and atomic numbers (mhchem)",
+    "locale": "en",
+    "tex": "\\ce{^{238}_{92}U -> ^{234}_{90}Th + ^{4}_{2}He}"
+   },
+   {
+    "caption": "The start of the uranium-238 series, decay mode over each arrow and half-life under it (mhchem, siunitx; broken at maxWidth 30em)",
+    "locale": "en",
+    "tex": "\\ce{^{238}_{92}U ->[$\\alpha$][\\qty{4.47e9}{y}] ^{234}_{90}Th ->[$\\beta^-$][\\qty{24.1}{d}] ^{234m}_{91}Pa ->[$\\beta^-$][\\qty{1.17}{min}] ^{234}_{92}U ->[$\\alpha$][\\qty{2.45e5}{y}] ^{230}_{90}Th ->[$\\alpha$][\\qty{7.54e4}{y}] ^{226}_{88}Ra ->[$\\alpha$][\\qty{1600}{y}] ^{222}_{86}Rn}",
+    "options": {
+     "maxWidth": 30
+    }
+   },
+   {
+    "caption": "A precipitate (v) and a gas (^) (mhchem)",
+    "locale": "en",
+    "tex": "\\ce{AgNO3(aq) + NaCl(aq) -> AgCl v + NaNO3(aq)}, \\qquad \\ce{CaCO3(s) + 2 HCl(aq) -> CaCl2(aq) + H2O(l) + CO2 ^}"
+   },
+   {
+    "caption": "A hydrate losing its water, and salt dissolving (mhchem: CuSO4.5H2O, states of matter)",
+    "locale": "en",
+    "tex": "\\ce{CuSO4.5H2O(s) ->[$\\Delta$] CuSO4(s) + 5 H2O(g)}, \\qquad \\ce{NaCl(s) ->[H2O] Na^+(aq) + Cl^-(aq)}"
+   },
+   {
+    "caption": "From air to nitric acid: Haber–Bosch, then the Ostwald process (mhchem, siunitx)",
+    "locale": "en",
+    "tex": "\\begin{aligned} &\\ce{N2 + 3 H2 <=>[Fe][\\qty{450}{\\celsius}] 2 NH3} \\\\ &\\ce{4 NH3 + 5 O2 ->[Pt] 4 NO + 6 H2O} \\\\ &\\ce{2 NO + O2 -> 2 NO2} \\\\ &\\ce{3 NO2 + H2O -> 2 HNO3 + NO} \\end{aligned}"
+   },
+   {
+    "caption": "Contact process for sulfuric acid (mhchem)",
+    "locale": "en",
+    "tex": "\\begin{aligned} &\\ce{S + O2 -> SO2} \\\\ &\\ce{2 SO2 + O2 <=>[V2O5] 2 SO3} \\\\ &\\ce{SO3 + H2SO4 -> H2S2O7} \\\\ &\\ce{H2S2O7 + H2O -> 2 H2SO4} \\end{aligned}"
+   },
+   {
+    "caption": "Benzene from acetylene: Berthelot's trimerization (mhchem, siunitx)",
+    "locale": "en",
+    "tex": "\\ce{3 C2H2 ->[\\text{red-hot Fe tube}][\\qty{873}{\\kelvin}] C6H6}"
    }
   ]
  },
  {
   "id": "chemistry",
   "title": "Structural chemistry",
-  "intro": "chemfig structures, reaction schemes and mechanism arrows, read aloud by the formula counted from each structure.",
+  "intro": "chemfig structures, reaction schemes and mechanism arrows, read aloud by the formula counted from each structure: benzene and its resonance, ethanol, aspirin, glucose, a zwitterion, Lewis structures, a synthesis in three steps, a complex ion and curved-arrow mechanisms.",
   "rows": [
    {
     "name": "caffeine",
@@ -251,13 +540,93 @@
     "caption": "Esterification and reduction: equilibrium, a reagent drawn over a vertical arrow (pt-BR)",
     "locale": "pt-BR",
     "tex": "\\schemestart \\chemfig{R-C(=[1]O)-[7]OH} \\+ \\chemfig{HO-R'} \\arrow{<=>[H$^+$][$-$H$_2$O]} \\chemfig{R-C(=[1]O)-[7]O-R'} \\arrow{->[\\chemfig{LiAlH_4}][depois H$_2$O]}[-90] \\chemfig{R-CH_2-OH} \\schemestop"
+   },
+   {
+    "caption": "Charges and lone pairs on atoms (chemfig \\charge)",
+    "locale": "en",
+    "tex": "\\chemfig{H-\\charge{90=\\|,-90=\\|}{O}-H} \\quad \\chemfig{\\charge{45=$\\oplus$}{N}(-[2]H)(-[4]H)(-[6]H)-H}"
+   },
+   {
+    "caption": "A reaction in words (mhchem)",
+    "locale": "en",
+    "tex": "\\ce{sodium chloride -> sodium + chlorine}"
+   },
+   {
+    "caption": "Benzene: Kekulé structure and aromatic ring (chemfig)",
+    "locale": "en",
+    "tex": "\\chemfig{*6(=-=-=-)} \\qquad \\chemfig{**6(------)}"
+   },
+   {
+    "caption": "Benzene's two resonance structures (chemfig \\schemestart, <->)",
+    "locale": "en",
+    "tex": "\\schemestart \\chemfig{*6(=-=-=-)} \\arrow{<->} \\chemfig{*6(-=-=-=)} \\schemestop"
+   },
+   {
+    "caption": "Benzene from three acetylenes, structures in a scheme (chemfig)",
+    "locale": "en",
+    "tex": "\\schemestart 3\\,\\chemfig{H-C~C-H} \\arrow{->[Fe][873 K]} \\chemfig{*6(=-=-=-)} \\schemestop"
+   },
+   {
+    "caption": "Ethanol: full structure and skeletal, with a start angle (chemfig [:30])",
+    "locale": "en",
+    "tex": "\\chemfig{H-C(-[2]H)(-[6]H)-C(-[2]H)(-[6]H)-O-H} \\qquad \\chemfig{[:30]--[::-60]OH}"
+   },
+   {
+    "caption": "Aspirin (acetylsalicylic acid) (chemfig)",
+    "locale": "en",
+    "tex": "\\chemfig{*6(-=-=(-O-[:0]C(=[:-60]O)-[:60]CH_3)-(-C(=[:180]O)-[:60]OH)=)}"
+   },
+   {
+    "caption": "Glucose as a pyranose ring (chemfig, stereochemistry not shown)",
+    "locale": "en",
+    "tex": "\\chemfig{*6((-CH_2OH)-O-(-OH)-(-OH)-(-OH)-(-OH)-)}"
+   },
+   {
+    "caption": "Alanine as a zwitterion (chemfig \\charge)",
+    "locale": "en",
+    "tex": "\\chemfig{H_3\\charge{90:3pt=$\\oplus$}{N}-C(-[2]H)(-[6]CH_3)-C(=[1]O)-[7]\\charge{0:3pt=$\\ominus$}{O}}"
+   },
+   {
+    "caption": "Lewis structures of N₂, CO₂ and NH₃ (chemfig \\lewis)",
+    "locale": "en",
+    "tex": "\\chemfig{\\lewis{4:,N}~\\lewis{0:,N}} \\qquad \\chemfig{\\lewis{3:5:,O}=C=\\lewis{1:7:,O}} \\qquad \\chemfig{H-\\lewis{2:,N}(-[6]H)-H}"
+   },
+   {
+    "caption": "Fischer esterification: acetic acid and ethanol to ethyl acetate (chemfig \\schemestart)",
+    "locale": "en",
+    "tex": "\\schemestart \\chemfig{H_3C-C(=[1]O)-[7]OH} \\+ \\chemfig{HO-CH_2-CH_3} \\arrow{<=>[H$^+$][$\\Delta$]} \\chemfig{H_3C-C(=[1]O)-[7]O-[0]CH_2CH_3} \\+ \\chemfig{H_2O} \\schemestop"
+   },
+   {
+    "caption": "From benzene to a diazonium salt in three steps, reagents over and conditions under each arrow (chemfig \\schemestart)",
+    "locale": "en",
+    "tex": "\\schemestart \\chemfig{*6(=-=-=-)} \\arrow{->[\\ce{HNO3}, \\ce{H2SO4}][\\qty{50}{\\celsius}]} \\chemfig{*6(=-=(-NO_2)-=-)} \\arrow{->[Sn, HCl][then NaOH]} \\chemfig{*6(=-=(-NH_2)-=-)} \\arrow{->[\\ce{NaNO2}, HCl][\\qtyrange{0}{5}{\\celsius}]} \\chemfig{*6(=-=(-N_2^{+}\\,Cl^{-})-=-)} \\schemestop"
+   },
+   {
+    "caption": "Lactate dehydrogenase: pyruvate to lactate with NADH in and NAD⁺ out (chemfig -U> arrow)",
+    "locale": "en",
+    "tex": "\\schemestart \\chemfig{H_3C-C(=[2]O)-COO^{-}} \\arrow{-U>[NADH + H$^+$][NAD$^+$]} \\chemfig{H_3C-C(-[2]OH)(-[6]H)-COO^{-}} \\schemestop"
+   },
+   {
+    "caption": "Tetraamminecopper(II), a complex ion in brackets (chemfig \\chemleft…\\chemright)",
+    "locale": "en",
+    "tex": "\\chemleft[\\chemfig{H_3N-Cu(-[2]NH_3)(-[6]NH_3)-NH_3}\\chemright]^{2+}"
+   },
+   {
+    "caption": "1,3-Butadiene with offset double bonds (chemfig =_), next to cyclohexene's double bond inside its ring",
+    "locale": "en",
+    "tex": "\\chemfig{=_[:30]-[:-30]=_[:30]} \\qquad \\chemfig{*6(=-----)}"
+   },
+   {
+    "caption": "Cyanohydrin formation: cyanide adds to a carbonyl, curved arrows (chemfig \\chemmove)",
+    "locale": "en",
+    "tex": "\\schemestart \\chemfig{@{nu}\\lewis{4:,{}^{-}C}~N} \\+ \\chemfig{H_3C-@{c}C(-[6]H)=[2]@{o}O} \\arrow \\chemfig{H_3C-C(-[6]H)(-[0]CN)-[2]O^{-}} \\schemestop \\chemmove{\\draw[->](nu)..controls +(60:1cm) and +(150:1cm)..(c); \\draw[->](c)..controls +(30:0.6cm) and +(0:0.6cm)..(o);}"
    }
   ]
  },
  {
   "id": "diagrams",
   "title": "Commutative diagrams",
-  "intro": "amscd, tikz-cd and xymatrix: arrows in any direction, bent, dashed, hooked.",
+  "intro": "amscd, tikz-cd and xymatrix: arrows in any direction, bent, dashed, hooked, and 2-cells between them.",
   "rows": [
    {
     "name": "diagram",
@@ -276,13 +645,18 @@
     "caption": "Short exact sequence (xymatrix)",
     "locale": "en",
     "tex": "\\xymatrix{ 0 \\ar[r] & A \\ar@{^{(}->}[r]^{\\iota} \\ar[d]_{\\alpha} & B \\ar@{->>}[r]^{\\pi} \\ar[d]^{\\beta} & C \\ar[r] \\ar@{=}[d] & 0 \\\\ 0 \\ar[r] & A' \\ar[r] & B' \\ar[r] & C \\ar[r] & 0 }"
+   },
+   {
+    "caption": "A 2-cell between two arrows (xymatrix \\rtwocell)",
+    "locale": "en",
+    "tex": "\\xymatrix{ A \\rtwocell^{f}_{g}{\\alpha} & B }"
    }
   ]
  },
  {
   "id": "languages",
   "title": "Languages and notations",
-  "intro": "The locale decides the form (pt-BR: sen, decimal comma, divisão armada); AsciiMath and MathML give the same drawing as LaTeX.",
+  "intro": "The locale decides the form (pt-BR: sen, decimal comma, divisão armada); AsciiMath and MathML, presentation or content, give the same drawing as LaTeX.",
   "rows": [
    {
     "name": "ptbr",
@@ -306,6 +680,12 @@
     "caption": "MathML",
     "locale": "en",
     "tex": "<math><mi>x</mi><mo>=</mo><mfrac><mrow><mo>−</mo><mi>b</mi><mo>±</mo><msqrt><msup><mi>b</mi><mn>2</mn></msup><mo>−</mo><mn>4</mn><mi>a</mi><mi>c</mi></msqrt></mrow><mrow><mn>2</mn><mi>a</mi></mrow></mfrac></math>",
+    "input": "mathml"
+   },
+   {
+    "caption": "Content MathML: an integral, by meaning",
+    "locale": "en",
+    "tex": "<math><apply><eq/><apply><int/><bvar><ci>x</ci></bvar><lowlimit><cn>0</cn></lowlimit><uplimit><cn>1</cn></uplimit><apply><power/><ci>x</ci><cn>2</cn></apply></apply><apply><divide/><cn>1</cn><cn>3</cn></apply></apply></math>",
     "input": "mathml"
    }
   ]

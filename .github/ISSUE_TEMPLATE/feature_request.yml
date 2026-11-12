@@ -1,0 +1,34 @@
+name: Feature or new construction
+description: A LaTeX command, package, notation, language or option mathra does not support yet.
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Behavior is written down in `spec/` before it is coded, so a request is the start of a rule. The title triages it: `feat(latex): …`, `feat(chem): …`, `feat(braille): …`.
+  - type: textarea
+    id: what
+    attributes:
+      label: What you need
+      description: The command, package or behavior, and an example input. Write the example yourself; do not copy equations from books or exams.
+      render: latex
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Expected result
+      description: How it should be drawn, and how it should be spoken in your language.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Where you would use it
+      description: The kind of document or site, so the rule fits real use.
+  - type: textarea
+    id: reference
+    attributes:
+      label: Reference
+      description: The package documentation or a standard that defines it (CTAN, MathML Core, a braille code section).

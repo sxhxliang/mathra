@@ -1,0 +1,183 @@
+{
+  "name": "mathra",
+  "displayName": "mathra",
+  "version": "0.1.1",
+  "description": "Math in Markdown and LaTeX drawn by mathra: hovers that show each equation, the Markdown preview's math, a visual editor, and the equation saved as SVG or PNG, copied as MathML, speech or braille, or explained rule by rule.",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#21403A",
+    "theme": "dark"
+  },
+  "publisher": "matheusmota-dev-br",
+  "license": "(MIT OR Apache-2.0) AND OFL-1.1",
+  "homepage": "https://matheusmota-dev-br.github.io/mathra/",
+  "bugs": "https://github.com/matheusmota-dev-br/mathra/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/matheusmota-dev-br/mathra.git",
+    "directory": "vscode"
+  },
+  "keywords": [
+    "math",
+    "latex",
+    "markdown",
+    "svg",
+    "accessibility",
+    "braille",
+    "chemistry"
+  ],
+  "categories": [
+    "Visualization",
+    "Education",
+    "Other"
+  ],
+  "type": "module",
+  "main": "./dist/extension.cjs",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "activationEvents": [
+    "onLanguage:markdown",
+    "onLanguage:latex",
+    "onLanguage:tex",
+    "onCommand:mathra.openEditor"
+  ],
+  "contributes": {
+    "markdown.markdownItPlugins": true,
+    "configurationDefaults": {
+      "markdown.math.enabled": false
+    },
+    "commands": [
+      {
+        "command": "mathra.openEditor",
+        "title": "Open Visual Editor",
+        "category": "mathra"
+      },
+      {
+        "command": "mathra.copyAs",
+        "title": "Copy Equation As…",
+        "category": "mathra"
+      },
+      {
+        "command": "mathra.saveSvg",
+        "title": "Save Equation as SVG…",
+        "category": "mathra"
+      },
+      {
+        "command": "mathra.savePng",
+        "title": "Save Equation as PNG…",
+        "category": "mathra"
+      },
+      {
+        "command": "mathra.explain",
+        "title": "Explain Equation",
+        "category": "mathra"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "mathra.copyAs",
+          "when": "editorLangId =~ /^(markdown|latex|tex)$/"
+        },
+        {
+          "command": "mathra.saveSvg",
+          "when": "editorLangId =~ /^(markdown|latex|tex)$/"
+        },
+        {
+          "command": "mathra.savePng",
+          "when": "editorLangId =~ /^(markdown|latex|tex)$/"
+        },
+        {
+          "command": "mathra.explain",
+          "when": "editorLangId =~ /^(markdown|latex|tex)$/"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "mathra.openEditor",
+          "when": "editorLangId =~ /^(markdown|latex|tex)$/",
+          "group": "mathra@1"
+        },
+        {
+          "command": "mathra.copyAs",
+          "when": "editorLangId =~ /^(markdown|latex|tex)$/",
+          "group": "mathra@2"
+        },
+        {
+          "command": "mathra.explain",
+          "when": "editorLangId =~ /^(markdown|latex|tex)$/",
+          "group": "mathra@3"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "mathra",
+      "properties": {
+        "mathra.locale": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "en",
+            "pt-BR",
+            "es",
+            "fr",
+            "de",
+            "it",
+            "ru",
+            "zh",
+            "ja",
+            "ko",
+            "hi",
+            "ar",
+            "id",
+            "tr",
+            "nl",
+            "pl"
+          ],
+          "markdownDescription": "How equations are read, written and spoken (in pt-BR `3,14` is one number and `\\sin` is `sen`). `auto` follows the language of VS Code."
+        },
+        "mathra.hover.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the equation under the mouse, drawn, with what a screen reader says."
+        },
+        "mathra.preview.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Draw the math of the Markdown preview with mathra. The extension turns `#markdown.math.enabled#` off by default, so the built-in math does not take it first."
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "mathra.openEditor",
+        "key": "ctrl+alt+m",
+        "mac": "cmd+alt+m",
+        "when": "editorTextFocus && editorLangId =~ /^(markdown|latex|tex)$/"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test \"test/*.test.ts\"",
+    "coverage": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 \"test/*.test.ts\"",
+    "package": "node build.mjs && vsce package --no-dependencies --skip-license"
+  },
+  "devDependencies": {
+    "@mathlabs/mathra": "file:../npm/pkg",
+    "@mathlabs/mathra-editor": "file:../editor",
+    "@resvg/resvg-wasm": "2.6.2",
+    "@types/markdown-it": "14.1.2",
+    "@types/node": "24.19.2",
+    "@types/vscode": "1.90.0",
+    "@vscode/vsce": "4.1.0",
+    "esbuild": "0.28.2",
+    "markdown-it": "14.3.3",
+    "playwright-core": "1.64.1",
+    "typescript": "5.9.3"
+  }
+}

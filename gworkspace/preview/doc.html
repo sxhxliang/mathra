@@ -1,0 +1,96 @@
+<!doctype html>
+<!-- A stand-in for Google Docs, to see the sidebar without a Google account: a page to click in, and
+     the sidebar beside it, whose google.script.run calls the functions below instead of Code.js. -->
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Física: lista 3 – Documentos Google</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { display: grid; grid-template-rows: auto auto 1fr; font: 14px Roboto, Arial, sans-serif; color: #202124; background: #f9fbfd; }
+  .top { display: flex; align-items: center; gap: 12px; padding: 8px 16px 0; }
+  .logo { width: 28px; height: 36px; border-radius: 3px; background: #4285f4; position: relative; }
+  .logo::after { content: ""; position: absolute; left: 7px; right: 7px; top: 12px; height: 12px; background: repeating-linear-gradient(#fff 0 2px, transparent 2px 5px); }
+  .title { font-size: 18px; }
+  .menus { display: flex; gap: 2px; padding: 0 6px 6px 56px; color: #444; }
+  .menus span { padding: 3px 8px; border-radius: 4px; }
+  .menus span.on { background: #e8eaed; }
+  .work { display: grid; grid-template-columns: 1fr 300px; min-height: 0; border-top: 1px solid #e3e3e3; }
+  .canvas { overflow: auto; background: #f9fbfd; padding: 24px 0 60px; }
+  .paper { width: 680px; margin: 0 auto; min-height: 860px; background: #fff; box-shadow: 0 1px 3px rgba(60,64,67,.3); padding: 72px 76px; font: 11pt/1.5 Arial, sans-serif; outline: none; }
+  .paper h1 { font: 20pt Arial, sans-serif; margin: 0 0 14px; }
+  .paper p { margin: 0 0 12px; }
+  .paper img.eq { vertical-align: middle; cursor: pointer; border-radius: 2px; }
+  .paper img.eq.selected { outline: 2px solid #1a73e8; outline-offset: 2px; }
+  .caret { display: inline-block; width: 2px; height: 1.2em; margin: 0 -1px; vertical-align: text-bottom; background: #000; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .side { display: grid; grid-template-rows: auto 1fr; border-left: 1px solid #dadce0; background: #fff; min-height: 0; }
+  .side header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; font-size: 16px; border-bottom: 1px solid #dadce0; }
+  .side iframe { width: 300px; height: 100%; border: 0; }
+</style>
+</head>
+<body>
+<div class="top"><div class="logo"></div><div class="title">Física: lista 3</div></div>
+<div class="menus"><span>Arquivo</span><span>Editar</span><span>Ver</span><span>Inserir</span><span>Formatar</span><span>Ferramentas</span><span class="on">Extensões</span><span>Ajuda</span></div>
+<div class="work">
+  <div class="canvas">
+    <div class="paper" id="paper">
+      <h1>Lista 3: equações do segundo grau</h1>
+      <p>1. As raízes de uma equação do segundo grau são dadas pela fórmula de Bhaskara:</p>
+      <p id="here"><span class="caret" id="caret"></span></p>
+      <p>2. Resolva a equação abaixo e verifique a soma e o produto das raízes.</p>
+      <p>3. A água se forma na reação</p>
+      <p>Clique no texto para pôr o cursor; clique numa equação para editá-la na barra.</p>
+    </div>
+  </div>
+  <aside class="side">
+    <header><span>mathra</span><span aria-hidden="true">✕</span></header>
+    <iframe src="/Sidebar.html" title="mathra"></iframe>
+  </aside>
+</div>
+<script>
+  const paper = document.getElementById("paper");
+  const caret = document.getElementById("caret");
+  let selected = null;
+
+  function select(img) {
+    for (const i of paper.querySelectorAll("img.eq")) i.classList.toggle("selected", i === img);
+    selected = img;
+    if (img) caret.remove();
+  }
+
+  // a click in the text moves the cursor there; a click on an equation selects it
+  paper.addEventListener("click", (e) => {
+    if (e.target.matches("img.eq")) return select(e.target);
+    select(null);
+    const range = document.caretRangeFromPoint(e.clientX, e.clientY);
+    if (range && paper.contains(range.startContainer)) range.insertNode(caret);
+  });
+
+  // what Code.js does in Docs, done on this page
+  window.mathraMock = {
+    // the account's language: Portuguese, or the address's ?locale= (as the tests set it)
+    getContext: () => ({ locale: new URLSearchParams(location.search).get("locale") ?? "pt_BR", latex: selected?.dataset.latex ?? "" }),
+    insertEquation(eq) {
+      const img = document.createElement("img");
+      img.className = "eq";
+      img.src = `data:image/png;base64,${eq.png}`;
+      img.alt = eq.alt;
+      img.title = eq.alt;
+      img.dataset.latex = eq.latex;
+      // 11 pt text: one em of the equation
+      img.style.width = `${eq.em.width * 14.67}px`;
+      img.style.height = `${eq.em.height * 14.67}px`;
+      if (eq.replace && selected) {
+        selected.replaceWith(img);
+      } else {
+        if (!caret.isConnected) throw new Error("Ponha o cursor no texto onde a equação vai.");
+        caret.before(img);
+      }
+      select(null);
+    },
+  };
+</script>
+</body>
+</html>

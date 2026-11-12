@@ -93,17 +93,19 @@ fn pieces(items: &[Item], map: Map, id: &str, f: &Font, out: &mut Vec<Piece>) {
     let step = f.units_per_em() / 120.0;
     for item in items {
         match item {
-            Item::Glyph { id: g, x, y, scale, color, flip } => {
+            Item::Glyph { id: g, x, y, scale, color, flip, font } => {
                 let (x, y, s) = (f64::from(*x), f64::from(*y), f64::from(*scale));
                 let sx = if *flip { -s } else { s };
-                let strokes = f
-                    .contours(*g, step / scale.max(0.1))
+                // a fallback glyph's units are its font's: the step is the math font's, in them
+                let gf = crate::font::glyph_font(*font, f);
+                let strokes = gf
+                    .contours(*g, step * gf.units_per_em() / f.units_per_em() / scale.max(0.1))
                     .into_iter()
                     .map(|c| c.into_iter().map(|(px, py)| map.apply((x + sx * f64::from(px), y + s * f64::from(py)))).collect())
                     .collect();
                 let element = format!(
-                    r##"<use href="#{id}-g{}" transform="translate({} {}) scale({} {})"{}/>"##,
-                    g.0,
+                    r##"<use href="#{id}-{}" transform="translate({} {}) scale({} {})"{}/>"##,
+                    crate::output::svg::glyph_name(*font, *g),
                     n(x as f32),
                     n(y as f32),
                     n(sx as f32),
@@ -159,18 +161,20 @@ fn pieces(items: &[Item], map: Map, id: &str, f: &Font, out: &mut Vec<Piece>) {
                 out.push(Piece { strokes: vec![ring], element: map.wrap(element) });
             }
             Item::Transformed { matrix, items } => pieces(items, map.then(*matrix), id, f, out),
+            // the pen draws stroke by stroke: the attributes of a group (\class…) are the plain SVG's
+            Item::Group { items, .. } => pieces(items, map, id, f, out),
         }
     }
 }
 
 /// The glyph outlines the pieces use, once each.
-fn defs(items: &[Item], id: &str, f: &Font, seen: &mut std::collections::HashSet<u16>, s: &mut String) {
+fn defs(items: &[Item], id: &str, f: &Font, seen: &mut std::collections::HashSet<crate::output::svg::GlyphKey>, s: &mut String) {
     for item in items {
         match item {
-            Item::Glyph { id: g, .. } if seen.insert(g.0) => {
-                let _ = write!(s, r#"<path id="{id}-g{}" d="{}"/>"#, g.0, f.outline(*g));
+            Item::Glyph { id: g, font, .. } if seen.insert((font.map(crate::font::FallbackFont::tag), g.0)) => {
+                let _ = write!(s, r#"<path id="{id}-{}" d="{}"/>"#, crate::output::svg::glyph_name(*font, *g), crate::font::glyph_font(*font, f).outline(*g));
             }
-            Item::Transformed { items, .. } => defs(items, id, f, seen, s),
+            Item::Transformed { items, .. } | Item::Group { items, .. } => defs(items, id, f, seen, s),
             _ => {}
         }
     }

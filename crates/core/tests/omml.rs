@@ -123,7 +123,7 @@ fn s_omml_4_native_colors_preserve_nested_scopes_and_control_characters() {
         assert!(xml.contains(&format!("w:val=\"{expected}\"")), "{xml}");
     }
     assert!(matches!(tex_to_omml(r"\textcolor{unrecognized}{x}"), Err(OmmlError::Unsupported(_))));
-    assert!(matches!(tex_to_omml(r"\textcolor[rgb]{2,0,0}{x}"), Err(OmmlError::Unsupported(_))));
+    assert!(matches!(tex_to_omml(r"\textcolor[rgb]{2,0,0}{x}"), Err(OmmlError::Parse(_))));
 }
 
 #[test]
@@ -232,6 +232,11 @@ fn s_omml_6_corpus_has_only_documented_format_limitations() {
                         "circular enclosure (OMML has no circular border)",
                         "matrix grid rules (not available in OMML)",
                         "matrix column spanning",
+                        "centered negation overlay",
+                        "aligned vertical dots",
+                        "non-centered fraction numerator",
+                        "custom matrix column spacing",
+                        "custom frame padding or thickness",
                         "diagram geometry",
                         "diagram/border matrix geometry",
                         "reflected geometry",
@@ -443,5 +448,27 @@ fn s_omml_9_physical_units_use_thin_spaces_powers_and_stacked_division() {
         let xml = tex_to_omml(source).unwrap();
         let doc = Document::parse(&xml).unwrap();
         assert_eq!(visible_math_text(doc.descendants().find(|n| n.has_tag_name((NS, "sup"))).unwrap()), "2");
+    }
+}
+
+#[test]
+fn merged_alphabets_and_attributes_preserve_office_math() {
+    for (source, script, style) in
+        [(r"\mathbfcal{F}", "script", "b"), (r"\mathbffrak{g}", "fraktur", "b"), (r"\mathbfsf{x}", "sans-serif", "b"), (r"\mathbfsfit{x}", "sans-serif", "bi")]
+    {
+        let xml = tex_to_omml(source).unwrap();
+        let doc = Document::parse(&xml).unwrap();
+        assert!(doc.descendants().any(|n| n.has_tag_name((NS, "scr")) && n.attribute((NS, "val")) == Some(script)), "{source}: {xml}");
+        assert!(doc.descendants().any(|n| n.has_tag_name((NS, "sty")) && n.attribute((NS, "val")) == Some(style)), "{source}: {xml}");
+    }
+    assert_eq!(tex_to_omml(r"\class{term}{x^2}").unwrap(), tex_to_omml("x^2").unwrap());
+    let xml = tex_to_omml(r"\style{color:red}{x}").unwrap();
+    assert!(xml.contains("FF0000"));
+}
+
+#[test]
+fn merged_layout_options_that_office_cannot_represent_are_rejected() {
+    for source in [r"\cfrac[l]{a}{b}", r"\setlength{\arraycolsep}{2pt}\begin{matrix}a&b\end{matrix}", r"\bbox[5px]{x}", r"\vdotswithin{=}", r"\centernot{\implies}"] {
+        assert!(matches!(tex_to_omml(source), Err(OmmlError::Unsupported(_))), "{source}");
     }
 }

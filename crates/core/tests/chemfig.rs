@@ -98,7 +98,9 @@ fn branches_labels_closures_lewis_and_hooks() {
     assert_eq!(molecule("C-[4]H_3C").atoms[1].anchor, 1);
     let m = molecule("A?-B-[2]C-[4]D?");
     assert_eq!((m.bonds.len(), m.bonds[3].from, m.bonds[3].to), (4, 0, 3));
-    assert_eq!(molecule("A?[x,{=}]-B-[2]C?[x]").bonds[2].kind, BondKind::Double);
+    // chemfig manual, section 2.8: the link is the later mark's; the first mark gives only the name
+    assert_eq!(molecule("A?[x]-B-[2]C?[x,{=}]").bonds[2].kind, BondKind::Double);
+    assert_eq!(molecule("A?[x,{=}]-B-[2]C?[x]").bonds[2].kind, BondKind::Single);
     let m = molecule("@{nu}\\lewis{0:2.4|6o,O}-H");
     assert_eq!((m.atoms[0].lewis.len(), m.atoms[0].hook.as_deref(), m.atoms[0].label.as_str()), (4, Some("nu"), "O"));
 }
@@ -116,6 +118,7 @@ fn schemes_and_arrows() {
             Item::Compound(_) => "math",
             Item::Plus => "+",
             Item::Arrow(_) => "arrow",
+            Item::Merge(_) => "merge",
         })
         .collect();
     assert_eq!(kinds, ["structure", "+", "math", "arrow", "structure", "+", "math"]);
@@ -201,7 +204,6 @@ fn recoveries() {
     warns(r"\chemfig{*6(-------)}", "E-REC-9");
     warns(r"\chemfig{*99(-)}", "E-REC-9");
     warns(r"\chemfig{*6}", "E-REC-4");
-    warns(r"\chemfig{A?-B}", "E-REC-9");
     warns(r"\schemestart A \arrow{~>} B \schemestop", "E-REC-1");
     warns(r"\schemestart A \arrow B \schemestop \chemmove{\draw[->](x)..(y);}", "E-REC-9");
     warns(r"\schemestart A \schemestop \chemmove{\node at (0,0) {x};}", "E-REC-1");
@@ -210,5 +212,56 @@ fn recoveries() {
     for tex in [r"\chemfig{(((}", r"\chemfig{-=~<>}", r"\chemfig{*}", r"\chemfig{?}", r"\chemfig{@}", r"\chemfig{}", r"\schemestart \arrow \arrow \schemestop"] {
         let out = convert(tex, &Options::default()).unwrap_or_else(|e| panic!("{tex}: {e}"));
         assert!(out.svg.starts_with("<svg"), "{tex}");
+    }
+}
+
+/// #210: chemfig's offset double bonds (`=^` to the left, `=_` to the right) are double bonds, not a
+/// script on the next atom: the manual's `*6(-=_-=_-=_)` panicked counting a `)` the subscript took.
+#[test]
+fn offset_double_bonds() {
+    let m = molecule("*6(-=_-=_-=_)");
+    assert_eq!(m.bonds.iter().filter(|b| b.kind == BondKind::DoubleRight).count(), 3);
+    assert_eq!(m.atoms.len(), 6);
+    assert_eq!(strict(r"\chemfig{*6(-=_-=_-=_)}").text, "C₆H₆");
+    let m = molecule("A-=^-B");
+    assert_eq!(m.bonds.iter().map(|b| b.kind).collect::<Vec<_>>(), [BondKind::Single, BondKind::DoubleLeft, BondKind::Single]);
+    // drawn: the offset line goes outside the ring, so the drawing differs from the plain ring's
+    assert_ne!(strict(r"\chemfig{*6(-=_-=_-=_)}").svg, strict(r"\chemfig{*6(-=-=-=)}").svg);
+    // still a Kekulé benzene for the speech
+    assert_eq!(strict(r"\chemfig{*6(-=_-=_-=_)}").speech, strict(r"\chemfig{*6(-=-=-=)}").speech);
+}
+
+/// #210: no structure panics, however malformed its rings, branches and scripts: tolerant mode draws it
+/// with warnings and strict mode draws it or refuses it with an error. Every string of up to four
+/// characters from the structure's alphabet, inside a ring and alone, plus a fixed pseudo-random set of
+/// longer ones.
+#[test]
+fn malformed_structures_never_panic() {
+    const ALPHABET: [char; 12] = ['(', ')', '*', '6', '-', '=', '_', '^', 'A', '[', '{', '?'];
+    let mut bodies: Vec<String> = vec![String::new()];
+    let mut layer: Vec<String> = vec![String::new()];
+    for _ in 0..4 {
+        layer = layer.iter().flat_map(|s| ALPHABET.iter().map(move |c| format!("{s}{c}"))).collect();
+        bodies.extend(layer.iter().cloned());
+    }
+    // a linear congruential generator: the same longer strings on every run
+    let mut seed: u64 = 0x2010;
+    for _ in 0..3000 {
+        let len = 5 + (seed >> 33) as usize % 12;
+        let mut s = String::new();
+        for _ in 0..len {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            s.push(ALPHABET[(seed >> 33) as usize % ALPHABET.len()]);
+        }
+        bodies.push(s);
+    }
+    for body in &bodies {
+        for tex in [format!(r"\chemfig{{{body}}}"), format!(r"\chemfig{{*6({body})}}")] {
+            for strict in [false, true] {
+                let options = Options { strict, ..Default::default() };
+                let result = std::panic::catch_unwind(|| convert(&tex, &options));
+                assert!(result.is_ok(), "{tex} (strict: {strict}) panicked");
+            }
+        }
     }
 }

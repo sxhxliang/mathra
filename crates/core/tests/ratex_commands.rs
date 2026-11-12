@@ -83,16 +83,16 @@ fn slash_uses_an_overlay_glyph_instead_of_a_box_diagonal() {
     assert!(!b.items.iter().any(|i| matches!(i, Item::Line { .. })));
     let plain = box_of("D");
     let slash = box_of("/");
-    near(b.width, plain.width.max(slash.width));
+    near(b.width, (plain.width + plain.italic).max(slash.width + slash.italic));
     let ys: Vec<_> = b.items.iter().filter_map(|i| if let Item::Glyph { y, .. } = i { Some(*y) } else { None }).collect();
     near(ys[0], 0.0);
     near(ys[1], (plain.height - plain.depth - slash.height + slash.depth) / 2.0);
     let out = output(r"\slashed{D}");
-    assert!(out.speech.contains("slashed D") && !out.speech.contains("canceled"));
-    assert_eq!(out.text, "slashed(D)");
+    assert!(out.speech.contains("D slash") && !out.speech.contains("canceled"));
+    assert_eq!(out.text, "D\u{0338}");
     // Neither supported braille code supplies a Feynman-slash sign; report it rather than cancellation.
     for code in mathra::BrailleCode::ALL {
-        assert_eq!(mathra::output::braille::transcribe(&out.tree, code).missing, vec!['╱']);
+        assert_eq!(mathra::output::braille::transcribe(&out.tree, code).missing, vec!['\u{0338}']);
     }
 }
 
@@ -106,7 +106,7 @@ fn group_marks_and_line_segments_draw_on_the_correct_side() {
         } else {
             assert!(b.depth > base.depth);
         }
-        assert!(b.items.iter().any(|i| matches!(i, Item::Line { .. } | Item::Rule { .. })));
+        assert!(b.items.iter().any(|i| matches!(i, Item::Line { .. } | Item::Rule { .. } | Item::Glyph { .. })));
         let (_, y0, _, y1) = b.ink(MathFont::default().get()).unwrap();
         assert!(y0 >= -b.depth - 0.01 && y1 <= b.height + 0.01);
     }
@@ -168,19 +168,21 @@ fn html_style_sets_color_font_scale_background_and_underline() {
     near(b.width, plain.width);
     near(b.height, plain.height);
     near(b.depth, plain.depth);
-    assert!(matches!(output(r"\htmlStyle{background:yellow}{x}").tree.single(), Node::Framed { shape: Frame::Background, .. }));
-    assert!(matches!(b.items.first(),Some(Item::Rule{color:Some(c),..}) if c=="yellow"));
+    assert!(
+        matches!(output(r"\htmlStyle{background:yellow}{x}").tree.single(), Node::Attributed { base, .. } if matches!(base.single(), Node::Framed { shape: Frame::Background, .. }))
+    );
+    assert!(b.items.iter().any(|i| matches!(i, Item::Group { items, .. } if items.iter().any(|i| matches!(i, Item::Rule { color: Some(c), .. } if c == "yellow")))));
     let styled = output(r"\htmlStyle{color:red;font-weight:700;font-style:oblique;text-decoration-line:underline}{x}");
     assert!(styled.svg.contains("red"));
     assert!(format!("{:?}", styled.tree).contains("BoldItalic"));
-    assert!(matches!(styled.tree.single(), Node::Bar { above: false, .. }));
+    assert!(matches!(styled.tree.single(), Node::Attributed { base, .. } if matches!(base.single(), Node::Bar { above: false, .. })));
 }
 
 #[test]
 fn html_style_ignores_unknown_css_and_honors_later_declarations() {
     let plain = box_of("x");
     for css in ["font-size:NaN", "font-size:-1em", "font-size:infem", "font-size:0%", "position:fixed;left:100px", "background:url(https://example.invalid/x)"] {
-        let out = output(&format!(r"\htmlStyle{{{css}}}{{x}}"));
+        let out = mathra::convert(&format!(r"\htmlStyle{{{css}}}{{x}}"), &options()).unwrap();
         let b = box_of(&format!(r"\htmlStyle{{{css}}}{{x}}"));
         near(b.width, plain.width);
         near(b.height, plain.height);

@@ -6,7 +6,7 @@
 ["\\catcode", "\\catcode`\\@=11 x"],
 ["\\makeatletter", "\\makeatletter x"],
 ["align + \\tag", "\\begin{align} a &= b \\tag{1} \\\\ c &= d \\end{align}"],
-["\\label/\\eqref", "\\begin{equation}x=1\\label{e1}\\end{equation} \\eqref{e1}"],
+["\\label/\\eqref", "\\begin{equation}x=1\\label{e1}\\tag{1}\\end{equation} \\eqref{e1}"],
 ["alignat", "\\begin{alignat}{2} a &= b &\\quad c &= d \\end{alignat}"],
 ["split", "\\begin{split} a &= b \\\\ &= c \\end{split}"],
 ["\\intertext", "\\begin{align} a&=b \\intertext{logo} c&=d \\end{align}"],

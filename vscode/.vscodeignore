@@ -1,0 +1,12 @@
+# the package holds the bundle, the wasm it loads, and the texts; nothing else
+**
+!dist/extension.cjs
+!dist/webview.js
+!mathra.wasm
+!resvg.wasm
+!package.json
+!media/icon.png
+!README.md
+!LICENSE-MIT
+!LICENSE-APACHE
+!OFL-STIXTwoMath.txt
